@@ -18,7 +18,10 @@ def _run_async(coro):
     result = {}
 
     def runner():
-        result["value"] = asyncio.run(coro)
+        try:
+            result["value"] = asyncio.run(coro)
+        except BaseException as e:
+            result["exc"] = e
 
     t = threading.Thread(target=runner)
     t.start()
