@@ -1,10 +1,31 @@
 import json
 import sys
 import asyncio
+import threading
 import numpy as np
 import websockets
 import urllib.request
 import urllib.error
+
+
+def _run_async(coro):
+    """Run a coroutine, even if called from within a running event loop (Jupyter)."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result = {}
+
+    def runner():
+        result["value"] = asyncio.run(coro)
+
+    t = threading.Thread(target=runner)
+    t.start()
+    t.join()
+    if "exc" in result:
+        raise result["exc"]
+    return result["value"]
 
 
 class USRPClient:
@@ -93,7 +114,7 @@ class USRPClient:
         raw = np.empty(len(signal) * 2, dtype=np.float32)
         raw[0::2] = signal.real
         raw[1::2] = signal.imag
-        result_bytes = asyncio.run(cls._ws_send(raw.tobytes(), verbose=verbose))
+        result_bytes = _run_async(cls._ws_send(raw.tobytes(), verbose=verbose))
         raw_out = np.frombuffer(result_bytes, dtype=np.float32)
         return raw_out[0::2] + 1j * raw_out[1::2]
 
