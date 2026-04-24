@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 CREATE TABLE IF NOT EXISTS tasks (
     uid UUID PRIMARY KEY,
-    token_id INTEGER REFERENCES tokens(id) NOT NULL,
+    token_id INTEGER REFERENCES tokens(id) ON DELETE CASCADE NOT NULL,
     state VARCHAR(2) NOT NULL DEFAULT 'PD',
     n_samples INTEGER,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE TABLE IF NOT EXISTS logs (
     id SERIAL PRIMARY KEY,
-    token_id INTEGER REFERENCES tokens(id),
+    token_id INTEGER REFERENCES tokens(id) ON DELETE SET NULL,
     eth_id VARCHAR(64),
     action VARCHAR(50) NOT NULL,
     n_samples INTEGER,

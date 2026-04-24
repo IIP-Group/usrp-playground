@@ -247,6 +247,21 @@ def users_create(
     return _user_row(db, u)
 
 
+def _delete_users_cascade(db: Session, user_ids: list[int]) -> int:
+    """Delete users along with their dependent rows (tokens, tasks, logs).
+    Returns the number of users removed."""
+    if not user_ids:
+        return 0
+    token_ids = [t.id for t in db.query(Token).filter(Token.user_id.in_(user_ids)).all()]
+    if token_ids:
+        db.query(Log).filter(Log.token_id.in_(token_ids)).delete(synchronize_session=False)
+        db.query(Task).filter(Task.token_id.in_(token_ids)).delete(synchronize_session=False)
+    # Tokens get removed via ON DELETE CASCADE on users.id
+    n = db.query(User).filter(User.id.in_(user_ids)).delete(synchronize_session=False)
+    db.commit()
+    return n
+
+
 @router.delete("/users/{user_id}")
 def users_delete(
     user_id: int,
@@ -256,8 +271,7 @@ def users_delete(
     u = db.query(User).filter(User.id == user_id).first()
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
-    db.delete(u)  # cascades to token via FK
-    db.commit()
+    _delete_users_cascade(db, [u.id])
     return {"ok": True}
 
 
@@ -277,9 +291,8 @@ def users_bulk(
         password = payload.get("password", "")
         if not auth.check_credentials(session["username"], password):
             raise HTTPException(status_code=401, detail="Passwort falsch")
-        db.query(User).filter(User.id.in_(ids)).delete(synchronize_session=False)
-        db.commit()
-        return {"ok": True, "action": action, "count": len(ids)}
+        n = _delete_users_cascade(db, ids)
+        return {"ok": True, "action": action, "count": n}
 
     if action == "regenerate":
         users = db.query(User).filter(User.id.in_(ids)).all()

@@ -68,11 +68,10 @@ function initShell(activePage) {
                 <small>Admin Panel</small>
             </div>
             <nav>
-                <a href="/dashboard.html" data-page="dashboard">📊 Dashboard</a>
-                <a href="/users.html"     data-page="users">👥 Users</a>
-                <a href="/logs.html"      data-page="logs">📜 Logs</a>
-                <a href="/settings.html"  data-page="settings">⚙️ Settings</a>
-                <a href="/docs.html"      data-page="docs" target="_blank">📚 Student Guide ↗</a>
+                <a href="/dashboard.html" data-page="dashboard">Dashboard</a>
+                <a href="/users.html"     data-page="users">Users</a>
+                <a href="/logs.html"      data-page="logs">Logs</a>
+                <a href="/settings.html"  data-page="settings">Settings</a>
             </nav>
             <div class="footer">
                 <button id="logout-btn" class="btn btn-sm">Abmelden</button>

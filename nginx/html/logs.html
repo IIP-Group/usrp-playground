@@ -32,10 +32,10 @@
                 <option value="200">200</option>
                 <option value="500">500</option>
             </select>
-            <button id="btn-refresh" class="btn">🔄 Reload</button>
+            <button id="btn-refresh" class="btn">Reload</button>
             <label><input type="checkbox" id="auto-refresh" checked> Auto-Refresh</label>
             <span class="sp"></span>
-            <button id="btn-bulk-delete" class="btn btn-danger" disabled>🗑 Ausgewählte löschen</button>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Ausgewählte löschen</button>
             <button id="btn-delete-all" class="btn btn-danger">Alle Logs löschen</button>
         </div>
 
@@ -127,7 +127,7 @@ function updateBulk() {
     const n = selected.size;
     const btn = document.getElementById("btn-bulk-delete");
     btn.disabled = !n;
-    btn.textContent = n ? `🗑 ${n} löschen` : "🗑 Ausgewählte löschen";
+    btn.textContent = n ? `${n} löschen` : "Ausgewählte löschen";
 
     const selAll = document.getElementById("select-all");
     if (allLogs.length) {

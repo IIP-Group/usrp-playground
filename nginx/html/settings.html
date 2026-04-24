@@ -42,14 +42,24 @@ const GROUP_TITLES = {
     limits: "🚦 Limits",
 };
 
-let current = {};  // key → {value, type, source, label, group}
+let current = {};            // key → {value, type, source, label, group}
+let savedValues = {};        // key → string (what is currently saved on the server)
 let dirty = new Set();
 
 async function loadSettings() {
     try {
         current = await apiFetch("/settings");
+        savedValues = {};
+        for (const [k, s] of Object.entries(current)) savedValues[k] = formatValue(s.value);
+        dirty.clear();
         render();
+        updateSaveButton();
     } catch (e) { toast(e.message, "err"); }
+}
+
+function formatValue(v) {
+    if (typeof v === "boolean") return v ? "true" : "false";
+    return String(v);
 }
 
 function render() {
@@ -71,18 +81,10 @@ function render() {
             } else {
                 input = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
             }
-            // blue dot = unmodified (matches config file), red dot = overridden
-            const src = s.source === "db"
-                ? '<span class="badge err"><span class="dot"></span>geändert</span>'
-                : '<span class="badge"><span class="dot" style="background:var(--accent)"></span>original</span>';
-            const resetBtn = s.source === "db"
-                ? `<button class="btn btn-sm btn-ghost" onclick="resetKey('${s.key}')">Zurücksetzen</button>`
-                : "";
             return `<tr>
-                <td style="width: 220px;"><strong>${esc(s.label)}</strong><div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div></td>
+                <td style="width: 240px;"><strong>${esc(s.label)}</strong><div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div></td>
                 <td>${input}</td>
-                <td class="nowrap">${src}</td>
-                <td>${resetBtn}</td>
+                <td style="width: 28px; text-align: center;"><span class="settings-dot" data-dot="${s.key}" title="gespeichert"></span></td>
             </tr>`;
         }).join("");
         return `
@@ -95,17 +97,22 @@ function render() {
 }
 
 function onChange(key) {
-    dirty.add(key);
-    document.getElementById("btn-save").textContent = `Änderungen speichern (${dirty.size})`;
+    const el = document.getElementById("f-" + key);
+    const dot = document.querySelector(`[data-dot="${key}"]`);
+    if (el.value === savedValues[key]) {
+        dirty.delete(key);
+        if (dot) { dot.classList.remove("dirty"); dot.title = "gespeichert"; }
+    } else {
+        dirty.add(key);
+        if (dot) { dot.classList.add("dirty"); dot.title = "nicht gespeichert"; }
+    }
+    updateSaveButton();
 }
 
-async function resetKey(key) {
-    try {
-        await apiFetch("/settings/" + encodeURIComponent(key), {method: "DELETE"});
-        toast("Reset", "ok");
-        dirty.delete(key);
-        loadSettings();
-    } catch (e) { toast(e.message, "err"); }
+function updateSaveButton() {
+    const btn = document.getElementById("btn-save");
+    btn.textContent = dirty.size ? `Änderungen speichern (${dirty.size})` : "Alle Änderungen speichern";
+    btn.disabled = dirty.size === 0;
 }
 
 document.getElementById("btn-save").addEventListener("click", async () => {

@@ -17,13 +17,13 @@
         </div>
 
         <div class="toolbar">
-            <input id="search" class="search-input" placeholder="🔍  suchen nach Name, ETH-ID, Email ...">
-            <button id="btn-add" class="btn btn-primary">+ User hinzufügen</button>
+            <input id="search" class="search-input" placeholder="Suche nach Name, ETH-ID, Email ...">
+            <button id="btn-add" class="btn btn-primary">User hinzufügen</button>
             <button id="btn-upload" class="btn">CSV Upload</button>
             <span class="sp"></span>
-            <button id="btn-bulk-regenerate" class="btn" disabled>🔄 Token erneuern</button>
-            <button id="btn-bulk-email" class="btn" disabled>✉ Token-Mail</button>
-            <button id="btn-bulk-delete" class="btn btn-danger" disabled>🗑 Löschen</button>
+            <button id="btn-bulk-regenerate" class="btn" disabled>Token erneuern</button>
+            <button id="btn-bulk-email" class="btn" disabled>Token-Mail</button>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Löschen</button>
         </div>
 
         <div id="notice-area"></div>
@@ -39,11 +39,10 @@
                         <th>Token</th>
                         <th class="num">Submits</th>
                         <th>Letzter Submit</th>
-                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="users-body">
-                    <tr><td colspan="8" class="empty">Laden…</td></tr>
+                    <tr><td colspan="7" class="empty">Laden…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -171,14 +170,14 @@ function render() {
         const checked = selected.has(u.id) ? "checked" : "";
         const tokenCell = u.token
             ? `<div class="copy-cell">
-                   <button class="copy-btn" data-copy="${esc(u.token)}" title="Token kopieren">📋</button>
                    <span class="mono">${esc(u.token)}</span>
+                   <button class="copy-btn" data-copy="${esc(u.token)}" title="Kopieren">⎘</button>
                </div>`
             : '<span class="text-dim">–</span>';
         const emailCell = u.email
             ? `<div class="copy-cell">
-                   <button class="copy-btn" data-copy="${esc(u.email)}" title="Email kopieren">📋</button>
                    <span class="text-dim">${esc(u.email)}</span>
+                   <button class="copy-btn" data-copy="${esc(u.email)}" title="Kopieren">⎘</button>
                </div>`
             : '<span class="text-dim">–</span>';
         return `<tr>
@@ -189,7 +188,6 @@ function render() {
             <td>${tokenCell}</td>
             <td class="num">${u.submits}</td>
             <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "–"}</td>
-            <td><button class="btn btn-sm btn-ghost" data-del="${u.id}">Löschen</button></td>
         </tr>`;
     }).join("");
 
@@ -199,16 +197,6 @@ function render() {
             if (e.target.checked) selected.add(id);
             else selected.delete(id);
             updateBulkButtons();
-        });
-    });
-    body.querySelectorAll("[data-del]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-            if (!confirm("Diesen User wirklich löschen?")) return;
-            try {
-                await apiFetch(`/users/${btn.dataset.del}`, {method: "DELETE"});
-                toast("Gelöscht", "ok");
-                loadUsers();
-            } catch (e) { toast(e.message, "err"); }
         });
     });
     body.querySelectorAll(".copy-btn").forEach(btn => {
