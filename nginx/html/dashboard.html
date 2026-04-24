@@ -62,23 +62,23 @@
             </div>
         </div>
 
-        <div class="grid grid-2">
-            <div class="card" style="padding: 0;">
+        <div class="dashboard-grid">
+            <div class="card scroll" style="padding: 0;">
                 <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center;">
                     <strong>Recent Tasks</strong>
                     <span class="sp"></span>
                     <a href="/logs.html">All logs →</a>
                 </div>
-                <div id="tasks-table">
+                <div class="card-body" id="tasks-table">
                     <div class="empty">Loading…</div>
                 </div>
             </div>
 
-            <div class="card" style="padding: 0;">
+            <div class="card scroll" style="padding: 0;">
                 <div style="padding: 14px 18px; border-bottom: 1px solid var(--border);">
                     <strong>Recent Logs</strong>
                 </div>
-                <div id="logs-table">
+                <div class="card-body" id="logs-table">
                     <div class="empty">Loading…</div>
                 </div>
             </div>
@@ -113,7 +113,7 @@ async function refresh() {
         } else {
             usrpEl.textContent = "Sleeping";
             usrpEl.style.color = "var(--sleep)";
-            statusEl.innerHTML = '<span class="badge sleep"><span class="dot"></span>Sleeping zzZZ</span>';
+            statusEl.innerHTML = '<span class="badge sleep"><span class="dot"></span>Sleeping</span>';
             subEl.textContent = "Queue paused";
         }
 

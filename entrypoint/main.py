@@ -108,8 +108,7 @@ async def ws_run(ws: WebSocket):
     try:
         # -------- Server sleeping? --------
         if not server_state.is_running(db):
-            await _ws_send(ws, error="server_sleeping",
-                           message="Server is currently Sleeping zzZZ....")
+            await _ws_send(ws, error="server_sleeping", message="SLEEPING ZZZZ")
             await ws.close()
             return
 

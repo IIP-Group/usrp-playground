@@ -24,28 +24,29 @@
             <button id="btn-bulk-regenerate" class="btn" disabled>🔄 Token erneuern</button>
             <button id="btn-bulk-email" class="btn" disabled>✉ Token-Mail</button>
             <button id="btn-bulk-delete" class="btn btn-danger" disabled>🗑 Löschen</button>
-            <button id="btn-delete-all" class="btn btn-danger">Alle löschen</button>
         </div>
 
         <div id="notice-area"></div>
 
-        <table id="users-table">
-            <thead>
-                <tr>
-                    <th style="width: 30px;"><input type="checkbox" id="select-all"></th>
-                    <th>ETH-ID</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Token</th>
-                    <th class="num">Submits</th>
-                    <th>Letzter Submit</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody id="users-body">
-                <tr><td colspan="8" class="empty">Laden…</td></tr>
-            </tbody>
-        </table>
+        <div class="scroll-region">
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="select-all" class="big-check"></th>
+                        <th>ETH-ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Token</th>
+                        <th class="num">Submits</th>
+                        <th>Letzter Submit</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="users-body">
+                    <tr><td colspan="8" class="empty">Laden…</td></tr>
+                </tbody>
+            </table>
+        </div>
 
         <input type="file" id="csv-input" accept=".csv" style="display:none">
     </main>
@@ -56,7 +57,7 @@
     <div class="modal">
         <h3>Neuer User</h3>
         <div class="form-row">
-            <label>ETH-ID (z.B. rsahleanu)</label>
+            <label>ETH-ID</label>
             <input id="add-eth-id" type="text" autocomplete="off">
         </div>
         <div class="form-row">
@@ -90,7 +91,7 @@
 
         <div class="row">
             <div style="flex: 1">
-                <label>SMTP Username (dein ETH-Login)</label>
+                <label>Username</label>
                 <input id="smtp-user" style="width: 100%" autocomplete="off">
             </div>
             <div style="flex: 1">
@@ -124,17 +125,12 @@
             <input id="mail-subject" value="Your USRP Benchmark Token" style="width: 100%">
         </div>
         <div class="form-row">
-            <label>Body — Platzhalter: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
-            <textarea id="mail-body" rows="8" style="width: 100%; font-family: var(--mono);">Hi [FIRST_NAME],
-
-hier dein persönliches Token für den USRP-Benchmark-Server:
-
-    [TOKEN]
-
-Bitte nicht weitergeben. Fragen? Einfach zurück auf diese Mail antworten.
-
-Viele Grüsse
-</textarea>
+            <div class="row">
+                <label style="margin: 0;">Body — Platzhalter: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
+                <span class="sp"></span>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-template" title="Template neu laden">↺ Vorlage laden</button>
+            </div>
+            <textarea id="mail-body" rows="10" style="width: 100%; font-family: var(--mono);"></textarea>
         </div>
 
         <div class="actions">
@@ -173,15 +169,24 @@ function render() {
     }
     body.innerHTML = allUsers.map(u => {
         const checked = selected.has(u.id) ? "checked" : "";
-        const tokenHtml = u.token
-            ? `<span class="mono">${esc(u.token)}</span>`
+        const tokenCell = u.token
+            ? `<div class="copy-cell">
+                   <button class="copy-btn" data-copy="${esc(u.token)}" title="Token kopieren">📋</button>
+                   <span class="mono">${esc(u.token)}</span>
+               </div>`
+            : '<span class="text-dim">–</span>';
+        const emailCell = u.email
+            ? `<div class="copy-cell">
+                   <button class="copy-btn" data-copy="${esc(u.email)}" title="Email kopieren">📋</button>
+                   <span class="text-dim">${esc(u.email)}</span>
+               </div>`
             : '<span class="text-dim">–</span>';
         return `<tr>
-            <td><input type="checkbox" class="row-check" data-id="${u.id}" ${checked}></td>
+            <td><input type="checkbox" class="row-check big-check" data-id="${u.id}" ${checked}></td>
             <td class="mono"><strong>${esc(u.eth_id)}</strong></td>
             <td>${esc(u.first_name || "")} ${esc(u.last_name || "")}</td>
-            <td class="text-dim">${esc(u.email)}</td>
-            <td>${tokenHtml}</td>
+            <td>${emailCell}</td>
+            <td>${tokenCell}</td>
             <td class="num">${u.submits}</td>
             <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "–"}</td>
             <td><button class="btn btn-sm btn-ghost" data-del="${u.id}">Löschen</button></td>
@@ -204,6 +209,24 @@ function render() {
                 toast("Gelöscht", "ok");
                 loadUsers();
             } catch (e) { toast(e.message, "err"); }
+        });
+    });
+    body.querySelectorAll(".copy-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            const value = btn.dataset.copy;
+            try {
+                await navigator.clipboard.writeText(value);
+                toast("Kopiert", "ok");
+            } catch {
+                // Fallback for non-HTTPS contexts
+                const ta = document.createElement("textarea");
+                ta.value = value;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand("copy"); toast("Kopiert", "ok"); }
+                catch { toast("Kopieren fehlgeschlagen", "err"); }
+                ta.remove();
+            }
         });
     });
     updateBulkButtons();
@@ -277,18 +300,17 @@ document.getElementById("csv-input").addEventListener("change", async (e) => {
 
 // ---- Bulk actions ----
 document.getElementById("btn-bulk-delete").addEventListener("click", async () => {
-    if (!confirm(`${selected.size} User wirklich löschen?`)) return;
+    const n = selected.size;
+    if (!n) return;
+    const pw = await askPassword(`${n} User werden gelöscht. Passwort zur Bestätigung:`);
+    if (pw === null) return;
     try {
-        await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "delete", ids: [...selected]})});
-        selected.clear(); toast("Gelöscht", "ok"); loadUsers();
-    } catch (e) { toast(e.message, "err"); }
-});
-
-document.getElementById("btn-delete-all").addEventListener("click", async () => {
-    if (!confirm("ALLE User löschen? Das kann nicht rückgängig gemacht werden.")) return;
-    try {
-        await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "delete_all"})});
-        selected.clear(); toast("Alle User gelöscht", "ok"); loadUsers();
+        await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
+            action: "delete",
+            ids: [...selected],
+            password: pw,
+        })});
+        selected.clear(); toast(`${n} User gelöscht`, "ok"); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
 
@@ -302,11 +324,21 @@ document.getElementById("btn-bulk-regenerate").addEventListener("click", async (
 });
 
 // ---- Email modal ----
-document.getElementById("btn-bulk-email").addEventListener("click", () => {
+async function loadEmailTemplate() {
+    try {
+        const res = await fetch("/email_template.txt?_=" + Date.now());
+        if (res.ok) document.getElementById("mail-body").value = await res.text();
+    } catch (e) { /* fall through */ }
+}
+document.getElementById("btn-bulk-email").addEventListener("click", async () => {
     document.getElementById("send-results").innerHTML = "";
     document.getElementById("smtp-test-status").textContent = "";
+    if (!document.getElementById("mail-body").value.trim()) {
+        await loadEmailTemplate();
+    }
     openModal("modal-email");
 });
+document.getElementById("btn-reset-template").addEventListener("click", loadEmailTemplate);
 document.getElementById("btn-smtp-test").addEventListener("click", async () => {
     const st = document.getElementById("smtp-test-status");
     st.textContent = "  Prüfe…";

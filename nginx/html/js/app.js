@@ -72,10 +72,10 @@ function initShell(activePage) {
                 <a href="/users.html"     data-page="users">👥 Users</a>
                 <a href="/logs.html"      data-page="logs">📜 Logs</a>
                 <a href="/settings.html"  data-page="settings">⚙️ Settings</a>
+                <a href="/docs.html"      data-page="docs" target="_blank">📚 Student Guide ↗</a>
             </nav>
             <div class="footer">
-                <div id="session-info">Signed in</div>
-                <button id="logout-btn" class="btn btn-sm">Logout</button>
+                <button id="logout-btn" class="btn btn-sm">Abmelden</button>
             </div>
         `;
         side.querySelectorAll("nav a").forEach(a => {
@@ -86,11 +86,6 @@ function initShell(activePage) {
             location.href = "/";
         });
     }
-    // Populate username
-    apiFetch("/me").then(me => {
-        const el = document.getElementById("session-info");
-        if (el) el.textContent = "👤 " + me.username;
-    }).catch(() => {});
 }
 
 // Bulk-auth-check on page load: redirect to login if not authenticated
@@ -104,4 +99,57 @@ function openModal(id) {
 }
 function closeModal(id) {
     document.getElementById(id).classList.remove("open");
+}
+
+// ---- Password confirmation modal ----
+// Returns the entered password (string) or null if cancelled.
+function askPassword(message) {
+    return new Promise(resolve => {
+        let host = document.getElementById("__pw_modal");
+        if (!host) {
+            host = document.createElement("div");
+            host.id = "__pw_modal";
+            host.className = "modal-backdrop";
+            host.innerHTML = `
+                <div class="modal" style="width: 420px;">
+                    <h3>Bestätigung</h3>
+                    <p id="__pw_msg" class="text-dim" style="margin-bottom: 14px;"></p>
+                    <div class="form-row">
+                        <label>Admin-Passwort</label>
+                        <input type="password" id="__pw_input" autocomplete="current-password" style="width: 100%;">
+                    </div>
+                    <div id="__pw_err" class="notice err" style="display:none;"></div>
+                    <div class="actions">
+                        <button class="btn" id="__pw_cancel">Abbrechen</button>
+                        <button class="btn btn-danger" id="__pw_ok">Bestätigen</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(host);
+        }
+        const input = document.getElementById("__pw_input");
+        const err = document.getElementById("__pw_err");
+        input.value = "";
+        err.style.display = "none";
+        document.getElementById("__pw_msg").textContent = message || "Bitte Admin-Passwort eingeben:";
+        host.classList.add("open");
+        input.focus();
+
+        const ok = document.getElementById("__pw_ok");
+        const cancel = document.getElementById("__pw_cancel");
+        const done = (val) => {
+            host.classList.remove("open");
+            ok.onclick = null; cancel.onclick = null; input.onkeydown = null;
+            resolve(val);
+        };
+        ok.onclick = () => {
+            const v = input.value;
+            if (!v) { err.textContent = "Passwort darf nicht leer sein"; err.style.display = "block"; return; }
+            done(v);
+        };
+        cancel.onclick = () => done(null);
+        input.onkeydown = (e) => {
+            if (e.key === "Enter") ok.click();
+            if (e.key === "Escape") cancel.click();
+        };
+    });
 }

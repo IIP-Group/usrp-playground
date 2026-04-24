@@ -17,15 +17,16 @@
         </div>
 
         <div class="notice warn">
-            Änderungen überschreiben die <code>.env</code> zur Laufzeit.
-            Sie werden beim nächsten Task des Workers wirksam — der USRP-Teil
-            wird automatisch neu konfiguriert.
+            Änderungen werden zur Laufzeit übernommen und wirken beim nächsten
+            Task des Workers — der USRP-Teil wird automatisch neu konfiguriert.
         </div>
 
         <div id="notice-area"></div>
 
-        <div id="groups">
-            <div class="empty">Laden…</div>
+        <div class="scroll-region" style="padding: 0 18px 18px;">
+            <div id="groups">
+                <div class="empty">Laden…</div>
+            </div>
         </div>
     </main>
 </div>
@@ -70,13 +71,12 @@ function render() {
             } else {
                 input = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
             }
+            // blue dot = unmodified (matches config file), red dot = overridden
             const src = s.source === "db"
-                ? '<span class="badge ok"><span class="dot"></span>override</span>'
-                : s.source === "env"
-                    ? '<span class="badge"><span class="dot" style="background:var(--accent)"></span>.env</span>'
-                    : '<span class="text-dim" style="font-size: 11px;">default</span>';
+                ? '<span class="badge err"><span class="dot"></span>geändert</span>'
+                : '<span class="badge"><span class="dot" style="background:var(--accent)"></span>original</span>';
             const resetBtn = s.source === "db"
-                ? `<button class="btn btn-sm btn-ghost" onclick="resetKey('${s.key}')">Reset</button>`
+                ? `<button class="btn btn-sm btn-ghost" onclick="resetKey('${s.key}')">Zurücksetzen</button>`
                 : "";
             return `<tr>
                 <td style="width: 220px;"><strong>${esc(s.label)}</strong><div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div></td>

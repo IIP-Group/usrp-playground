@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>USRP Benchmark — Student Guide</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <!-- Markdown + Syntax-Highlighting via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <style>
+        body { background: var(--bg); color: var(--text); }
+        .doc-wrap {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 30px 80px;
+        }
+        .top-bar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 14px 24px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 10;
+        }
+        .top-bar .brand {
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .doc h1, .doc h2, .doc h3 { margin-top: 1.8em; margin-bottom: 0.6em; }
+        .doc h1 {
+            font-size: 28px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .doc h2 {
+            font-size: 20px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+        .doc h3 { font-size: 16px; color: var(--text); }
+        .doc p, .doc li { line-height: 1.65; }
+        .doc ul, .doc ol { padding-left: 24px; margin: 8px 0 12px; }
+        .doc li { margin: 4px 0; }
+        .doc code {
+            background: var(--bg-hover);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.9em;
+            color: #e4b267;
+        }
+        .doc pre {
+            background: #1a1d28;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            overflow-x: auto;
+            margin: 12px 0 20px;
+        }
+        .doc pre code {
+            background: transparent;
+            padding: 0;
+            font-size: 13px;
+            color: var(--text);
+        }
+        .doc table {
+            margin: 10px 0 20px;
+        }
+        .doc hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 30px 0;
+        }
+        .doc a { color: var(--accent); }
+        .doc blockquote {
+            border-left: 3px solid var(--accent);
+            background: var(--bg-card);
+            padding: 10px 16px;
+            margin: 12px 0;
+            color: var(--text-dim);
+        }
+    </style>
+</head>
+<body>
+<div class="top-bar">
+    <span class="brand">USRP Benchmark</span>
+    <span class="text-dim">Student Guide</span>
+    <span class="sp" style="flex: 1;"></span>
+    <a href="https://github.com/RaresBares/USRP-Benchmark-System" target="_blank">GitHub ↗</a>
+    <a href="/">Admin Login</a>
+</div>
+
+<div class="doc-wrap">
+    <div id="doc" class="doc">Laden…</div>
+</div>
+
+<script>
+fetch("/docs.md?_=" + Date.now())
+    .then(r => r.text())
+    .then(md => {
+        document.getElementById("doc").innerHTML = marked.parse(md);
+        document.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
+    })
+    .catch(e => {
+        document.getElementById("doc").textContent = "Konnte docs.md nicht laden: " + e.message;
+    });
+</script>
+</body>
+</html>

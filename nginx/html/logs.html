@@ -33,25 +33,30 @@
                 <option value="500">500</option>
             </select>
             <button id="btn-refresh" class="btn">🔄 Reload</button>
-            <span class="sp"></span>
             <label><input type="checkbox" id="auto-refresh" checked> Auto-Refresh</label>
+            <span class="sp"></span>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>🗑 Ausgewählte löschen</button>
+            <button id="btn-delete-all" class="btn btn-danger">Alle Logs löschen</button>
         </div>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Zeit</th>
-                    <th>User</th>
-                    <th>Action</th>
-                    <th class="num">Samples</th>
-                    <th>IP</th>
-                    <th>Detail</th>
-                </tr>
-            </thead>
-            <tbody id="logs-body">
-                <tr><td colspan="6" class="empty">Laden…</td></tr>
-            </tbody>
-        </table>
+        <div class="scroll-region">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="select-all" class="big-check"></th>
+                        <th>Zeit</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th class="num">Samples</th>
+                        <th>IP</th>
+                        <th>Detail</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-body">
+                    <tr><td colspan="7" class="empty">Laden…</td></tr>
+                </tbody>
+            </table>
+        </div>
     </main>
 </div>
 
@@ -59,14 +64,17 @@
 <script>
 initShell("logs");
 
+let allLogs = [];
+let selected = new Set();
+
 async function loadLogs() {
     const action = document.getElementById("filter-action").value;
     const limit = document.getElementById("filter-limit").value;
     const qs = new URLSearchParams({limit});
     if (action) qs.set("action", action);
     try {
-        const logs = await apiFetch(`/logs?${qs.toString()}`);
-        render(logs);
+        allLogs = await apiFetch(`/logs?${qs.toString()}`);
+        render();
     } catch (e) { toast(e.message, "err"); }
 }
 
@@ -83,23 +91,85 @@ function actionBadge(a) {
     return `<span class="badge ${cls}"><span class="dot"></span>${esc(a)}</span>`;
 }
 
-function render(logs) {
-    document.getElementById("log-count").textContent = `${logs.length} Einträge`;
+function render() {
+    document.getElementById("log-count").textContent = `${allLogs.length} Einträge`;
     const body = document.getElementById("logs-body");
-    if (!logs.length) {
-        body.innerHTML = '<tr><td colspan="6" class="empty">Keine Logs</td></tr>';
+    if (!allLogs.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">Keine Logs</td></tr>';
+        updateBulk();
         return;
     }
-    body.innerHTML = logs.map(l => `
-        <tr>
+    body.innerHTML = allLogs.map(l => {
+        const checked = selected.has(l.id) ? "checked" : "";
+        return `<tr>
+            <td><input type="checkbox" class="row-check big-check" data-id="${l.id}" ${checked}></td>
             <td class="text-dim nowrap">${relTime(l.created_at)}</td>
             <td>${esc(l.eth_id) || '<span class="text-dim">–</span>'}</td>
             <td>${actionBadge(l.action)}</td>
             <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '–'}</td>
             <td class="mono text-dim">${esc(l.ip || "–")}</td>
             <td class="text-dim">${esc(l.detail || "")}</td>
-        </tr>`).join("");
+        </tr>`;
+    }).join("");
+
+    body.querySelectorAll(".row-check").forEach(cb => {
+        cb.addEventListener("change", (e) => {
+            const id = Number(e.target.dataset.id);
+            if (e.target.checked) selected.add(id);
+            else selected.delete(id);
+            updateBulk();
+        });
+    });
+    updateBulk();
 }
+
+function updateBulk() {
+    const n = selected.size;
+    const btn = document.getElementById("btn-bulk-delete");
+    btn.disabled = !n;
+    btn.textContent = n ? `🗑 ${n} löschen` : "🗑 Ausgewählte löschen";
+
+    const selAll = document.getElementById("select-all");
+    if (allLogs.length) {
+        selAll.checked = allLogs.every(l => selected.has(l.id));
+        selAll.indeterminate = !selAll.checked && allLogs.some(l => selected.has(l.id));
+    } else {
+        selAll.checked = false;
+    }
+}
+
+document.getElementById("select-all").addEventListener("change", (e) => {
+    if (e.target.checked) allLogs.forEach(l => selected.add(l.id));
+    else allLogs.forEach(l => selected.delete(l.id));
+    render();
+});
+
+document.getElementById("btn-bulk-delete").addEventListener("click", async () => {
+    const n = selected.size;
+    if (!n) return;
+    const pw = await askPassword(`${n} Logs werden gelöscht. Passwort zur Bestätigung:`);
+    if (pw === null) return;
+    try {
+        const r = await apiFetch("/logs/bulk", {method: "POST", body: JSON.stringify({
+            action: "delete",
+            ids: [...selected],
+            password: pw,
+        })});
+        selected.clear(); toast(`${r.count} Logs gelöscht`, "ok"); loadLogs();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+document.getElementById("btn-delete-all").addEventListener("click", async () => {
+    const pw = await askPassword("ALLE Logs werden gelöscht. Passwort zur Bestätigung:");
+    if (pw === null) return;
+    try {
+        const r = await apiFetch("/logs/bulk", {method: "POST", body: JSON.stringify({
+            action: "delete_all",
+            password: pw,
+        })});
+        selected.clear(); toast(`${r.count} Logs gelöscht`, "ok"); loadLogs();
+    } catch (e) { toast(e.message, "err"); }
+});
 
 document.getElementById("btn-refresh").addEventListener("click", loadLogs);
 document.getElementById("filter-action").addEventListener("change", loadLogs);
@@ -107,7 +177,7 @@ document.getElementById("filter-limit").addEventListener("change", loadLogs);
 
 loadLogs();
 setInterval(() => {
-    if (document.getElementById("auto-refresh").checked) loadLogs();
+    if (document.getElementById("auto-refresh").checked && selected.size === 0) loadLogs();
 }, 5000);
 </script>
 </body>

@@ -50,6 +50,12 @@ def test_credentials(creds: SmtpCredentials) -> tuple[bool, str]:
         return False, f"SMTP error: {e}"
 
 
+def _is_html(body: str) -> bool:
+    """Heuristic: body contains an HTML tag like <a>, <p>, <br> or <html>."""
+    import re
+    return bool(re.search(r"<\s*(html|a|p|br|div|span|strong|em|ul|ol|li|h[1-6])\b", body, re.I))
+
+
 def send_token_email(
     creds: SmtpCredentials,
     to_email: str,
@@ -60,8 +66,13 @@ def send_token_email(
     last_name: str = "",
     eth_id: str = "",
 ) -> tuple[bool, str]:
-    """Send a single personalised token email. `body_template` can contain
-    [TOKEN], [FIRST_NAME], [LAST_NAME], [ETH_ID] placeholders."""
+    """Send a single personalised token email.
+
+    The body template can contain placeholders [TOKEN], [FIRST_NAME],
+    [LAST_NAME], [ETH_ID]. If it contains HTML tags (<a>, <p>, <br>, ...) the
+    mail is sent as HTML — links with custom text work. Otherwise it's plain
+    text; clients still auto-linkify http:// URLs.
+    """
     body = (body_template
             .replace("[TOKEN]", token)
             .replace("[FIRST_NAME]", first_name)
@@ -72,7 +83,15 @@ def send_token_email(
     msg["From"] = creds.effective_sender
     msg["To"] = to_email
     msg["Subject"] = subject
-    msg.set_content(body)
+
+    if _is_html(body):
+        # Provide both a plain-text fallback (tags stripped) and the HTML body
+        import re
+        plain = re.sub(r"<[^>]+>", "", body)
+        msg.set_content(plain)
+        msg.add_alternative(body, subtype="html")
+    else:
+        msg.set_content(body)
 
     try:
         ctx = ssl.create_default_context()

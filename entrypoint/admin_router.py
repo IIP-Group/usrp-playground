@@ -111,6 +111,37 @@ def logs(
     } for r in rows]
 
 
+@router.post("/logs/bulk")
+def logs_bulk(
+    payload: dict,
+    db: Session = Depends(get_db),
+    session: dict = Depends(auth.require_admin),
+):
+    """
+    Destructive operations on logs. Require the admin password to be re-entered.
+    payload: {action: "delete"|"delete_all", ids?: [int,...], password: str}
+    """
+    password = payload.get("password", "")
+    if not auth.check_credentials(session["username"], password):
+        raise HTTPException(status_code=401, detail="Passwort falsch")
+
+    action = payload.get("action")
+    if action == "delete_all":
+        n = db.query(Log).delete()
+        db.commit()
+        return {"ok": True, "action": action, "count": n}
+
+    ids = payload.get("ids") or []
+    if action == "delete":
+        if not ids:
+            raise HTTPException(status_code=400, detail="Keine Logs ausgewählt")
+        n = db.query(Log).filter(Log.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        return {"ok": True, "action": action, "count": n}
+
+    raise HTTPException(status_code=400, detail=f"Unbekannte Aktion '{action}'")
+
+
 @router.get("/tasks")
 def tasks(
     limit: int = 50,
@@ -234,21 +265,18 @@ def users_delete(
 def users_bulk(
     payload: dict,
     db: Session = Depends(get_db),
-    _: dict = Depends(auth.require_admin),
+    session: dict = Depends(auth.require_admin),
 ):
-    """action: delete | regenerate | delete_all"""
+    """action: delete | regenerate.  Delete requires password re-entry."""
     action = payload.get("action")
-
-    if action == "delete_all":
-        db.query(User).delete()
-        db.commit()
-        return {"ok": True, "action": action}
-
     ids = payload.get("ids") or []
     if not ids:
-        raise HTTPException(status_code=400, detail="No user ids provided")
+        raise HTTPException(status_code=400, detail="Keine Users ausgewählt")
 
     if action == "delete":
+        password = payload.get("password", "")
+        if not auth.check_credentials(session["username"], password):
+            raise HTTPException(status_code=401, detail="Passwort falsch")
         db.query(User).filter(User.id.in_(ids)).delete(synchronize_session=False)
         db.commit()
         return {"ok": True, "action": action, "count": len(ids)}
@@ -267,7 +295,7 @@ def users_bulk(
         db.commit()
         return {"ok": True, "action": action, "count": len(updated), "users": updated}
 
-    raise HTTPException(status_code=400, detail=f"Unknown action '{action}'")
+    raise HTTPException(status_code=400, detail=f"Unbekannte Aktion '{action}'")
 
 
 @router.post("/users/upload_csv")
