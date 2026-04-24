@@ -283,11 +283,31 @@ class USRPChannel:
             f"Listen Before Talk failed: channel busy after {max_retries} retries"
         )
 
+    def _reset_sockets(self):
+        """Throw away the ZMQ REQ sockets — next call to `_connect` recreates
+        them. Use when an exception leaves the REQ socket in an illegal state
+        (sent without matching recv)."""
+        import zmq
+        for attr in ("_tx_req", "_rx_req"):
+            sock = getattr(self, attr, None)
+            if sock is not None:
+                try:
+                    sock.setsockopt(zmq.LINGER, 0)
+                    sock.close()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+        self._configured = False
+
     def send_and_receive(self, signal):
         import zmq
         import h5py
 
-        self._configure()
+        try:
+            self._configure()
+        except Exception:
+            self._reset_sockets()
+            raise
 
         fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
         initial_delay = _get("INITIAL_DELAY", 1.0, float)
@@ -303,7 +323,11 @@ class USRPChannel:
                 break
             time.sleep(wait_time)
 
-        self._listen_before_talk()
+        try:
+            self._listen_before_talk()
+        except Exception:
+            self._reset_sockets()
+            raise
 
         uid = f"{int(time.time() * 1000)}_{os.getpid()}"
         tx_file = os.path.join(SIGNAL_DIR, f"tx_{uid}.h5")
@@ -311,6 +335,8 @@ class USRPChannel:
         host_tx_file = self._to_host_path(tx_file)
         host_rx_file = self._to_host_path(rx_file)
 
+        tx_cmd_sent = False
+        rx_cmd_sent = False
         try:
             with h5py.File(tx_file, "w") as f:
                 f.create_dataset("tx_signal", data=signal.astype(np.complex64))
@@ -351,6 +377,7 @@ class USRPChannel:
                 "path": host_rx_file,
                 "delay": rx_start_delay
             })
+            rx_cmd_sent = True
 
             tx_timeout_ms = int(
                 (tx_start_delay + signal_duration + OPERATION_TIMEOUT_MARGIN) * 1000
@@ -360,8 +387,10 @@ class USRPChannel:
                 "op": "TRANSMIT_BURST",
                 "delay": tx_start_delay
             })
+            tx_cmd_sent = True
 
             tx_resp = self._tx_req.recv_json()
+            tx_cmd_sent = False
             if tx_resp.get("status") != "OK":
                 raise RuntimeError(
                     f"TRANSMIT_BURST failed: {tx_resp.get('error')}"
@@ -369,6 +398,7 @@ class USRPChannel:
             logger.info("TX done: %d samples sent", tx_resp.get("samples_sent", 0))
 
             rx_resp = self._rx_req.recv_json()
+            rx_cmd_sent = False
             if rx_resp.get("status") != "OK":
                 raise RuntimeError(
                     f"RECEIVE_TO_FILE failed: {rx_resp.get('error')}"
@@ -386,6 +416,26 @@ class USRPChannel:
                     rx_data = rx_data[0]
 
             return rx_data.astype(np.complex64)
+
+        except Exception:
+            # A command was sent but no reply consumed → REQ socket is in
+            # illegal state for the next send. Drain what we can, then reset
+            # anything still stuck so the next task can proceed.
+            if tx_cmd_sent:
+                try:
+                    self._tx_req.setsockopt(zmq.RCVTIMEO, 1000)
+                    self._tx_req.recv_json()
+                except Exception:
+                    pass
+            if rx_cmd_sent:
+                try:
+                    self._rx_req.setsockopt(zmq.RCVTIMEO, 1000)
+                    self._rx_req.recv_json()
+                except Exception:
+                    pass
+            # If either drain failed the socket is still dirty — nuke it.
+            self._reset_sockets()
+            raise
 
         finally:
             for p in (tx_file, rx_file):

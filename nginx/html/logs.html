@@ -21,6 +21,7 @@
                 <option value="">Alle Actions</option>
                 <option value="submit">submit</option>
                 <option value="download">download</option>
+                <option value="cancelled">cancelled</option>
                 <option value="auth_failed">auth_failed</option>
                 <option value="queue_full">queue_full</option>
                 <option value="task_error">task_error</option>
@@ -82,6 +83,7 @@ function actionBadge(a) {
     const map = {
         submit:      "ok",
         download:    "ok",
+        cancelled:   "warn",
         auth_failed: "err",
         task_error:  "err",
         queue_full:  "warn",

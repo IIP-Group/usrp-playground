@@ -104,6 +104,9 @@ async def ws_run(ws: WebSocket):
 
     db = next(get_db())
     ip = ws.client.host if ws.client else None
+    task = None          # populated once the client's upload is persisted
+    eth_id = None
+    token = None
 
     try:
         # -------- Server sleeping? --------
@@ -208,7 +211,30 @@ async def ws_run(ws: WebSocket):
         await ws.close()
 
     except WebSocketDisconnect:
-        pass
+        # Client hung up — if their task is still pending, cancel it so the
+        # USRP doesn't waste time running a result nobody will pick up.
+        if task is not None:
+            try:
+                db.refresh(task)
+                if task.state == "PD":
+                    # still in queue → remove it and clean up the upload
+                    tdir = INPUT_DIR / str(task.uid)
+                    if tdir.exists():
+                        import shutil
+                        shutil.rmtree(tdir, ignore_errors=True)
+                    db.delete(task)
+                    db.commit()
+                    _log(db, "cancelled", token_id=token.id if token else None,
+                         eth_id=eth_id, ip=ip,
+                         detail=f"uid={task.uid} (while PD)")
+                elif task.state == "R":
+                    # already running — can't abort mid-transmission. Just
+                    # log that nobody will be there to download the result.
+                    _log(db, "cancelled", token_id=token.id if token else None,
+                         eth_id=eth_id, ip=ip,
+                         detail=f"uid={task.uid} (while R, completing anyway)")
+            except Exception:
+                db.rollback()
     finally:
         ws_count -= 1
         db.close()
