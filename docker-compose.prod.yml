@@ -19,8 +19,9 @@ services:
   entrypoint:
     image: ghcr.io/${GHCR_OWNER}/usrp-benchmark-entrypoint:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    ports:
-      - "${ENTRYPOINT_PORT:-8000}:8000"
+    # No ports: only reachable through nginx reverse proxy
+    expose:
+      - "8000"
     env_file: .env
     volumes:
       - ./data/tasks:/data
@@ -40,3 +41,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  nginx:
+    image: ghcr.io/${GHCR_OWNER}/usrp-benchmark-nginx:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+    environment:
+      BACKEND_HOST: entrypoint
+      BACKEND_PORT: "8000"
+    depends_on:
+      - entrypoint

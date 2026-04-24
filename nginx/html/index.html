@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>USRP Benchmark — Admin Login</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="login-wrap">
+    <div class="login-box">
+        <h1>USRP Benchmark</h1>
+        <p>Admin Panel</p>
+
+        <div id="error" class="login-error"></div>
+
+        <form id="login-form">
+            <div class="form-row">
+                <label>Username</label>
+                <input type="text" name="username" autocomplete="username" required autofocus>
+            </div>
+            <div class="form-row">
+                <label>Passwort</label>
+                <input type="password" name="password" autocomplete="current-password" required>
+            </div>
+            <button class="btn btn-primary" type="submit">Anmelden</button>
+        </form>
+    </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const err = document.getElementById("error");
+    err.style.display = "none";
+    try {
+        const body = new URLSearchParams(form).toString();
+        const res = await fetch("/admin/api/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            credentials: "same-origin",
+            body,
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error(j.detail || "Login fehlgeschlagen");
+        }
+        location.href = "/dashboard.html";
+    } catch (e) {
+        err.textContent = e.message;
+        err.style.display = "block";
+    }
+});
+
+// If already logged in, jump to dashboard
+fetch("/admin/api/me", {credentials: "same-origin"})
+    .then(r => { if (r.ok) location.href = "/dashboard.html"; })
+    .catch(() => {});
+</script>
+</body>
+</html>

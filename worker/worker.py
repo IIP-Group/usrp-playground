@@ -10,7 +10,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Task
+from models import Task, ServerState
 from channel import send_and_receive
 
 DATA_DIR = Path("/data")
@@ -42,9 +42,17 @@ def process_f32(task_uid):
     out.tofile(str(out_dir / "output.f32"))
 
 
+def _server_running(db):
+    row = db.query(ServerState).filter(ServerState.id == 1).first()
+    return (row is None) or (row.state == "running")
+
+
 def poll_and_process():
     db = SessionLocal()
     try:
+        if not _server_running(db):
+            return False
+
         task = db.query(Task).filter(Task.state == "PD").order_by(Task.created_at.asc()).first()
         if not task:
             return False

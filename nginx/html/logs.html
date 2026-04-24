@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Logs — USRP Benchmark</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Logs</h2>
+            <span class="sp"></span>
+            <span class="text-dim" id="log-count"></span>
+        </div>
+
+        <div class="toolbar">
+            <select id="filter-action">
+                <option value="">Alle Actions</option>
+                <option value="submit">submit</option>
+                <option value="download">download</option>
+                <option value="auth_failed">auth_failed</option>
+                <option value="queue_full">queue_full</option>
+                <option value="task_error">task_error</option>
+                <option value="file_too_large">file_too_large</option>
+            </select>
+            <select id="filter-limit">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+            </select>
+            <button id="btn-refresh" class="btn">🔄 Reload</button>
+            <span class="sp"></span>
+            <label><input type="checkbox" id="auto-refresh" checked> Auto-Refresh</label>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Zeit</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th class="num">Samples</th>
+                    <th>IP</th>
+                    <th>Detail</th>
+                </tr>
+            </thead>
+            <tbody id="logs-body">
+                <tr><td colspan="6" class="empty">Laden…</td></tr>
+            </tbody>
+        </table>
+    </main>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+initShell("logs");
+
+async function loadLogs() {
+    const action = document.getElementById("filter-action").value;
+    const limit = document.getElementById("filter-limit").value;
+    const qs = new URLSearchParams({limit});
+    if (action) qs.set("action", action);
+    try {
+        const logs = await apiFetch(`/logs?${qs.toString()}`);
+        render(logs);
+    } catch (e) { toast(e.message, "err"); }
+}
+
+function actionBadge(a) {
+    const map = {
+        submit:      "ok",
+        download:    "ok",
+        auth_failed: "err",
+        task_error:  "err",
+        queue_full:  "warn",
+        file_too_large: "warn",
+    };
+    const cls = map[a] || "";
+    return `<span class="badge ${cls}"><span class="dot"></span>${esc(a)}</span>`;
+}
+
+function render(logs) {
+    document.getElementById("log-count").textContent = `${logs.length} Einträge`;
+    const body = document.getElementById("logs-body");
+    if (!logs.length) {
+        body.innerHTML = '<tr><td colspan="6" class="empty">Keine Logs</td></tr>';
+        return;
+    }
+    body.innerHTML = logs.map(l => `
+        <tr>
+            <td class="text-dim nowrap">${relTime(l.created_at)}</td>
+            <td>${esc(l.eth_id) || '<span class="text-dim">–</span>'}</td>
+            <td>${actionBadge(l.action)}</td>
+            <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '–'}</td>
+            <td class="mono text-dim">${esc(l.ip || "–")}</td>
+            <td class="text-dim">${esc(l.detail || "")}</td>
+        </tr>`).join("");
+}
+
+document.getElementById("btn-refresh").addEventListener("click", loadLogs);
+document.getElementById("filter-action").addEventListener("change", loadLogs);
+document.getElementById("filter-limit").addEventListener("change", loadLogs);
+
+loadLogs();
+setInterval(() => {
+    if (document.getElementById("auto-refresh").checked) loadLogs();
+}, 5000);
+</script>
+</body>
+</html>

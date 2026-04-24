@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import logging
 import numpy as np
 
@@ -20,15 +21,59 @@ logging.basicConfig(
 
 USE_REAL_USRP = os.getenv("USE_REAL_USRP", "false").lower() == "true"
 
-SAMPLE_RATE = float(os.getenv("SAMPLE_RATE_HZ", "20000000"))
-CARRIER_FREQ = float(os.getenv("CARRIER_FREQUENCY_HZ", "2400000000"))
-TX_GAIN = float(os.getenv("TX_GAIN_DB", "30"))
-RX_GAIN = float(os.getenv("RX_GAIN_DB", "30"))
-ANTENNA_TX = os.getenv("ANTENNA_TX", "TX/RX0")
-ANTENNA_RX = os.getenv("ANTENNA_RX", "RX1")
+# ---- DB-override-aware config resolution -----------------------------------
+# Falls die DB erreichbar ist und ein override existiert, überschreibt der die
+# .env. Sonst Fallback auf .env + default.
+_SessionLocal = None
+try:
+    from database import SessionLocal as _SessionLocal
+    from models import SettingOverride
+except Exception:
+    SettingOverride = None
+
+
+def _db_override(key: str):
+    if _SessionLocal is None or SettingOverride is None:
+        return None
+    try:
+        db = _SessionLocal()
+        try:
+            row = db.query(SettingOverride).filter(SettingOverride.key == key).first()
+            return row.value if row else None
+        finally:
+            db.close()
+    except Exception:
+        return None
+
+
+def _get(key: str, default, type_=str):
+    val = _db_override(key)
+    if val is None:
+        val = os.getenv(key)
+    if val is None:
+        return default
+    if type_ is int:   return int(float(val))
+    if type_ is float: return float(val)
+    if type_ is bool:  return str(val).strip().lower() in ("1","true","yes","on")
+    return val
+
+
+def _get_guard() -> tuple[float, float]:
+    """Draw a random guard time from uniform distributions."""
+    b_min = _get("BEGIN_GUARD_MIN_SEC", 0.1, float)
+    b_max = _get("BEGIN_GUARD_MAX_SEC", b_min, float)
+    e_min = _get("END_GUARD_MIN_SEC", 0.1, float)
+    e_max = _get("END_GUARD_MAX_SEC", e_min, float)
+    begin = random.uniform(min(b_min, b_max), max(b_min, b_max))
+    end   = random.uniform(min(e_min, e_max), max(e_min, e_max))
+    return begin, end
+
+
+# ---- Static (container-only) values ----------------------------------------
+ANTENNA_TX = _get("ANTENNA_TX", "TX/RX0")
+ANTENNA_RX = _get("ANTENNA_RX", "RX1")
 TX_CHANNEL = int(os.getenv("TX_CHANNEL", "0"))
 RX_CHANNEL = int(os.getenv("RX_CHANNEL", "0"))
-SNR_DB = float(os.getenv("CHANNEL_SNR_DB", "20"))
 
 TX_DAEMON_HOST = os.getenv("TX_DAEMON_HOST", "host.docker.internal")
 TX_DAEMON_PORT = int(os.getenv("TX_DAEMON_PORT", "5557"))
@@ -38,18 +83,7 @@ RX_DAEMON_PORT = int(os.getenv("RX_DAEMON_PORT", "5555"))
 SIGNAL_DIR = os.getenv("SIGNAL_DIR", "/data/signals")
 SIGNAL_DIR_HOST = os.getenv("SIGNAL_DIR_HOST", SIGNAL_DIR)
 
-TX_RX_DELAY_DIFF = float(os.getenv("TX_RX_DELAY_DIFF", "0.1"))
-INITIAL_DELAY = float(os.getenv("INITIAL_DELAY", "1.0"))
 OPERATION_TIMEOUT_MARGIN = 5.0
-
-DUTY_CYCLE_MAX = float(os.getenv("DUTY_CYCLE_MAX_PERCENT", "10")) / 100.0
-DUTY_CYCLE_WINDOW = float(os.getenv("DUTY_CYCLE_WINDOW_SEC", "60"))
-
-LBT_ENABLED = os.getenv("LBT_ENABLED", "true").lower() == "true"
-LBT_THRESHOLD_DBFS = float(os.getenv("LBT_THRESHOLD_DBFS", "-50"))
-LBT_SENSE_SAMPLES = int(os.getenv("LBT_SENSE_SAMPLES", "200000"))
-LBT_MAX_RETRIES = int(os.getenv("LBT_MAX_RETRIES", "10"))
-LBT_BACKOFF_SEC = float(os.getenv("LBT_BACKOFF_SEC", "1.0"))
 
 CONNECTIVITY_TIMEOUT_MS = 2000
 CONFIGURE_TIMEOUT_MS = 5000
@@ -60,7 +94,8 @@ def _awgn_send_and_receive(signal):
     signal_power = np.mean(np.abs(signal) ** 2)
     if signal_power == 0:
         return signal
-    noise_power = signal_power / (10 ** (SNR_DB / 10))
+    snr_db = _get("CHANNEL_SNR_DB", 20.0, float)
+    noise_power = signal_power / (10 ** (snr_db / 10))
     noise = np.sqrt(noise_power / 2) * (
         np.random.randn(len(signal)) + 1j * np.random.randn(len(signal))
     )
@@ -109,55 +144,60 @@ class USRPChannel:
         os.makedirs(SIGNAL_DIR, exist_ok=True)
 
     def _configure(self):
-        if self._configured:
-            return
-
+        """(Re-)configure both USRPs with current settings. Always runs so that
+        changes made in the admin panel propagate to the hardware."""
         import zmq
 
         self._connect()
 
+        fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
+        fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
+        tx_gain = _get("TX_GAIN_DB", 30.0, float)
+        rx_gain = _get("RX_GAIN_DB", 30.0, float)
+        antenna_tx = _get("ANTENNA_TX", "TX/RX0")
+        antenna_rx = _get("ANTENNA_RX", "RX1")
+
         tx_cmd = {
             "op": "CONFIGURE_USRP",
-            "fs": SAMPLE_RATE,
-            "fc": CARRIER_FREQ,
+            "fs": fs, "fc": fc,
             "sync_channels": [TX_CHANNEL],
             "intf_channels": [],
-            "G_TX": {str(TX_CHANNEL): TX_GAIN},
-            "antenna": ANTENNA_TX
+            "G_TX": {str(TX_CHANNEL): tx_gain},
+            "antenna": antenna_tx,
         }
         self._tx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._tx_req.send_json(tx_cmd)
         resp = self._tx_req.recv_json()
         if resp.get("status") == "ERROR":
             raise RuntimeError(f"TX configure failed: {resp.get('error')}")
-        logger.info("TX USRP configured: %s", resp.get("status"))
 
         rx_cmd = {
             "op": "CONFIGURE_USRP",
-            "fs": SAMPLE_RATE,
-            "fc": CARRIER_FREQ,
+            "fs": fs, "fc": fc,
             "channels": [RX_CHANNEL],
-            "G_RX": RX_GAIN,
-            "antenna": ANTENNA_RX
+            "G_RX": rx_gain,
+            "antenna": antenna_rx,
         }
         self._rx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._rx_req.send_json(rx_cmd)
         resp = self._rx_req.recv_json()
         if resp.get("status") == "ERROR":
             raise RuntimeError(f"RX configure failed: {resp.get('error')}")
-        logger.info("RX USRP configured: %s", resp.get("status"))
 
         self._configured = True
+        self._current_fs = fs
 
     def _to_host_path(self, container_path):
         return str(container_path).replace(SIGNAL_DIR, SIGNAL_DIR_HOST, 1)
 
     def _check_duty_cycle(self, signal_duration):
+        duty_max = _get("DUTY_CYCLE_MAX_PERCENT", 10.0, float) / 100.0
+        duty_window = _get("DUTY_CYCLE_WINDOW_SEC", 60.0, float)
         now = time.time()
-        cutoff = now - DUTY_CYCLE_WINDOW
+        cutoff = now - duty_window
         self._tx_history = [(t, d) for t, d in self._tx_history if t > cutoff]
         total_tx_time = sum(d for _, d in self._tx_history)
-        max_allowed = DUTY_CYCLE_MAX * DUTY_CYCLE_WINDOW
+        max_allowed = duty_max * duty_window
         available = max_allowed - total_tx_time
 
         if signal_duration > available:
@@ -165,7 +205,7 @@ class USRPChannel:
             logger.warning(
                 "Duty cycle limit: %.2fs used / %.2fs allowed in %ds window. "
                 "Need to wait %.1fs",
-                total_tx_time, max_allowed, int(DUTY_CYCLE_WINDOW), wait_time
+                total_tx_time, max_allowed, int(duty_window), wait_time
             )
             return False, wait_time
         logger.info(
@@ -175,34 +215,40 @@ class USRPChannel:
         return True, 0.0
 
     def _listen_before_talk(self):
-        if not LBT_ENABLED:
+        if not _get("LBT_ENABLED", True, bool):
             return
 
         import zmq
         import h5py
 
-        for attempt in range(LBT_MAX_RETRIES):
+        sense_samples = _get("LBT_SENSE_SAMPLES", 200000, int)
+        threshold = _get("LBT_THRESHOLD_DBFS", -50.0, float)
+        max_retries = _get("LBT_MAX_RETRIES", 10, int)
+        backoff = _get("LBT_BACKOFF_SEC", 1.0, float)
+        fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
+
+        for attempt in range(max_retries):
             self._rx_req.setsockopt(zmq.RCVTIMEO, 5000)
             self._rx_req.send_json({"op": "FLUSH_RX"})
             self._rx_req.recv_json()
 
             sense_file = os.path.join(SIGNAL_DIR, "lbt_sense.h5")
             host_sense_file = self._to_host_path(sense_file)
-            sense_duration = LBT_SENSE_SAMPLES / SAMPLE_RATE
+            sense_duration = sense_samples / fs
             timeout_ms = int((sense_duration + OPERATION_TIMEOUT_MARGIN) * 1000)
 
             self._rx_req.setsockopt(zmq.RCVTIMEO, timeout_ms)
             self._rx_req.send_json({
                 "op": "RECEIVE_TO_FILE",
-                "n_samples": LBT_SENSE_SAMPLES,
+                "n_samples": sense_samples,
                 "path": host_sense_file,
-                "delay": 0.5
+                "delay": 0.5,
             })
             resp = self._rx_req.recv_json()
 
             if resp.get("status") != "OK":
                 logger.warning("LBT sense failed: %s", resp.get("error"))
-                time.sleep(LBT_BACKOFF_SEC)
+                time.sleep(backoff)
                 continue
 
             try:
@@ -214,7 +260,7 @@ class USRPChannel:
                     power_dbfs = 10 * np.log10(power + 1e-20)
             except Exception as e:
                 logger.warning("LBT: could not read sense file: %s", e)
-                time.sleep(LBT_BACKOFF_SEC)
+                time.sleep(backoff)
                 continue
             finally:
                 try:
@@ -222,23 +268,19 @@ class USRPChannel:
                 except OSError:
                     pass
 
-            logger.info(
-                "LBT sense: %.1f dBFS (threshold: %.1f dBFS)",
-                power_dbfs, LBT_THRESHOLD_DBFS
-            )
+            logger.info("LBT sense: %.1f dBFS (threshold: %.1f dBFS)",
+                        power_dbfs, threshold)
 
-            if power_dbfs < LBT_THRESHOLD_DBFS:
+            if power_dbfs < threshold:
                 logger.info("LBT: channel clear")
                 return
 
-            logger.warning(
-                "LBT: channel busy (attempt %d/%d), backing off %.1fs",
-                attempt + 1, LBT_MAX_RETRIES, LBT_BACKOFF_SEC
-            )
-            time.sleep(LBT_BACKOFF_SEC)
+            logger.warning("LBT: channel busy (attempt %d/%d), backing off %.1fs",
+                           attempt + 1, max_retries, backoff)
+            time.sleep(backoff)
 
         raise RuntimeError(
-            f"Listen Before Talk failed: channel busy after {LBT_MAX_RETRIES} retries"
+            f"Listen Before Talk failed: channel busy after {max_retries} retries"
         )
 
     def send_and_receive(self, signal):
@@ -247,8 +289,13 @@ class USRPChannel:
 
         self._configure()
 
+        fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
+        initial_delay = _get("INITIAL_DELAY", 1.0, float)
+        begin_guard, end_guard = _get_guard()
+        self.last_guard = (begin_guard, end_guard)
+
         n_samples = len(signal)
-        signal_duration = n_samples / SAMPLE_RATE
+        signal_duration = n_samples / fs
 
         while True:
             allowed, wait_time = self._check_duty_cycle(signal_duration)
@@ -279,14 +326,16 @@ class USRPChannel:
 
             signal_info = resp.get("signal_info", {})
             logger.info(
-                "TX signal loaded: %d samples",
-                signal_info.get("total_samples", 0)
+                "TX signal loaded: %d samples  |  guard: begin=%.4fs end=%.4fs",
+                signal_info.get("total_samples", 0), begin_guard, end_guard
             )
 
-            tx_start_delay = INITIAL_DELAY + TX_RX_DELAY_DIFF
-            rx_start_delay = INITIAL_DELAY
-            rx_duration = 2 * TX_RX_DELAY_DIFF + signal_duration
-            rx_samples_needed = int(np.round(rx_duration * SAMPLE_RATE))
+            # RX starts `begin_guard` seconds before TX, continues `end_guard`
+            # seconds after TX end.
+            rx_start_delay = initial_delay
+            tx_start_delay = initial_delay + begin_guard
+            rx_duration = begin_guard + signal_duration + end_guard
+            rx_samples_needed = int(np.round(rx_duration * fs))
 
             self._rx_req.setsockopt(zmq.RCVTIMEO, 5000)
             self._rx_req.send_json({"op": "FLUSH_RX"})

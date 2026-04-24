@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Users — USRP Benchmark</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Users</h2>
+            <span class="sp"></span>
+            <span class="text-dim" id="user-count"></span>
+        </div>
+
+        <div class="toolbar">
+            <input id="search" class="search-input" placeholder="🔍  suchen nach Name, ETH-ID, Email ...">
+            <button id="btn-add" class="btn btn-primary">+ User hinzufügen</button>
+            <button id="btn-upload" class="btn">CSV Upload</button>
+            <span class="sp"></span>
+            <button id="btn-bulk-regenerate" class="btn" disabled>🔄 Token erneuern</button>
+            <button id="btn-bulk-email" class="btn" disabled>✉ Token-Mail</button>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>🗑 Löschen</button>
+            <button id="btn-delete-all" class="btn btn-danger">Alle löschen</button>
+        </div>
+
+        <div id="notice-area"></div>
+
+        <table id="users-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"><input type="checkbox" id="select-all"></th>
+                    <th>ETH-ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Token</th>
+                    <th class="num">Submits</th>
+                    <th>Letzter Submit</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="users-body">
+                <tr><td colspan="8" class="empty">Laden…</td></tr>
+            </tbody>
+        </table>
+
+        <input type="file" id="csv-input" accept=".csv" style="display:none">
+    </main>
+</div>
+
+<!-- Add user modal -->
+<div class="modal-backdrop" id="modal-add">
+    <div class="modal">
+        <h3>Neuer User</h3>
+        <div class="form-row">
+            <label>ETH-ID (z.B. rsahleanu)</label>
+            <input id="add-eth-id" type="text" autocomplete="off">
+        </div>
+        <div class="form-row">
+            <label>Vorname</label>
+            <input id="add-first" type="text">
+        </div>
+        <div class="form-row">
+            <label>Nachname</label>
+            <input id="add-last" type="text">
+        </div>
+        <div class="form-row">
+            <label>Email (leer = &lt;eth-id&gt;@ethz.ch)</label>
+            <input id="add-email" type="email">
+        </div>
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-add')">Abbrechen</button>
+            <button class="btn btn-primary" id="btn-add-confirm">Erstellen</button>
+        </div>
+    </div>
+</div>
+
+<!-- Email modal -->
+<div class="modal-backdrop" id="modal-email">
+    <div class="modal">
+        <h3>Token-Mail versenden</h3>
+
+        <div class="notice warn">
+            Deine ETH-Credentials werden <strong>nicht</strong> gespeichert — sie werden nur
+            für diesen Sende-Vorgang benutzt.
+        </div>
+
+        <div class="row">
+            <div style="flex: 1">
+                <label>SMTP Username (dein ETH-Login)</label>
+                <input id="smtp-user" style="width: 100%" autocomplete="off">
+            </div>
+            <div style="flex: 1">
+                <label>Passwort</label>
+                <input id="smtp-pass" type="password" style="width: 100%" autocomplete="off">
+            </div>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+            <div style="flex: 1">
+                <label>SMTP Host</label>
+                <input id="smtp-host" value="mail.ethz.ch" style="width: 100%">
+            </div>
+            <div style="width: 100px">
+                <label>Port</label>
+                <input id="smtp-port" type="number" value="587" style="width: 100%">
+            </div>
+            <div style="flex: 1">
+                <label>Absender-Email</label>
+                <input id="smtp-from" placeholder="optional" style="width: 100%">
+            </div>
+        </div>
+        <div style="margin-top: 10px;">
+            <button id="btn-smtp-test" class="btn btn-sm">Verbindung prüfen</button>
+            <span id="smtp-test-status" class="text-dim"></span>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border);">
+
+        <div class="form-row">
+            <label>Betreff</label>
+            <input id="mail-subject" value="Your USRP Benchmark Token" style="width: 100%">
+        </div>
+        <div class="form-row">
+            <label>Body — Platzhalter: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
+            <textarea id="mail-body" rows="8" style="width: 100%; font-family: var(--mono);">Hi [FIRST_NAME],
+
+hier dein persönliches Token für den USRP-Benchmark-Server:
+
+    [TOKEN]
+
+Bitte nicht weitergeben. Fragen? Einfach zurück auf diese Mail antworten.
+
+Viele Grüsse
+</textarea>
+        </div>
+
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-email')">Abbrechen</button>
+            <button class="btn btn-primary" id="btn-send-mails">Senden an ausgewählte</button>
+        </div>
+        <div id="send-results" style="margin-top: 12px;"></div>
+    </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+initShell("users");
+
+let allUsers = [];
+let selected = new Set();
+
+async function loadUsers() {
+    const q = document.getElementById("search").value.trim();
+    const url = q ? `/users?q=${encodeURIComponent(q)}` : "/users";
+    try {
+        allUsers = await apiFetch(url);
+        document.getElementById("user-count").textContent = `${allUsers.length} User`;
+        render();
+    } catch (e) {
+        toast(e.message, "err");
+    }
+}
+
+function render() {
+    const body = document.getElementById("users-body");
+    if (!allUsers.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">Keine User</td></tr>';
+        updateBulkButtons();
+        return;
+    }
+    body.innerHTML = allUsers.map(u => {
+        const checked = selected.has(u.id) ? "checked" : "";
+        const tokenHtml = u.token
+            ? `<span class="mono">${esc(u.token)}</span>`
+            : '<span class="text-dim">–</span>';
+        return `<tr>
+            <td><input type="checkbox" class="row-check" data-id="${u.id}" ${checked}></td>
+            <td class="mono"><strong>${esc(u.eth_id)}</strong></td>
+            <td>${esc(u.first_name || "")} ${esc(u.last_name || "")}</td>
+            <td class="text-dim">${esc(u.email)}</td>
+            <td>${tokenHtml}</td>
+            <td class="num">${u.submits}</td>
+            <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "–"}</td>
+            <td><button class="btn btn-sm btn-ghost" data-del="${u.id}">Löschen</button></td>
+        </tr>`;
+    }).join("");
+
+    body.querySelectorAll(".row-check").forEach(cb => {
+        cb.addEventListener("change", (e) => {
+            const id = Number(e.target.dataset.id);
+            if (e.target.checked) selected.add(id);
+            else selected.delete(id);
+            updateBulkButtons();
+        });
+    });
+    body.querySelectorAll("[data-del]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            if (!confirm("Diesen User wirklich löschen?")) return;
+            try {
+                await apiFetch(`/users/${btn.dataset.del}`, {method: "DELETE"});
+                toast("Gelöscht", "ok");
+                loadUsers();
+            } catch (e) { toast(e.message, "err"); }
+        });
+    });
+    updateBulkButtons();
+}
+
+function updateBulkButtons() {
+    const any = selected.size > 0;
+    ["btn-bulk-delete","btn-bulk-regenerate","btn-bulk-email"].forEach(id => {
+        document.getElementById(id).disabled = !any;
+    });
+    const selAll = document.getElementById("select-all");
+    if (allUsers.length) {
+        selAll.checked = allUsers.every(u => selected.has(u.id));
+        selAll.indeterminate = !selAll.checked && allUsers.some(u => selected.has(u.id));
+    } else {
+        selAll.checked = false;
+    }
+}
+
+// ---- Live search ----
+let searchT;
+document.getElementById("search").addEventListener("input", () => {
+    clearTimeout(searchT);
+    searchT = setTimeout(loadUsers, 150);
+});
+
+// ---- Select all ----
+document.getElementById("select-all").addEventListener("change", (e) => {
+    if (e.target.checked) allUsers.forEach(u => selected.add(u.id));
+    else selected.clear();
+    render();
+});
+
+// ---- Add user ----
+document.getElementById("btn-add").addEventListener("click", () => {
+    ["add-eth-id","add-first","add-last","add-email"].forEach(id => document.getElementById(id).value = "");
+    openModal("modal-add");
+});
+document.getElementById("btn-add-confirm").addEventListener("click", async () => {
+    const eth_id = document.getElementById("add-eth-id").value.trim();
+    if (!eth_id) { toast("ETH-ID fehlt", "err"); return; }
+    try {
+        await apiFetch("/users", {method: "POST", body: JSON.stringify({
+            eth_id,
+            first_name: document.getElementById("add-first").value,
+            last_name: document.getElementById("add-last").value,
+            email: document.getElementById("add-email").value,
+        })});
+        closeModal("modal-add");
+        toast("User erstellt", "ok");
+        loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---- CSV upload ----
+document.getElementById("btn-upload").addEventListener("click", () => {
+    document.getElementById("csv-input").click();
+});
+document.getElementById("csv-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+        const r = await apiFetch("/users/upload_csv", {method: "POST", body: fd});
+        toast(`Importiert: ${r.created} erstellt, ${r.skipped} übersprungen`, "ok");
+        loadUsers();
+    } catch (err) { toast(err.message, "err"); }
+    e.target.value = "";
+});
+
+// ---- Bulk actions ----
+document.getElementById("btn-bulk-delete").addEventListener("click", async () => {
+    if (!confirm(`${selected.size} User wirklich löschen?`)) return;
+    try {
+        await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "delete", ids: [...selected]})});
+        selected.clear(); toast("Gelöscht", "ok"); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+document.getElementById("btn-delete-all").addEventListener("click", async () => {
+    if (!confirm("ALLE User löschen? Das kann nicht rückgängig gemacht werden.")) return;
+    try {
+        await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "delete_all"})});
+        selected.clear(); toast("Alle User gelöscht", "ok"); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+document.getElementById("btn-bulk-regenerate").addEventListener("click", async () => {
+    if (!confirm(`${selected.size} Tokens neu generieren?`)) return;
+    try {
+        const r = await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "regenerate", ids: [...selected]})});
+        toast(`${r.count} Tokens erneuert`, "ok");
+        loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---- Email modal ----
+document.getElementById("btn-bulk-email").addEventListener("click", () => {
+    document.getElementById("send-results").innerHTML = "";
+    document.getElementById("smtp-test-status").textContent = "";
+    openModal("modal-email");
+});
+document.getElementById("btn-smtp-test").addEventListener("click", async () => {
+    const st = document.getElementById("smtp-test-status");
+    st.textContent = "  Prüfe…";
+    try {
+        const r = await apiFetch("/email/test", {method: "POST", body: JSON.stringify(readSmtp())});
+        st.textContent = "  " + r.message;
+        st.className = r.ok ? "text-ok" : "text-err";
+    } catch (e) {
+        st.textContent = "  " + e.message;
+        st.className = "text-err";
+    }
+});
+document.getElementById("btn-send-mails").addEventListener("click", async () => {
+    const payload = {...readSmtp(),
+        user_ids: [...selected],
+        subject: document.getElementById("mail-subject").value,
+        body: document.getElementById("mail-body").value,
+    };
+    const resEl = document.getElementById("send-results");
+    resEl.innerHTML = '<div class="notice">Senden…</div>';
+    try {
+        const r = await apiFetch("/email/send", {method: "POST", body: JSON.stringify(payload)});
+        const ok = r.results.filter(x => x.ok).length;
+        const fail = r.results.length - ok;
+        const parts = [`<div class="notice ${fail ? 'warn' : 'ok'}"><strong>${ok}</strong> gesendet, <strong>${fail}</strong> fehlgeschlagen</div>`];
+        if (fail > 0) {
+            parts.push('<table><thead><tr><th>User</th><th>Status</th></tr></thead><tbody>');
+            for (const x of r.results.filter(x => !x.ok)) {
+                parts.push(`<tr><td>${esc(x.eth_id)}</td><td class="text-err">${esc(x.message)}</td></tr>`);
+            }
+            parts.push("</tbody></table>");
+        }
+        resEl.innerHTML = parts.join("");
+    } catch (e) {
+        resEl.innerHTML = `<div class="notice err">${esc(e.message)}</div>`;
+    }
+});
+
+function readSmtp() {
+    return {
+        username: document.getElementById("smtp-user").value,
+        password: document.getElementById("smtp-pass").value,
+        host:     document.getElementById("smtp-host").value,
+        port:     Number(document.getElementById("smtp-port").value),
+        sender_email: document.getElementById("smtp-from").value || null,
+    };
+}
+
+loadUsers();
+</script>
+</body>
+</html>

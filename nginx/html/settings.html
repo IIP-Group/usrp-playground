@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Settings — USRP Benchmark</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Settings</h2>
+            <span class="sp"></span>
+            <button id="btn-save" class="btn btn-primary">Alle Änderungen speichern</button>
+        </div>
+
+        <div class="notice warn">
+            Änderungen überschreiben die <code>.env</code> zur Laufzeit.
+            Sie werden beim nächsten Task des Workers wirksam — der USRP-Teil
+            wird automatisch neu konfiguriert.
+        </div>
+
+        <div id="notice-area"></div>
+
+        <div id="groups">
+            <div class="empty">Laden…</div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+initShell("settings");
+
+const GROUP_TITLES = {
+    radio:  "📡 Radio",
+    guard:  "⏱ Timing / Guard",
+    safety: "🛡 Duty Cycle / LBT",
+    limits: "🚦 Limits",
+};
+
+let current = {};  // key → {value, type, source, label, group}
+let dirty = new Set();
+
+async function loadSettings() {
+    try {
+        current = await apiFetch("/settings");
+        render();
+    } catch (e) { toast(e.message, "err"); }
+}
+
+function render() {
+    const groups = {};
+    for (const [key, spec] of Object.entries(current)) {
+        (groups[spec.group] ||= []).push({key, ...spec});
+    }
+
+    const order = ["radio", "guard", "safety", "limits"];
+    const html = order.filter(g => groups[g]).map(g => {
+        const rows = groups[g].map(s => {
+            const id = `f-${s.key}`;
+            let input;
+            if (s.type === "bool") {
+                input = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">
+                    <option value="true"  ${s.value === true  ? 'selected' : ''}>true</option>
+                    <option value="false" ${s.value === false ? 'selected' : ''}>false</option>
+                </select>`;
+            } else {
+                input = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
+            }
+            const src = s.source === "db"
+                ? '<span class="badge ok"><span class="dot"></span>override</span>'
+                : s.source === "env"
+                    ? '<span class="badge"><span class="dot" style="background:var(--accent)"></span>.env</span>'
+                    : '<span class="text-dim" style="font-size: 11px;">default</span>';
+            const resetBtn = s.source === "db"
+                ? `<button class="btn btn-sm btn-ghost" onclick="resetKey('${s.key}')">Reset</button>`
+                : "";
+            return `<tr>
+                <td style="width: 220px;"><strong>${esc(s.label)}</strong><div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div></td>
+                <td>${input}</td>
+                <td class="nowrap">${src}</td>
+                <td>${resetBtn}</td>
+            </tr>`;
+        }).join("");
+        return `
+            <h3 style="margin: 20px 0 10px; font-size: 14px; color: var(--text-dim); font-weight: 600;">${GROUP_TITLES[g] || g}</h3>
+            <table><tbody>${rows}</tbody></table>
+        `;
+    }).join("");
+
+    document.getElementById("groups").innerHTML = html;
+}
+
+function onChange(key) {
+    dirty.add(key);
+    document.getElementById("btn-save").textContent = `Änderungen speichern (${dirty.size})`;
+}
+
+async function resetKey(key) {
+    try {
+        await apiFetch("/settings/" + encodeURIComponent(key), {method: "DELETE"});
+        toast("Reset", "ok");
+        dirty.delete(key);
+        loadSettings();
+    } catch (e) { toast(e.message, "err"); }
+}
+
+document.getElementById("btn-save").addEventListener("click", async () => {
+    if (!dirty.size) { toast("Keine Änderungen"); return; }
+    const payload = {};
+    for (const key of dirty) {
+        const el = document.getElementById("f-" + key);
+        payload[key] = el.value;
+    }
+    try {
+        const r = await apiFetch("/settings", {method: "PUT", body: JSON.stringify(payload)});
+        const errCount = Object.keys(r.errors || {}).length;
+        if (errCount) {
+            toast(`${r.applied.length} gespeichert, ${errCount} Fehler`, "err");
+        } else {
+            toast(`${r.applied.length} gespeichert`, "ok");
+        }
+        dirty.clear();
+        document.getElementById("btn-save").textContent = "Alle Änderungen speichern";
+        loadSettings();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+loadSettings();
+</script>
+</body>
+</html>

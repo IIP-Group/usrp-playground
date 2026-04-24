@@ -20,6 +20,9 @@ jobs:
           - context: .
             dockerfile: ./worker/Dockerfile
             image: usrp-benchmark-worker
+          - context: ./nginx
+            dockerfile: ./nginx/Dockerfile
+            image: usrp-benchmark-nginx
     runs-on: ubuntu-latest
     permissions:
       contents: read

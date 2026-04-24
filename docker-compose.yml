@@ -1,7 +1,7 @@
 services:
 
   db:
-    build: ./db
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -18,8 +19,8 @@ services:
   entrypoint:
     build: ./entrypoint
     restart: unless-stopped
-    ports:
-      - "${ENTRYPOINT_PORT:-8000}:8000"
+    expose:
+      - "8000"
     env_file: .env
     volumes:
       - ./data/tasks:/data
@@ -41,3 +42,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  nginx:
+    build: ./nginx
+    restart: unless-stopped
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+    environment:
+      BACKEND_HOST: entrypoint
+      BACKEND_PORT: "8000"
+    depends_on:
+      - entrypoint
