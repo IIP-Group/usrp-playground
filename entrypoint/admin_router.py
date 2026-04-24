@@ -120,6 +120,8 @@ def logs_bulk(
     """
     Destructive operations on logs. Require the admin password to be re-entered.
     payload: {action: "delete"|"delete_all", ids?: [int,...], password: str}
+
+    delete_all wipes both logs and tasks so that the dashboard stays consistent.
     """
     password = payload.get("password", "")
     if not auth.check_credentials(session["username"], password):
@@ -127,17 +129,32 @@ def logs_bulk(
 
     action = payload.get("action")
     if action == "delete_all":
-        n = db.query(Log).delete()
+        n_logs = db.query(Log).delete()
+        n_tasks = db.query(Task).delete()
         db.commit()
-        return {"ok": True, "action": action, "count": n}
+        return {"ok": True, "action": action, "count": n_logs,
+                "logs": n_logs, "tasks": n_tasks}
 
     ids = payload.get("ids") or []
     if action == "delete":
         if not ids:
             raise HTTPException(status_code=400, detail="Keine Logs ausgewählt")
+        # If selected logs reference "submit" with a task uid in detail, also
+        # drop those tasks. Cheaper alternative: match by task uid in detail.
+        rows = db.query(Log).filter(Log.id.in_(ids)).all()
+        task_uids = set()
+        for r in rows:
+            if r.action == "submit" and r.detail:
+                # detail format: "uid=<uuid>"
+                for part in str(r.detail).split():
+                    if part.startswith("uid="):
+                        task_uids.add(part[4:])
+        if task_uids:
+            db.query(Task).filter(Task.uid.in_(list(task_uids))).delete(synchronize_session=False)
         n = db.query(Log).filter(Log.id.in_(ids)).delete(synchronize_session=False)
         db.commit()
-        return {"ok": True, "action": action, "count": n}
+        return {"ok": True, "action": action, "count": n,
+                "logs": n, "tasks": len(task_uids)}
 
     raise HTTPException(status_code=400, detail=f"Unbekannte Aktion '{action}'")
 

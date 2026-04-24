@@ -21,7 +21,7 @@ Ein gemeinsamer Server, der dein Basisband-Signal über einen echten USRP X410 s
 pip install git+https://github.com/RaresBares/USRP-Benchmark-System.git
 ```
 
-Das installiert das Python-Package `usrp_benchmark` mit der Klasse `USRPClient`.
+Das installiert das Python-Package `usrp_benchmark` mit der Klasse `USRPClient` sowie das CLI-Tool `usrp-client`.
 
 Empfohlen: frische virtuelle Umgebung.
 
@@ -35,7 +35,7 @@ Du hast per Mail ein personalisiertes Token bekommen (beginnt mit deinem ETH-Kü
 
 ---
 
-## 4. Minimal-Beispiel
+## 4. Minimal-Beispiel (Python)
 
 ```python
 import numpy as np
@@ -94,63 +94,69 @@ Das Ergebnis enthält **Guard-Regionen** vor und nach deinem Signal (ca. 100 ms 
 
 ---
 
-## 7. Guard-Regionen abschneiden
+## 7. CLI-Tool (ohne Python-Code)
 
-Wenn du nur den Teil während aktiver TX willst:
+Wenn du das Signal aus einer anderen Sprache erzeugst (MATLAB, C, GNU Radio) oder einfach nur schnell ein File durchjagen willst — nach `pip install` steht `usrp-client` im Terminal bereit.
 
-```python
-fs = 25e6
-guard_s = 0.1  # default begin_guard
-guard_samples = int(guard_s * fs)
+**Format der Datei:** `.f32` — interleaved Float32, Reihenfolge `real, imag, real, imag, ...`. Das ist dasselbe Format das auch GNU Radio und viele SDR-Tools verwenden.
 
-rx_core = rx[guard_samples : guard_samples + len(tx)]
+**Aufruf:**
+
+```bash
+usrp-client -i input.f32 -o output.f32 \
+            -s 129.132.24.210:80 \
+            -t DEIN-TOKEN-HIER
 ```
 
-Für **exaktes** Alignment verwende Cross-Correlation:
+**Argumente:**
+
+| Flag | Bedeutung | Default |
+|---|---|---|
+| `-i`, `--input` | Pfad zur Eingabedatei (`.f32`, interleaved IQ) | — (required) |
+| `-o`, `--output` | Pfad für die empfangene Datei | `output.f32` |
+| `-s`, `--server` | Server-Adresse `host:port` | `localhost:8000` |
+| `-t`, `--token` | Auth-Token aus deiner E-Mail | default-bench-token |
+
+Während der Ausführung bekommst du Status-Updates auf der Konsole: `[upload]`, `[queued]`, `[waiting]`, `[running]`, `[done]`, `[result]`.
+
+**Beispiel: F32 aus numpy erzeugen** (falls du in Python ein Signal hast und es via CLI schicken willst):
 
 ```python
-from scipy.signal import correlate
-corr = correlate(rx, tx, mode='valid')
-peak = np.argmax(np.abs(corr))
-rx_aligned = rx[peak : peak + len(tx)]
+import numpy as np
+sig = np.exp(1j * 2 * np.pi * 1e6 * np.arange(100_000) / 25e6).astype(np.complex64)
+raw = np.empty(len(sig)*2, dtype=np.float32)
+raw[0::2] = sig.real
+raw[1::2] = sig.imag
+raw.tofile("input.f32")
+```
+
+Und zurücklesen:
+
+```python
+import numpy as np
+raw = np.fromfile("output.f32", dtype=np.float32)
+rx = raw[0::2] + 1j * raw[1::2]
+```
+
+**MATLAB:**
+
+```matlab
+% schreiben
+sig = exp(1i*2*pi*1e6*(0:99999)/25e6);
+fid = fopen('input.f32','wb');
+fwrite(fid, [real(sig); imag(sig)], 'float32');   % interleaved
+fclose(fid);
+
+% lesen
+fid = fopen('output.f32','rb');
+raw = fread(fid, Inf, 'float32');
+fclose(fid);
+rx  = raw(1:2:end) + 1i*raw(2:2:end);
 ```
 
 ---
 
-## 8. Plot-Helper
-
-```python
-import matplotlib.pyplot as plt
-
-def plot_signal(signal, fs, title="Signal", n_time=500):
-    signal = np.asarray(signal); n = len(signal); t = np.arange(n) / fs
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    fig.suptitle(title)
-
-    m = min(n_time, n)
-    axes[0].plot(t[:m]*1e6, signal[:m].real, label="I")
-    axes[0].plot(t[:m]*1e6, signal[:m].imag, label="Q", linestyle="--")
-    axes[0].set_xlabel("Zeit [µs]"); axes[0].legend(); axes[0].grid(True)
-    axes[0].set_title(f"Zeitbereich ({m} Samples)")
-
-    axes[1].plot(signal[:m].real, signal[:m].imag, linewidth=0.8)
-    axes[1].set_xlabel("I"); axes[1].set_ylabel("Q"); axes[1].axis("equal"); axes[1].grid(True)
-    axes[1].set_title("Komplexe Ebene")
-
-    sp = np.fft.fftshift(np.fft.fft(signal))
-    fr = np.fft.fftshift(np.fft.fftfreq(n, d=1/fs))
-    axes[2].plot(fr/1e6, 20*np.log10(np.abs(sp) + 1e-12))
-    axes[2].set_xlabel("Frequenz [MHz]"); axes[2].set_ylabel("Magnitude [dB]")
-    axes[2].set_title("Spektrum"); axes[2].grid(True)
-
-    plt.tight_layout(); plt.show()
-
-plot_signal(rx, fs, title="RX Signal")
-```
-
----
-
-## 9. Häufige Fehler
+## 8. Häufige Fehler
 
 | Fehler | Bedeutung | Fix |
 |---|---|---|
@@ -163,13 +169,7 @@ plot_signal(rx, fs, title="RX Signal")
 
 ---
 
-## 10. In Jupyter / IPython
-
-`USRPClient.send` funktioniert auch in Jupyter (Event-Loop wird automatisch gehandhabt). Wenn ein Fehler kommt, Kernel einmal neu starten.
-
----
-
-## 11. Fragen / Bugs
+## 9. Fragen / Bugs
 
 GitHub Issues: [github.com/RaresBares/USRP-Benchmark-System/issues](https://github.com/RaresBares/USRP-Benchmark-System/issues)
 
