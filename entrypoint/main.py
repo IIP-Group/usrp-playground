@@ -20,14 +20,26 @@ DATA_DIR = Path("/data")
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 DEFAULT_TOKEN = os.getenv("DEFAULT_AUTH_TOKEN", "default-bench-token-2024")
-# Single queue: every accepted WebSocket = one queue slot.
-# When the queue is full, new connections are rejected before accept().
-MAX_QUEUE = int(os.getenv("MAX_QUEUE",
-                          os.getenv("MAX_WS_CONNECTIONS", "100")))
-MAX_QUEUE_PER_IP = int(os.getenv("MAX_QUEUE_PER_IP",
-                                 os.getenv("MAX_WS_PER_IP", "5")))
-UPLOAD_TIMEOUT_SEC = float(os.getenv("UPLOAD_TIMEOUT_SEC", "30"))
-POLL_INTERVAL_SEC = float(os.getenv("POLL_INTERVAL_SEC", "2"))
+# In-memory cache der Limits. Wird aus settings_store (DB > env > default)
+# gefüllt und nach jedem Settings-Save automatisch refresht.
+_LIMITS = {
+    "MAX_QUEUE": int(os.getenv("MAX_QUEUE", os.getenv("MAX_WS_CONNECTIONS", "100"))),
+    "MAX_QUEUE_PER_IP": int(os.getenv("MAX_QUEUE_PER_IP", os.getenv("MAX_WS_PER_IP", "5"))),
+    "UPLOAD_TIMEOUT_SEC": float(os.getenv("UPLOAD_TIMEOUT_SEC", "30")),
+    "POLL_INTERVAL_SEC": float(os.getenv("POLL_INTERVAL_SEC", "2")),
+}
+
+
+def refresh_limits():
+    """Re-read limit settings from DB. Called on startup and after admin saves."""
+    try:
+        with SessionLocal() as db:
+            _LIMITS["MAX_QUEUE"] = int(settings_store.get(db, "MAX_QUEUE", _LIMITS["MAX_QUEUE"]))
+            _LIMITS["MAX_QUEUE_PER_IP"] = int(settings_store.get(db, "MAX_QUEUE_PER_IP", _LIMITS["MAX_QUEUE_PER_IP"]))
+            _LIMITS["UPLOAD_TIMEOUT_SEC"] = float(settings_store.get(db, "UPLOAD_TIMEOUT_SEC", _LIMITS["UPLOAD_TIMEOUT_SEC"]))
+            _LIMITS["POLL_INTERVAL_SEC"] = float(settings_store.get(db, "POLL_INTERVAL_SEC", _LIMITS["POLL_INTERVAL_SEC"]))
+    except Exception:
+        pass  # keep last-known values if DB is unreachable
 
 
 ws_count = 0
@@ -83,6 +95,7 @@ def startup():
             db.commit()
         # Make sure server_state row exists
         server_state.get_state(db)
+    refresh_limits()
 
 
 async def _ws_send(ws, **kwargs):
@@ -107,11 +120,11 @@ async def ws_run(ws: WebSocket):
 
     # -------- Single queue: each accepted WS occupies one queue slot --------
     # Cheap rejects BEFORE touching the DB.
-    if ws_count >= MAX_QUEUE:
+    if ws_count >= _LIMITS["MAX_QUEUE"]:
         await ws.close(code=1013, reason="queue full")
         return
     # Per-IP cap: stop a single client/loop from monopolizing all slots.
-    if ws_per_ip.get(ip, 0) >= MAX_QUEUE_PER_IP:
+    if ws_per_ip.get(ip, 0) >= _LIMITS["MAX_QUEUE_PER_IP"]:
         await ws.close(code=1013, reason="too many connections from your IP")
         return
 
@@ -149,12 +162,12 @@ async def ws_run(ws: WebSocket):
 
         # -------- Receive bytes (with timeout against slow-loris) --------
         try:
-            data = await asyncio.wait_for(ws.receive_bytes(), timeout=UPLOAD_TIMEOUT_SEC)
+            data = await asyncio.wait_for(ws.receive_bytes(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"])
         except asyncio.TimeoutError:
             with SessionLocal() as db:
                 _log(db, "upload_timeout", token_id=token_id, eth_id=eth_id, ip=ip)
             await _ws_send(ws, error="upload_timeout",
-                           message=f"No upload within {UPLOAD_TIMEOUT_SEC:.0f}s")
+                           message=f"No upload within {_LIMITS["UPLOAD_TIMEOUT_SEC"]:.0f}s")
             await ws.close()
             return
 
@@ -191,7 +204,7 @@ async def ws_run(ws: WebSocket):
 
         # -------- Poll status (short DB session per poll, NOT held across sleep) --------
         while True:
-            await asyncio.sleep(POLL_INTERVAL_SEC)
+            await asyncio.sleep(_LIMITS["POLL_INTERVAL_SEC"])
             with SessionLocal() as db:
                 if not server_state.is_running(db):
                     await _ws_send(ws, error="server_sleeping",
@@ -280,8 +293,8 @@ def health(auth_token: str = Query(...), db: Session = Depends(get_db)):
         "status": "ok",
         "pending_tasks": pending,
         "queue_size": ws_count,
-        "queue_max": MAX_QUEUE,
-        "queue_per_ip_max": MAX_QUEUE_PER_IP,
+        "queue_max": _LIMITS["MAX_QUEUE"],
+        "queue_per_ip_max": _LIMITS["MAX_QUEUE_PER_IP"],
         "queue_per_ip": dict(ws_per_ip),
         "usrp_state": server_state.get_state(db),
     }

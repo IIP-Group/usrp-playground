@@ -481,6 +481,12 @@ def settings_put(
             applied.append(key)
         except Exception as e:
             errors[key] = str(e)
+    # Push runtime-relevant limit values into main's in-memory cache.
+    try:
+        import main as _main
+        _main.refresh_limits()
+    except Exception:
+        pass
     return {"ok": len(errors) == 0, "applied": applied, "errors": errors}
 
 
@@ -491,4 +497,9 @@ def settings_reset_one(
     _: dict = Depends(auth.require_admin),
 ):
     settings_store.clear_override(db, key)
+    try:
+        import main as _main
+        _main.refresh_limits()
+    except Exception:
+        pass
     return {"ok": True}

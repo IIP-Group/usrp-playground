@@ -81,8 +81,14 @@ function render() {
             } else {
                 input = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
             }
+            const info = s.desc
+                ? `<span class="info-icon" tabindex="0" title="${esc(s.desc)}" aria-label="${esc(s.desc)}">i</span>`
+                : "";
             return `<tr>
-                <td style="width: 240px;"><strong>${esc(s.label)}</strong><div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div></td>
+                <td style="width: 260px;">
+                    <strong>${esc(s.label)}</strong> ${info}
+                    <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
+                </td>
                 <td>${input}</td>
                 <td style="width: 28px; text-align: center;"><span class="settings-dot" data-dot="${s.key}" title="gespeichert"></span></td>
             </tr>`;

@@ -347,6 +347,32 @@ input.big-check {
     box-shadow: 0 0 0 2px rgba(241,76,76,0.2);
 }
 
+/* Info icon next to setting labels — native browser tooltip on hover */
+.info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: rgba(91,141,239,0.15);
+    color: var(--accent);
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+    transition: all 0.15s;
+    vertical-align: middle;
+}
+.info-icon:hover, .info-icon:focus {
+    background: var(--accent);
+    color: white;
+    outline: none;
+}
+
 /* Copy-to-clipboard cell: icon is tucked away, visible on row hover */
 .copy-cell {
     display: inline-flex;
