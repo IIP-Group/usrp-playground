@@ -168,8 +168,16 @@ class USRPChannel:
         self._tx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._tx_req.send_json(tx_cmd)
         resp = self._tx_req.recv_json()
-        if resp.get("status") == "ERROR":
+        status = resp.get("status")
+        if status == "ERROR":
             raise RuntimeError(f"TX configure failed: {resp.get('error')}")
+        if status == "MISMATCH":
+            # Actual USRP settings differ from what we requested → downstream
+            # timing/frequency math would silently be wrong. Abort loudly.
+            raise RuntimeError(
+                f"TX configure mismatch — the USRP could not apply the requested "
+                f"settings exactly. Mismatches: {resp.get('mismatches')}"
+            )
 
         rx_cmd = {
             "op": "CONFIGURE_USRP",
@@ -181,8 +189,14 @@ class USRPChannel:
         self._rx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._rx_req.send_json(rx_cmd)
         resp = self._rx_req.recv_json()
-        if resp.get("status") == "ERROR":
+        status = resp.get("status")
+        if status == "ERROR":
             raise RuntimeError(f"RX configure failed: {resp.get('error')}")
+        if status == "MISMATCH":
+            raise RuntimeError(
+                f"RX configure mismatch — the USRP could not apply the requested "
+                f"settings exactly. Mismatches: {resp.get('mismatches')}"
+            )
 
         self._configured = True
         self._current_fs = fs

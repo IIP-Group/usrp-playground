@@ -24,6 +24,10 @@ services:
     env_file: .env
     volumes:
       - ./data/tasks:/data
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     depends_on:
       db:
         condition: service_healthy
@@ -51,5 +55,9 @@ services:
     environment:
       BACKEND_HOST: entrypoint
       BACKEND_PORT: "8000"
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     depends_on:
       - entrypoint
