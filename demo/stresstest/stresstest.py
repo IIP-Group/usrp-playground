@@ -19,7 +19,7 @@ import numpy as np
 import websockets
 
 
-TOKEN = "default-bench-token-2024"
+TOKEN = "default-bench-token-2024"  # default; override via --token
 
 
 def make_signal(n_samples: int) -> bytes:
@@ -240,7 +240,11 @@ def main():
                    help="Max. Wartezeit zwischen zwei Server-Nachrichten (s)")
     p.add_argument("--samples", type=int, default=200_000,
                    help="Signal-Größe pro Upload — größer ⇒ Queue baut sich auf")
+    p.add_argument("--token", default=TOKEN,
+                   help="Auth-Token (Default: default-bench-token-2024)")
     args = p.parse_args()
+    global TOKEN
+    TOKEN = args.token
     asyncio.run(run(args.host, args.port, args.n, args.ramp,
                     args.total_timeout, args.msg_timeout, args.samples))
 
