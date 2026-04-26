@@ -20,8 +20,12 @@ DATA_DIR = Path("/data")
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 DEFAULT_TOKEN = os.getenv("DEFAULT_AUTH_TOKEN", "default-bench-token-2024")
-MAX_WS = int(os.getenv("MAX_WS_CONNECTIONS", "100"))
-MAX_WS_PER_IP = int(os.getenv("MAX_WS_PER_IP", "5"))
+# Single queue: every accepted WebSocket = one queue slot.
+# When the queue is full, new connections are rejected before accept().
+MAX_QUEUE = int(os.getenv("MAX_QUEUE",
+                          os.getenv("MAX_WS_CONNECTIONS", "100")))
+MAX_QUEUE_PER_IP = int(os.getenv("MAX_QUEUE_PER_IP",
+                                 os.getenv("MAX_WS_PER_IP", "5")))
 UPLOAD_TIMEOUT_SEC = float(os.getenv("UPLOAD_TIMEOUT_SEC", "30"))
 POLL_INTERVAL_SEC = float(os.getenv("POLL_INTERVAL_SEC", "2"))
 
@@ -32,10 +36,6 @@ ws_per_ip: dict[str, int] = {}
 
 def _current_max_upload(db: Session) -> int:
     return int(settings_store.get(db, "MAX_UPLOAD_MB", 200)) * 1024 * 1024
-
-
-def _current_max_pending(db: Session) -> int:
-    return int(settings_store.get(db, "MAX_PENDING_TASKS", 200))
 
 
 def _radio_info(db: Session) -> dict:
@@ -105,13 +105,13 @@ async def ws_run(ws: WebSocket):
 
     ip = ws.client.host if ws.client else "unknown"
 
-    # -------- Cheap rejects BEFORE touching the DB --------
-    # Hard global cap: don't even accept the WebSocket if we're full.
-    if ws_count >= MAX_WS:
-        await ws.close(code=1013, reason="server full")
+    # -------- Single queue: each accepted WS occupies one queue slot --------
+    # Cheap rejects BEFORE touching the DB.
+    if ws_count >= MAX_QUEUE:
+        await ws.close(code=1013, reason="queue full")
         return
     # Per-IP cap: stop a single client/loop from monopolizing all slots.
-    if ws_per_ip.get(ip, 0) >= MAX_WS_PER_IP:
+    if ws_per_ip.get(ip, 0) >= MAX_QUEUE_PER_IP:
         await ws.close(code=1013, reason="too many connections from your IP")
         return
 
@@ -143,19 +143,9 @@ async def ws_run(ws: WebSocket):
             token_id = token.id
             eth_id = _eth_id_for_token(db, token)
             radio_info = _radio_info(db)
-            max_pending = _current_max_pending(db)
             max_upload = _current_max_upload(db)
-            pending_now = db.query(Task).filter(Task.state.in_(("PD", "R"))).count()
 
         await _ws_send(ws, message="info", **radio_info)
-
-        if pending_now >= max_pending:
-            with SessionLocal() as db:
-                _log(db, "queue_full", token_id=token_id, eth_id=eth_id, ip=ip)
-            await _ws_send(ws, error="queue_full",
-                           message="Too many pending tasks, try again later")
-            await ws.close()
-            return
 
         # -------- Receive bytes (with timeout against slow-loris) --------
         try:
@@ -289,10 +279,10 @@ def health(auth_token: str = Query(...), db: Session = Depends(get_db)):
     return {
         "status": "ok",
         "pending_tasks": pending,
-        "ws_connections": ws_count,
-        "ws_max": MAX_WS,
-        "ws_per_ip_max": MAX_WS_PER_IP,
-        "ws_per_ip": dict(ws_per_ip),
+        "queue_size": ws_count,
+        "queue_max": MAX_QUEUE,
+        "queue_per_ip_max": MAX_QUEUE_PER_IP,
+        "queue_per_ip": dict(ws_per_ip),
         "usrp_state": server_state.get_state(db),
     }
 

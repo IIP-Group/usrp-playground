@@ -47,7 +47,6 @@ EDITABLE_KEYS: dict[str, dict] = {
     # Limits
     "MAX_UPLOAD_MB":      {"type": "int", "group": "limits", "label": "Max Upload (MB)"},
     "MAX_SAMPLES":        {"type": "int", "group": "limits", "label": "Max Samples"},
-    "MAX_PENDING_TASKS":  {"type": "int", "group": "limits", "label": "Max Pending Tasks"},
     "TASK_TTL_HOURS":     {"type": "int", "group": "limits", "label": "Task TTL (h)"},
 }
 
