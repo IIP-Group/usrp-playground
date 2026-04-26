@@ -228,6 +228,7 @@ async def run(host: str, port: int, n: int, ramp: float,
 
 
 def main():
+    global TOKEN
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="localhost")
     p.add_argument("--port", type=int, default=8000)
@@ -243,7 +244,6 @@ def main():
     p.add_argument("--token", default=TOKEN,
                    help="Auth-Token (Default: default-bench-token-2024)")
     args = p.parse_args()
-    global TOKEN
     TOKEN = args.token
     asyncio.run(run(args.host, args.port, args.n, args.ramp,
                     args.total_timeout, args.msg_timeout, args.samples))
