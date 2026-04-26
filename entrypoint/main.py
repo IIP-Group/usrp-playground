@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Query, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
-from database import get_db, engine
+from database import get_db, engine, SessionLocal
 from models import Token, Task, Log, User
 import server_state
 import settings_store
@@ -21,9 +21,13 @@ INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 DEFAULT_TOKEN = os.getenv("DEFAULT_AUTH_TOKEN", "default-bench-token-2024")
 MAX_WS = int(os.getenv("MAX_WS_CONNECTIONS", "100"))
+MAX_WS_PER_IP = int(os.getenv("MAX_WS_PER_IP", "5"))
+UPLOAD_TIMEOUT_SEC = float(os.getenv("UPLOAD_TIMEOUT_SEC", "30"))
+POLL_INTERVAL_SEC = float(os.getenv("POLL_INTERVAL_SEC", "2"))
 
 
 ws_count = 0
+ws_per_ip: dict[str, int] = {}
 
 
 def _current_max_upload(db: Session) -> int:
@@ -99,58 +103,75 @@ def _eth_id_for_token(db: Session, token: Token) -> str | None:
 async def ws_run(ws: WebSocket):
     global ws_count
 
+    ip = ws.client.host if ws.client else "unknown"
+
+    # -------- Cheap rejects BEFORE touching the DB --------
+    # Hard global cap: don't even accept the WebSocket if we're full.
+    if ws_count >= MAX_WS:
+        await ws.close(code=1013, reason="server full")
+        return
+    # Per-IP cap: stop a single client/loop from monopolizing all slots.
+    if ws_per_ip.get(ip, 0) >= MAX_WS_PER_IP:
+        await ws.close(code=1013, reason="too many connections from your IP")
+        return
+
     await ws.accept()
     ws_count += 1
+    ws_per_ip[ip] = ws_per_ip.get(ip, 0) + 1
 
-    db = next(get_db())
-    ip = ws.client.host if ws.client else None
-    task = None          # populated once the client's upload is persisted
+    task = None
+    task_uid = None
     eth_id = None
-    token = None
+    token_id = None
 
     try:
-        # -------- Server sleeping? --------
-        if not server_state.is_running(db):
-            await _ws_send(ws, error="server_sleeping", message="SLEEPING ZZZZ")
-            await ws.close()
-            return
+        # -------- One short DB session for setup (auth + radio info + queue check) --------
+        with SessionLocal() as db:
+            if not server_state.is_running(db):
+                await _ws_send(ws, error="server_sleeping", message="SLEEPING ZZZZ")
+                await ws.close()
+                return
 
-        if ws_count > MAX_WS:
-            await _ws_send(ws, error="too_many_connections",
-                           message="Server full, try again later")
-            await ws.close()
-            return
+            auth_token = ws.query_params.get("auth_token", "")
+            token = db.query(Token).filter(Token.token == auth_token).first()
+            if not token:
+                _log(db, "auth_failed", ip=ip, detail=f"token={auth_token[:20]}")
+                await _ws_send(ws, error="auth_failed", message="Invalid auth token")
+                await ws.close()
+                return
 
-        # -------- Auth --------
-        auth_token = ws.query_params.get("auth_token", "")
-        token = db.query(Token).filter(Token.token == auth_token).first()
-        if not token:
-            _log(db, "auth_failed", ip=ip, detail=f"token={auth_token[:20]}")
-            await _ws_send(ws, error="auth_failed", message="Invalid auth token")
-            await ws.close()
-            return
+            token_id = token.id
+            eth_id = _eth_id_for_token(db, token)
+            radio_info = _radio_info(db)
+            max_pending = _current_max_pending(db)
+            max_upload = _current_max_upload(db)
+            pending_now = db.query(Task).filter(Task.state.in_(("PD", "R"))).count()
 
-        eth_id = _eth_id_for_token(db, token)
-
-        # -------- Send radio info --------
-        radio_info = _radio_info(db)
         await _ws_send(ws, message="info", **radio_info)
 
-        # -------- Queue check --------
-        max_pending = _current_max_pending(db)
-        if db.query(Task).filter(Task.state.in_(("PD", "R"))).count() >= max_pending:
-            _log(db, "queue_full", token_id=token.id, eth_id=eth_id, ip=ip)
+        if pending_now >= max_pending:
+            with SessionLocal() as db:
+                _log(db, "queue_full", token_id=token_id, eth_id=eth_id, ip=ip)
             await _ws_send(ws, error="queue_full",
                            message="Too many pending tasks, try again later")
             await ws.close()
             return
 
-        # -------- Receive bytes --------
-        data = await ws.receive_bytes()
-        max_upload = _current_max_upload(db)
+        # -------- Receive bytes (with timeout against slow-loris) --------
+        try:
+            data = await asyncio.wait_for(ws.receive_bytes(), timeout=UPLOAD_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            with SessionLocal() as db:
+                _log(db, "upload_timeout", token_id=token_id, eth_id=eth_id, ip=ip)
+            await _ws_send(ws, error="upload_timeout",
+                           message=f"No upload within {UPLOAD_TIMEOUT_SEC:.0f}s")
+            await ws.close()
+            return
+
         if len(data) > max_upload:
-            _log(db, "file_too_large", token_id=token.id, eth_id=eth_id,
-                 ip=ip, detail=f"{len(data)} bytes")
+            with SessionLocal() as db:
+                _log(db, "file_too_large", token_id=token_id, eth_id=eth_id,
+                     ip=ip, detail=f"{len(data)} bytes")
             await _ws_send(ws, error="file_too_large",
                            message=f"Max {max_upload} bytes")
             await ws.close()
@@ -161,48 +182,58 @@ async def ws_run(ws: WebSocket):
         task_dir = INPUT_DIR / str(task_uid)
         task_dir.mkdir(parents=True)
         (task_dir / "input.f32").write_bytes(data)
+        n_samples = len(data) // 8
 
-        n_samples = len(data) // 8  # complex64 = 2 * float32 = 8 bytes per sample
-        task = Task(uid=task_uid, token_id=token.id, n_samples=n_samples)
-        db.add(task)
-        db.commit()
+        with SessionLocal() as db:
+            task = Task(uid=task_uid, token_id=token_id, n_samples=n_samples)
+            db.add(task)
+            db.commit()
+            db.refresh(task)
+            created_at = task.created_at
+            _log(db, "submit", token_id=token_id, eth_id=eth_id,
+                 n_samples=n_samples, ip=ip, detail=f"uid={task_uid}")
+            pos = db.query(Task).filter(
+                Task.state == "PD", Task.created_at < created_at
+            ).count()
 
-        _log(db, "submit", token_id=token.id, eth_id=eth_id,
-             n_samples=n_samples, ip=ip, detail=f"uid={task_uid}")
-
-        pos = db.query(Task).filter(
-            Task.state == "PD", Task.created_at < task.created_at
-        ).count()
         await _ws_send(ws, message="queued", uid=str(task_uid),
                        state="PD", queue_position=pos)
 
-        # -------- Poll status --------
+        # -------- Poll status (short DB session per poll, NOT held across sleep) --------
         while True:
-            await asyncio.sleep(2)
-            # Check if server went to sleep mid-task
-            if not server_state.is_running(db):
-                await _ws_send(ws, error="server_sleeping",
-                               message="Server went to sleep zzZZ....")
-                await ws.close()
-                return
-            db.refresh(task)
-            pos = db.query(Task).filter(
-                Task.state == "PD", Task.created_at < task.created_at
-            ).count()
+            await asyncio.sleep(POLL_INTERVAL_SEC)
+            with SessionLocal() as db:
+                if not server_state.is_running(db):
+                    await _ws_send(ws, error="server_sleeping",
+                                   message="Server went to sleep zzZZ....")
+                    await ws.close()
+                    return
+                fresh = db.query(Task).filter(Task.uid == task_uid).first()
+                if fresh is None:
+                    await _ws_send(ws, error="task_lost", message="Task disappeared")
+                    await ws.close()
+                    return
+                state = fresh.state
+                error_message = fresh.error_message
+                pos = db.query(Task).filter(
+                    Task.state == "PD", Task.created_at < created_at
+                ).count()
             await _ws_send(ws, message="status", uid=str(task_uid),
-                           state=task.state, queue_position=pos)
-            if task.state == "D":
+                           state=state, queue_position=pos)
+            if state == "D":
                 break
 
-        if task.error_message:
-            _log(db, "task_error", token_id=token.id, eth_id=eth_id,
-                 ip=ip, detail=f"uid={task_uid}")
-            await _ws_send(ws, error="processing_failed", message=task.error_message)
+        if error_message:
+            with SessionLocal() as db:
+                _log(db, "task_error", token_id=token_id, eth_id=eth_id,
+                     ip=ip, detail=f"uid={task_uid}")
+            await _ws_send(ws, error="processing_failed", message=error_message)
         else:
             f32_path = OUTPUT_DIR / str(task_uid) / "output.f32"
             if f32_path.exists():
-                _log(db, "download", token_id=token.id, eth_id=eth_id, ip=ip,
-                     detail=f"uid={task_uid}")
+                with SessionLocal() as db:
+                    _log(db, "download", token_id=token_id, eth_id=eth_id, ip=ip,
+                         detail=f"uid={task_uid}")
                 await _ws_send(ws, message="done", uid=str(task_uid))
                 await ws.send_bytes(f32_path.read_bytes())
             else:
@@ -211,33 +242,42 @@ async def ws_run(ws: WebSocket):
         await ws.close()
 
     except WebSocketDisconnect:
-        # Client hung up — if their task is still pending, cancel it so the
-        # USRP doesn't waste time running a result nobody will pick up.
-        if task is not None:
+        # Client hung up — if their task is still pending, cancel it.
+        if task_uid is not None:
             try:
-                db.refresh(task)
-                if task.state == "PD":
-                    # still in queue → remove it and clean up the upload
-                    tdir = INPUT_DIR / str(task.uid)
-                    if tdir.exists():
-                        import shutil
-                        shutil.rmtree(tdir, ignore_errors=True)
-                    db.delete(task)
-                    db.commit()
-                    _log(db, "cancelled", token_id=token.id if token else None,
-                         eth_id=eth_id, ip=ip,
-                         detail=f"uid={task.uid} (while PD)")
-                elif task.state == "R":
-                    # already running — can't abort mid-transmission. Just
-                    # log that nobody will be there to download the result.
-                    _log(db, "cancelled", token_id=token.id if token else None,
-                         eth_id=eth_id, ip=ip,
-                         detail=f"uid={task.uid} (while R, completing anyway)")
+                with SessionLocal() as db:
+                    fresh = db.query(Task).filter(Task.uid == task_uid).first()
+                    if fresh is None:
+                        return
+                    if fresh.state == "PD":
+                        tdir = INPUT_DIR / str(task_uid)
+                        if tdir.exists():
+                            import shutil
+                            shutil.rmtree(tdir, ignore_errors=True)
+                        db.delete(fresh)
+                        db.commit()
+                        _log(db, "cancelled", token_id=token_id,
+                             eth_id=eth_id, ip=ip,
+                             detail=f"uid={task_uid} (while PD)")
+                    elif fresh.state == "R":
+                        _log(db, "cancelled", token_id=token_id,
+                             eth_id=eth_id, ip=ip,
+                             detail=f"uid={task_uid} (while R, completing anyway)")
             except Exception:
-                db.rollback()
+                pass
+    except Exception:
+        # Don't let one bad client take down the worker — swallow & close.
+        try:
+            await ws.close()
+        except Exception:
+            pass
     finally:
         ws_count -= 1
-        db.close()
+        c = ws_per_ip.get(ip, 0) - 1
+        if c <= 0:
+            ws_per_ip.pop(ip, None)
+        else:
+            ws_per_ip[ip] = c
 
 
 @app.get("/health")
@@ -250,6 +290,9 @@ def health(auth_token: str = Query(...), db: Session = Depends(get_db)):
         "status": "ok",
         "pending_tasks": pending,
         "ws_connections": ws_count,
+        "ws_max": MAX_WS,
+        "ws_per_ip_max": MAX_WS_PER_IP,
+        "ws_per_ip": dict(ws_per_ip),
         "usrp_state": server_state.get_state(db),
     }
 
