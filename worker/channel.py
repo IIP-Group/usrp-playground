@@ -178,6 +178,9 @@ class USRPChannel:
                 f"TX configure mismatch — the USRP could not apply the requested "
                 f"settings exactly. Mismatches: {resp.get('mismatches')}"
             )
+        # >>> DIAGNOSTIC (3x-frequency-bug) — REMOVE WHEN DONE
+        logger.info("[DIAG] TX configure actual: %s", resp.get("settings"))
+        # <<< DIAGNOSTIC
 
         rx_cmd = {
             "op": "CONFIGURE_USRP",
@@ -197,6 +200,10 @@ class USRPChannel:
                 f"RX configure mismatch — the USRP could not apply the requested "
                 f"settings exactly. Mismatches: {resp.get('mismatches')}"
             )
+        # >>> DIAGNOSTIC (3x-frequency-bug) — REMOVE WHEN DONE
+        logger.info("[DIAG] RX configure actual: %s  (requested fs=%s, fc=%s)",
+                    resp.get("settings"), fs, fc)
+        # <<< DIAGNOSTIC
 
         self._configured = True
         self._current_fs = fs
@@ -428,6 +435,15 @@ class USRPChannel:
                 rx_data = f["rx_signal"][:]
                 if rx_data.ndim == 2:
                     rx_data = rx_data[0]
+                # >>> DIAGNOSTIC (3x-frequency-bug) — REMOVE WHEN DONE
+                attrs = dict(f["rx_signal"].attrs)
+                logger.info(
+                    "[DIAG] RX file: %d samples, actual fs=%s, fc=%s "
+                    "(configured fs=%s, requested rx_samples=%s, rx_duration=%.4fs)",
+                    len(rx_data), attrs.get("fs"), attrs.get("fc"),
+                    fs, rx_samples_needed, rx_duration,
+                )
+                # <<< DIAGNOSTIC
 
             return rx_data.astype(np.complex64)
 
