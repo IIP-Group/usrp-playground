@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Benchmark — USRP Benchmark</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .bench-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 14px;
+        }
+        .bench-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+        }
+        .bench-card h4 {
+            font-size: 12px; font-weight: 600; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.04em;
+            margin-bottom: 10px;
+        }
+        .kv {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 4px 12px;
+            font-size: 13px;
+        }
+        .kv .k { color: var(--text-dim); }
+        .kv .v { font-family: var(--mono); }
+        .kv .v.warn { color: var(--warn); }
+        .kv .v.err  { color: var(--err); }
+        .kv .v.ok   { color: var(--ok); }
+        .plot-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+        }
+        .plot-card h4 {
+            font-size: 12px; font-weight: 600; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.04em;
+            margin-bottom: 8px;
+        }
+        canvas.plot { width: 100%; height: 220px; display: block; }
+        canvas.plot-wide { width: 100%; height: 200px; display: block; }
+        .bench-status { min-height: 22px; color: var(--text-dim); font-size: 13px; }
+        .bench-status.err { color: var(--err); }
+        .bench-status.ok  { color: var(--ok); }
+        .params-row {
+            display: flex; gap: 12px; align-items: end; flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .params-row .field { display: flex; flex-direction: column; }
+        .params-row label { margin-bottom: 4px; }
+        .params-row input { min-width: 100px; }
+    </style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 14px;">
+            <h2 style="margin: 0;">Benchmark</h2>
+            <span class="sp"></span>
+            <span class="text-dim" id="last-run-ts"></span>
+        </div>
+
+        <div class="notice">
+            Sends a complex sine through the live USRP setup using <em>your</em>
+            student token, then displays measured frequency, power, clipping
+            and spectrum. The most recent run is cached locally so you keep
+            seeing it after a reload.
+        </div>
+
+        <div class="params-row" style="margin-top: 14px;">
+            <div class="field" style="flex: 1; min-width: 280px;">
+                <label>Token</label>
+                <input id="bench-token" type="text" placeholder="Paste your auth token"
+                       autocomplete="off">
+            </div>
+            <div class="field">
+                <label>Tone frequency</label>
+                <div id="bench-tone"></div>
+            </div>
+            <div class="field">
+                <label>Samples</label>
+                <input id="bench-samples" type="number" value="100000" min="1024" step="1024">
+            </div>
+            <div class="field">
+                <button id="btn-run" class="btn btn-primary">Run benchmark</button>
+            </div>
+        </div>
+
+        <div id="bench-status" class="bench-status">Idle.</div>
+
+        <div id="bench-results" style="display: none; margin-top: 16px;">
+            <div class="bench-grid">
+                <div class="bench-card">
+                    <h4>Server config</h4>
+                    <div class="kv" id="srv-config"></div>
+                </div>
+                <div class="bench-card">
+                    <h4>Measurement</h4>
+                    <div class="kv" id="meas-stats"></div>
+                </div>
+            </div>
+
+            <div class="bench-grid">
+                <div class="plot-card">
+                    <h4>TX spectrum</h4>
+                    <canvas id="tx-plot" class="plot"></canvas>
+                </div>
+                <div class="plot-card">
+                    <h4>RX spectrum (signal slice)</h4>
+                    <canvas id="rx-plot" class="plot"></canvas>
+                </div>
+            </div>
+
+            <div class="plot-card" style="margin-top: 14px;">
+                <h4>Power profile (whole recording)</h4>
+                <canvas id="profile-plot" class="plot-wide"></canvas>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/unit_input.js"></script>
+<script src="/js/benchmark.js"></script>
+<script>
+initShell("benchmark");
+
+// ---- Token persistence ----
+const TOKEN_KEY = "usrp.benchmark.token";
+const tokenEl = document.getElementById("bench-token");
+tokenEl.value = localStorage.getItem(TOKEN_KEY) || "";
+tokenEl.addEventListener("input", () => localStorage.setItem(TOKEN_KEY, tokenEl.value.trim()));
+
+// ---- Tone frequency UnitInput (kHz/MHz/GHz, default MHz) ----
+const toneInput = new UnitInput(document.getElementById("bench-tone"), {
+    units: [
+        { key: "hz",  label: "Hz",  mul: 1 },
+        { key: "khz", label: "kHz", mul: 1e3 },
+        { key: "mhz", label: "MHz", mul: 1e6 },
+    ],
+    defaultUnit: "mhz",
+});
+toneInput.setValue(1e6);   // 1 MHz default
+
+// ---- Status helper ----
+const statusEl = document.getElementById("bench-status");
+function status(msg, kind = "") {
+    statusEl.textContent = msg;
+    statusEl.className = "bench-status " + (kind || "");
+}
+
+// ---- Format helpers ----
+const f = {
+    freq(hz) {
+        const a = Math.abs(hz);
+        if (a >= 1e9) return (hz/1e9).toFixed(4) + " GHz";
+        if (a >= 1e6) return (hz/1e6).toFixed(4) + " MHz";
+        if (a >= 1e3) return (hz/1e3).toFixed(2) + " kHz";
+        return hz.toFixed(0) + " Hz";
+    },
+    db(v)   { return v.toFixed(1) + " dB"; },
+    pct(v)  { return (v*100).toFixed(2) + " %"; },
+    n(v)    { return Number(v).toLocaleString(); },
+    relTime(ts) {
+        if (!ts) return "—";
+        const d = (Date.now() - ts) / 1000;
+        if (d < 60) return "just now";
+        if (d < 3600) return `${Math.floor(d/60)} min ago`;
+        if (d < 86400) return `${Math.floor(d/3600)} h ago`;
+        return `${Math.floor(d/86400)} d ago`;
+    },
+};
+
+// ---- Render ----
+function setKV(host, items) {
+    host.innerHTML = items.map(([k, v, cls]) =>
+        `<div class="k">${esc(k)}</div><div class="v ${cls || ""}">${esc(v)}</div>`
+    ).join("");
+}
+
+function renderRun(run) {
+    document.getElementById("bench-results").style.display = "";
+    document.getElementById("last-run-ts").textContent =
+        "last run " + f.relTime(run.ts) + " · " + (run.elapsed_ms/1000).toFixed(2) + " s";
+
+    // Server config card
+    const inf = run.info;
+    setKV(document.getElementById("srv-config"), [
+        ["Carrier",      f.freq(inf.carrier_frequency_hz)],
+        ["Sample rate",  f.freq(inf.sample_rate_hz)],
+        ["Bandwidth",    f.freq(inf.bandwidth_hz)],
+        ["TX gain",      inf.tx_gain_db + " dB"],
+        ["RX gain",      inf.rx_gain_db + " dB"],
+        ["Real USRP",    inf.use_real_usrp ? "yes" : "no (AWGN sim)"],
+        ["Antenna TX",   inf.antenna_tx || "—"],
+        ["Antenna RX",   inf.antenna_rx || "—"],
+        ["Begin guard",  (Number(inf.begin_guard_min_sec)*1000).toFixed(1) + " ms"],
+        ["End guard",    (Number(inf.end_guard_min_sec  )*1000).toFixed(1) + " ms"],
+    ]);
+
+    // Measurement card
+    const offset = run.peak.offset_hz;
+    const offsetCls = Math.abs(offset) > 10000 ? "warn" : "ok";
+    const clipCls = run.rx_stats.max_abs > 0.95 ? "err"
+                  : run.rx_stats.max_abs > 0.7  ? "warn" : "ok";
+    const balCls = Math.abs(run.balance.ratio - 1) > 0.001 ? "warn" : "ok";
+    setKV(document.getElementById("meas-stats"), [
+        ["Tone target",   f.freq(run.peak.target_hz)],
+        ["Tone measured", f.freq(run.peak.measured_hz)],
+        ["LO/clock offset", f.freq(offset), offsetCls],
+        ["Peak SNR",      f.db(run.peak.snr_db)],
+        ["Peak power",    f.db(run.peak.peak_db)],
+        ["RX avg power",  f.db(run.rx_stats.avg_power_db)],
+        ["RX max |z|",    run.rx_stats.max_abs.toFixed(3) +
+                          (run.rx_stats.max_abs > 0.95 ? " — CLIPPING" : ""), clipCls],
+        ["RX clipped",    f.n(run.rx_stats.clips) + " samples", run.rx_stats.clips > 0 ? "warn" : ""],
+        ["Sample balance", run.balance.ratio.toFixed(4) +
+                          ` (${f.n(run.balance.actual)}/${f.n(run.balance.expected)})`, balCls],
+        ["Round-trip",    (run.elapsed_ms/1000).toFixed(2) + " s"],
+    ]);
+
+    // Plots — convert to MHz for axis readability
+    const fsMHz = run.sample_rate_hz / 1e6;
+    const txF = run.tx.f.map(v => v / 1e6);
+    const rxF = run.rx.f.map(v => v / 1e6);
+    const xMin = -fsMHz / 2, xMax = +fsMHz / 2;
+    const txYmin = Math.max(...run.tx.mag_db) - 80;
+    const rxYmin = Math.max(...run.rx.mag_db) - 80;
+
+    Benchmark.drawLinePlot(document.getElementById("tx-plot"), txF, run.tx.mag_db, {
+        xMin, xMax, xLabel: "Frequency [MHz]", yLabel: "dB",
+        xDecimals: 1, yDecimals: 0,
+        xMark: run.peak.target_hz / 1e6,
+        yMin: txYmin, yMax: Math.max(...run.tx.mag_db) + 5,
+        color: "#5b8def",
+    });
+    Benchmark.drawLinePlot(document.getElementById("rx-plot"), rxF, run.rx.mag_db, {
+        xMin, xMax, xLabel: "Frequency [MHz]", yLabel: "dB",
+        xDecimals: 1, yDecimals: 0,
+        xMark: run.peak.measured_hz / 1e6,
+        yMin: rxYmin, yMax: Math.max(...run.rx.mag_db) + 5,
+        color: "#8b5bef",
+    });
+    Benchmark.drawLinePlot(document.getElementById("profile-plot"), run.profile.t_ms, run.profile.p_db, {
+        xLabel: "Time [ms]", yLabel: "Power [dB]",
+        xDecimals: 0, yDecimals: 0, color: "#23d18b",
+    });
+}
+
+// ---- Auto-render last cached run on page load ----
+const cached = Benchmark.load();
+if (cached) renderRun(cached);
+
+// ---- Run button ----
+document.getElementById("btn-run").addEventListener("click", async () => {
+    const token = tokenEl.value.trim();
+    if (!token) { status("Token is required", "err"); return; }
+
+    const tone = toneInput.getValue();
+    if (!isFinite(tone)) { status("Invalid tone frequency", "err"); return; }
+
+    const nSamples = Math.max(1024, Number(document.getElementById("bench-samples").value) || 100000);
+
+    document.getElementById("btn-run").disabled = true;
+    status("Connecting…");
+    try {
+        const run = await Benchmark.run({
+            token, toneFreqHz: tone, nSamples,
+            onStatus(info) {
+                if (info.message === "info") {
+                    const sr = (info.sample_rate_hz/1e6).toFixed(2);
+                    status(`Server: ${(info.carrier_frequency_hz/1e9).toFixed(2)} GHz · ${sr} MSps`);
+                } else if (info.message === "queued") {
+                    const p = info.queue_position || 0;
+                    status(p > 0 ? `Queued — ${p} task(s) ahead` : "Queued — next in line");
+                } else if (info.message === "status") {
+                    if (info.state === "R") status("Running on USRP…");
+                    else if (info.state === "PD") status("Waiting in queue…");
+                } else if (info.message === "done") {
+                    status("Downloading result…");
+                }
+            },
+        });
+        Benchmark.save(run);
+        renderRun(run);
+        status("Done — " + (run.elapsed_ms/1000).toFixed(2) + " s round-trip", "ok");
+    } catch (e) {
+        status("Error: " + e.message, "err");
+    } finally {
+        document.getElementById("btn-run").disabled = false;
+    }
+});
+</script>
+</body>
+</html>

@@ -73,6 +73,7 @@ function initShell(activePage) {
             <nav>
                 <a href="/dashboard.html" data-page="dashboard">Dashboard</a>
                 <a href="/users.html"     data-page="users">Users</a>
+                <a href="/benchmark.html" data-page="benchmark">Benchmark</a>
                 <a href="/logs.html"      data-page="logs">Logs</a>
                 <a href="/settings.html"  data-page="settings">Settings</a>
             </nav>
