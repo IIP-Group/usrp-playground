@@ -127,6 +127,34 @@ function _ensureResizeObserver(canvas) {
     canvas.__plotObs = true;
 }
 
+// "Nice" tick step: yields ticks like 1, 2, 5, 10, 20, ... × 10^k.
+function niceStep(range, target = 6) {
+    if (range <= 0) return 1;
+    const rough = range / target;
+    const expn = Math.floor(Math.log10(rough));
+    const mant = rough / Math.pow(10, expn);
+    let nice;
+    if (mant < 1.5)      nice = 1;
+    else if (mant < 3.5) nice = 2;
+    else if (mant < 7.5) nice = 5;
+    else                 nice = 10;
+    return nice * Math.pow(10, expn);
+}
+function niceTicks(min, max, target = 6) {
+    const step = niceStep(max - min, target);
+    const start = Math.ceil(min / step - 1e-9) * step;
+    const end   = Math.floor(max / step + 1e-9) * step;
+    const out = [];
+    for (let v = start; v <= end + step * 1e-6; v += step) {
+        out.push(Number(v.toFixed(12)));
+    }
+    return { ticks: out, step };
+}
+function fmtTick(v, step) {
+    const decs = step >= 1 ? 0 : Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
+    return v.toFixed(decs);
+}
+
 function _drawPlotNow(canvas) {
     const data = canvas.__plot;
     if (!data) return;
@@ -136,7 +164,6 @@ function _drawPlotNow(canvas) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (w <= 0 || h <= 0) {
-        // Layout not ready yet (e.g. hidden parent). Try again once it is.
         requestAnimationFrame(() => _drawPlotNow(canvas));
         return;
     }
@@ -146,8 +173,10 @@ function _drawPlotNow(canvas) {
 
     const { x, y, opts } = data;
 
-    const padL = 50, padR = 14, padT = 18, padB = 26;
-    const plotW = w - padL - padR, plotH = h - padT - padB;
+    // Padding leaves room for axis labels (left + bottom).
+    const padL = 56, padR = 16, padT = 16, padB = 44;
+    const plotW = Math.max(1, w - padL - padR);
+    const plotH = Math.max(1, h - padT - padB);
 
     // axis bounds
     let xMin = opts.xMin, xMax = opts.xMax;
@@ -156,55 +185,62 @@ function _drawPlotNow(canvas) {
     let yMin = opts.yMin, yMax = opts.yMax;
     if (yMin == null) yMin = Math.min(...y);
     if (yMax == null) yMax = Math.max(...y);
-    if (yMax - yMin < 1e-9) { yMax += 1; yMin -= 1; }
+    if (xMax - xMin < 1e-12) { xMax += 1; xMin -= 1; }
+    if (yMax - yMin < 1e-12) { yMax += 1; yMin -= 1; }
 
     const X = v => padL + ((v - xMin) / (xMax - xMin)) * plotW;
     const Y = v => padT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
 
-    // grid + frame
+    const xT = niceTicks(xMin, xMax, 6);
+    const yT = niceTicks(yMin, yMax, 5);
+
+    // grid
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let i = 0; i <= 4; i++) {
-        const yy = padT + (i / 4) * plotH;
-        ctx.moveTo(padL, yy); ctx.lineTo(padL + plotW, yy);
-    }
-    for (let i = 0; i <= 6; i++) {
-        const xx = padL + (i / 6) * plotW;
-        ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + plotH);
-    }
+    for (const t of yT.ticks) { const yy = Y(t); ctx.moveTo(padL, yy); ctx.lineTo(padL + plotW, yy); }
+    for (const t of xT.ticks) { const xx = X(t); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + plotH); }
     ctx.stroke();
+
+    // frame
     ctx.strokeStyle = "rgba(255,255,255,0.18)";
     ctx.strokeRect(padL, padT, plotW, plotH);
 
-    // labels
-    ctx.fillStyle = "rgba(207, 220, 246, 0.6)";
+    // tick labels
+    ctx.fillStyle = "rgba(207, 220, 246, 0.7)";
     ctx.font = "11px -apple-system, system-ui, sans-serif";
     ctx.textBaseline = "middle"; ctx.textAlign = "right";
-    for (let i = 0; i <= 4; i++) {
-        const yv = yMax - (i / 4) * (yMax - yMin);
-        ctx.fillText(yv.toFixed(opts.yDecimals ?? 0), padL - 6, padT + (i / 4) * plotH);
-    }
+    for (const t of yT.ticks) ctx.fillText(fmtTick(t, yT.step), padL - 6, Y(t));
     ctx.textAlign = "center"; ctx.textBaseline = "top";
-    for (let i = 0; i <= 6; i++) {
-        const xv = xMin + (i / 6) * (xMax - xMin);
-        ctx.fillText(xv.toFixed(opts.xDecimals ?? 1), padL + (i / 6) * plotW, padT + plotH + 6);
-    }
+    for (const t of xT.ticks) ctx.fillText(fmtTick(t, xT.step), X(t), padT + plotH + 6);
+
+    // axis-titles
+    ctx.fillStyle = "rgba(207, 220, 246, 0.85)";
+    ctx.font = "11px -apple-system, system-ui, sans-serif";
     if (opts.xLabel) {
-        ctx.textAlign = "right"; ctx.fillText(opts.xLabel, padL + plotW, h - 4);
+        ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+        ctx.fillText(opts.xLabel, padL + plotW / 2, h - 6);
     }
     if (opts.yLabel) {
         ctx.save();
-        ctx.translate(12, padT + plotH / 2); ctx.rotate(-Math.PI / 2);
-        ctx.textAlign = "center"; ctx.textBaseline = "top";
+        ctx.translate(14, padT + plotH / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
         ctx.fillText(opts.yLabel, 0, 0);
         ctx.restore();
     }
 
+    // Clip subsequent draws to the plot rect — keeps the line and the
+    // frequency marker strictly inside the frame.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+
     // marker (vertical line at xMark)
-    if (opts.xMark != null) {
+    if (opts.xMark != null && opts.xMark >= xMin && opts.xMark <= xMax) {
         const mx = X(opts.xMark);
-        ctx.strokeStyle = "rgba(241, 76, 76, 0.6)";
+        ctx.strokeStyle = "rgba(241, 76, 76, 0.7)";
         ctx.setLineDash([4, 3]);
         ctx.beginPath(); ctx.moveTo(mx, padT); ctx.lineTo(mx, padT + plotH); ctx.stroke();
         ctx.setLineDash([]);
@@ -219,6 +255,7 @@ function _drawPlotNow(canvas) {
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.stroke();
+    ctx.restore();
 }
 
 // ---- WebSocket transport mirroring usrp_benchmark.client ----
