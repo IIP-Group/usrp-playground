@@ -32,6 +32,7 @@
 </div>
 
 <script src="/js/app.js"></script>
+<script src="/js/unit_input.js"></script>
 <script>
 initShell("settings");
 
@@ -42,30 +43,124 @@ const GROUP_TITLES = {
     limits: "🚦 Limits",
 };
 
-let current = {};            // key → {value, type, source, label, group}
-let savedValues = {};        // key → string (what is currently saved on the server)
+// ---- Unit catalogues ----
+// Each unit's `mul` is canonical-per-displayed (canonical = displayed × mul).
+// Storage canon must match — e.g. SAMPLE_RATE_HZ stores Hz so mul of "Hz" = 1.
+const UNIT_FREQ_HZ = [
+    { key: "hz",  label: "Hz",  mul: 1 },
+    { key: "khz", label: "kHz", mul: 1e3 },
+    { key: "mhz", label: "MHz", mul: 1e6 },
+    { key: "ghz", label: "GHz", mul: 1e9 },
+];
+const UNIT_TIME_SEC = [
+    { key: "s",   label: "s",   mul: 1 },
+    { key: "ms",  label: "ms",  mul: 1e-3 },
+    { key: "us",  label: "µs",  mul: 1e-6 },
+    { key: "min", label: "min", mul: 60 },
+];
+const UNIT_TIME_OR_SAMPLES = [
+    { key: "s",       label: "s",       mul: 1 },
+    { key: "ms",      label: "ms",      mul: 1e-3 },
+    { key: "us",      label: "µs",      mul: 1e-6 },
+    { key: "samples", label: "samples", mul: "samples" },
+];
+const UNIT_TIME_HOURS = [
+    { key: "h",    label: "h",   mul: 1 },
+    { key: "min",  label: "min", mul: 1/60 },
+    { key: "days", label: "d",   mul: 24 },
+];
+const UNIT_DB     = [{ key: "db",   label: "dB",   mul: 1 }];
+const UNIT_DBFS   = [{ key: "dbfs", label: "dBFS", mul: 1 }];
+const UNIT_PCT    = [{ key: "pct",  label: "%",    mul: 1 }];
+const UNIT_BYTES_MB = [
+    { key: "kb", label: "KB", mul: 1/1024 },
+    { key: "mb", label: "MB", mul: 1 },
+    { key: "gb", label: "GB", mul: 1024 },
+];
+const UNIT_COUNT_SAMPLES = [{ key: "n", label: "samples", mul: 1 }];
+const UNIT_COUNT      = [{ key: "n", label: "count",      mul: 1 }];
+
+// Per-setting unit configuration. Default unit is what shows on first render.
+// Backend storage stays unchanged; UnitInput converts at the widget boundary.
+const FIELD_UNITS = {
+    SAMPLE_RATE_HZ:        { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
+    TX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
+    RX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
+    CHANNEL_SNR_DB:        { units: UNIT_DB,              defaultUnit: "db"  },
+    LBT_THRESHOLD_DBFS:    { units: UNIT_DBFS,            defaultUnit: "dbfs"},
+
+    BEGIN_GUARD_MIN_SEC:   { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    BEGIN_GUARD_MAX_SEC:   { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    END_GUARD_MIN_SEC:     { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    END_GUARD_MAX_SEC:     { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    INITIAL_DELAY:         { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+
+    DUTY_CYCLE_MAX_PERCENT:{ units: UNIT_PCT,             defaultUnit: "pct" },
+    DUTY_CYCLE_WINDOW_SEC: { units: UNIT_TIME_SEC,        defaultUnit: "s"   },
+    LBT_BACKOFF_SEC:       { units: UNIT_TIME_SEC,        defaultUnit: "ms"  },
+    LBT_SENSE_SAMPLES:     { units: UNIT_COUNT_SAMPLES,   defaultUnit: "n"   },
+
+    UPLOAD_TIMEOUT_SEC:    { units: UNIT_TIME_SEC,        defaultUnit: "s"   },
+    POLL_INTERVAL_SEC:     { units: UNIT_TIME_SEC,        defaultUnit: "s"   },
+    MAX_UPLOAD_MB:         { units: UNIT_BYTES_MB,        defaultUnit: "mb"  },
+    MAX_SAMPLES:           { units: UNIT_COUNT_SAMPLES,   defaultUnit: "n"   },
+    TASK_TTL_HOURS:        { units: UNIT_TIME_HOURS,      defaultUnit: "h"   },
+};
+
+let current = {};                    // key → {value, type, source, label, group, ...}
+let savedValues = {};                // key → canonical-string (current saved)
 let dirty = new Set();
+let widgets = {};                    // key → UnitInput | <select> | <input>
+
+// Sample rate getter — used by "samples" unit conversion.
+const sampleRateHz = () => {
+    const w = widgets["SAMPLE_RATE_HZ"];
+    if (w && w.getValue && isFinite(w.getValue())) return w.getValue();
+    const cur = current["SAMPLE_RATE_HZ"];
+    return cur ? Number(cur.value) : NaN;
+};
 
 async function loadSettings() {
     try {
         current = await apiFetch("/settings");
         savedValues = {};
-        for (const [k, s] of Object.entries(current)) savedValues[k] = formatValue(s.value);
+        for (const [k, s] of Object.entries(current)) savedValues[k] = canonString(s.value);
         dirty.clear();
         render();
         updateSaveButton();
     } catch (e) { toast(e.message, "err"); }
 }
 
-function formatValue(v) {
+function canonString(v) {
     if (typeof v === "boolean") return v ? "true" : "false";
     return String(v);
+}
+
+function readWidgetCanon(key) {
+    const w = widgets[key];
+    if (!w) return "";
+    if (w instanceof UnitInput) {
+        const v = w.getValue();
+        return isFinite(v) ? String(v) : "";
+    }
+    return w.value;
+}
+
+function makeOptionsSelect(s) {
+    const id = `f-${s.key}`;
+    const opts = s.options.map(o => {
+        const value = (typeof o === "object") ? o.value : o;
+        const label = (typeof o === "object") ? (o.label || String(o.value)) : String(o);
+        const sel = String(s.value) === String(value) ? "selected" : "";
+        return `<option value="${esc(value)}" ${sel}>${esc(label)}</option>`;
+    }).join("");
+    return `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">${opts}</select>`;
 }
 
 function render() {
     const groups = {};
     for (const [key, spec] of Object.entries(current)) {
-        if (spec.hidden) continue;          // mirrored / managed automatically
+        if (spec.hidden) continue;
         (groups[spec.group] ||= []).push({key, ...spec});
     }
 
@@ -73,24 +168,24 @@ function render() {
     const html = order.filter(g => groups[g]).map(g => {
         const rows = groups[g].map(s => {
             const id = `f-${s.key}`;
-            let input;
-            if (Array.isArray(s.options) && s.options.length) {
-                // Fixed dropdown — values not in the list are NOT selectable.
-                const opts = s.options.map(o => {
-                    const value = (typeof o === "object") ? o.value : o;
-                    const label = (typeof o === "object") ? (o.label || String(o.value)) : String(o);
-                    const sel = String(s.value) === String(value) ? 'selected' : '';
-                    return `<option value="${esc(value)}" ${sel}>${esc(label)}</option>`;
-                }).join("");
-                input = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">${opts}</select>`;
-            } else if (s.type === "bool") {
-                input = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">
-                    <option value="true"  ${s.value === true  ? 'selected' : ''}>true</option>
-                    <option value="false" ${s.value === false ? 'selected' : ''}>false</option>
+            const hasOptions = Array.isArray(s.options) && s.options.length;
+            const isBool     = s.type === "bool";
+            const fu         = FIELD_UNITS[s.key];
+
+            let inputHtml;
+            if (hasOptions) {
+                inputHtml = makeOptionsSelect(s);
+            } else if (isBool) {
+                inputHtml = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">
+                    <option value="true"  ${s.value === true  ? "selected" : ""}>true</option>
+                    <option value="false" ${s.value === false ? "selected" : ""}>false</option>
                 </select>`;
+            } else if (fu) {
+                inputHtml = `<div id="${id}" data-key="${s.key}"></div>`;
             } else {
-                input = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
+                inputHtml = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
             }
+
             const info = s.desc
                 ? `<span class="info-icon" tabindex="0" title="${esc(s.desc)}" aria-label="${esc(s.desc)}">i</span>`
                 : "";
@@ -99,7 +194,7 @@ function render() {
                     <strong>${esc(s.label)}</strong> ${info}
                     <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
                 </td>
-                <td>${input}</td>
+                <td>${inputHtml}</td>
                 <td style="width: 28px; text-align: center;"><span class="settings-dot" data-dot="${s.key}" title="saved"></span></td>
             </tr>`;
         }).join("");
@@ -110,12 +205,38 @@ function render() {
     }).join("");
 
     document.getElementById("groups").innerHTML = html;
+
+    // Mount UnitInput widgets and wire up dirty-tracking
+    widgets = {};
+    for (const [key, spec] of Object.entries(current)) {
+        if (spec.hidden) continue;
+        const el = document.getElementById(`f-${key}`);
+        if (!el) continue;
+        const fu = FIELD_UNITS[key];
+        if (fu && !(Array.isArray(spec.options) && spec.options.length) && spec.type !== "bool") {
+            const w = new UnitInput(el, {
+                units: fu.units,
+                defaultUnit: fu.defaultUnit,
+                multiplierFn: sampleRateHz,
+                onChange: () => onChange(key),
+            });
+            w.setValue(spec.value);
+            widgets[key] = w;
+        } else {
+            widgets[key] = el;
+        }
+    }
 }
 
 function onChange(key) {
-    const el = document.getElementById("f-" + key);
+    const cur = readWidgetCanon(key);
     const dot = document.querySelector(`[data-dot="${key}"]`);
-    if (el.value === savedValues[key]) {
+    // Compare numerically when possible to avoid "0.1" vs "0.10" diffs.
+    const numA = Number(cur), numB = Number(savedValues[key]);
+    const equal = (isFinite(numA) && isFinite(numB))
+        ? numA === numB
+        : cur === savedValues[key];
+    if (equal) {
         dirty.delete(key);
         if (dot) { dot.classList.remove("dirty"); dot.title = "saved"; }
     } else {
@@ -135,8 +256,12 @@ document.getElementById("btn-save").addEventListener("click", async () => {
     if (!dirty.size) { toast("No changes"); return; }
     const payload = {};
     for (const key of dirty) {
-        const el = document.getElementById("f-" + key);
-        payload[key] = el.value;
+        const v = readWidgetCanon(key);
+        if (v === "" || v === null || (typeof v === "number" && !isFinite(v))) {
+            toast(`Invalid value for ${key}`, "err");
+            return;
+        }
+        payload[key] = v;
     }
     try {
         const r = await apiFetch("/settings", {method: "PUT", body: JSON.stringify(payload)});
