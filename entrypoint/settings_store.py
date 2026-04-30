@@ -14,17 +14,35 @@ from models import SettingOverride
 
 
 # Which keys can be overridden via the admin UI? Each spec lists type and description.
+#
+# Special keys:
+#   "options"  — fixed list of allowed values; UI renders a <select>, not free text.
+#   "hidden"   — managed automatically (e.g. derived from another setting); not shown.
+#
+# MASTER_CLOCK_RATE is intentionally NOT exposed: it is hardware-bound (X410
+# requires a specific value) and changing it would break the radio chain.
+# It is still resolvable via settings_store.get() from .env / defaults, just not
+# editable from the UI.
 EDITABLE_KEYS: dict[str, dict] = {
     # Radio
     "CARRIER_FREQUENCY_HZ": {"type": "int", "group": "radio",
-        "label": "Carrier Frequency (Hz)",
-        "desc": "Carrier frequency used for transmit/receive. Typically 2.4 GHz for the ISM band."},
+        "label": "Carrier Frequency",
+        "desc": "Carrier frequency used for transmit/receive. Pick from supported ISM/test bands.",
+        "options": [
+            {"value": 433_920_000,   "label": "433.92 MHz (ISM Europe)"},
+            {"value": 868_000_000,   "label": "868 MHz (ISM Europe)"},
+            {"value": 915_000_000,   "label": "915 MHz (ISM US)"},
+            {"value": 2_400_000_000, "label": "2.4 GHz (Wi-Fi/BT, default)"},
+            {"value": 5_800_000_000, "label": "5.8 GHz (ISM)"},
+        ]},
     "SAMPLE_RATE_HZ":       {"type": "int", "group": "radio",
         "label": "Sample Rate (Hz)",
-        "desc": "USRP sample rate. Determines the baseband bandwidth (typically 25 MSps)."},
+        "desc": "USRP sample rate. Bandwidth is locked to this value automatically."},
+    # BANDWIDTH_HZ is auto-mirrored to SAMPLE_RATE_HZ on save (see admin_router).
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
         "label": "Bandwidth (Hz)",
-        "desc": "Analog anti-aliasing filter in the USRP front-end. Should be ≤ sample rate."},
+        "desc": "Analog anti-aliasing filter — locked to Sample Rate.",
+        "hidden": True},
     "TX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "TX Gain (dB)",
         "desc": "USRP transmit gain. 0 = off, 30 = mid, ~70 = max."},
@@ -40,9 +58,6 @@ EDITABLE_KEYS: dict[str, dict] = {
     "ANTENNA_RX":           {"type": "str",   "group": "radio",
         "label": "RX Antenna",
         "desc": "USRP antenna port used for receive (e.g. RX1)."},
-    "MASTER_CLOCK_RATE":    {"type": "int",   "group": "radio",
-        "label": "Master Clock Rate (Hz)",
-        "desc": "Internal USRP clock. The sample rate must be a divisor of this value."},
 
     # Guard (random uniform)
     "BEGIN_GUARD_MIN_SEC":  {"type": "float", "group": "guard",

@@ -589,10 +589,28 @@ def settings_put(
     db: Session = Depends(get_db),
     _: dict = Depends(auth.require_admin),
 ):
-    """payload: {key: value, ...} — only EDITABLE_KEYS are accepted."""
+    """payload: {key: value, ...} — only EDITABLE_KEYS are accepted.
+
+    Linked keys: BANDWIDTH_HZ is always kept equal to SAMPLE_RATE_HZ; if the
+    UI sends a SAMPLE_RATE_HZ change we mirror it to BANDWIDTH_HZ here so the
+    radio config stays consistent without exposing both fields to the admin.
+
+    Validation: if a key has an `options` list, the value must be one of the
+    allowed values (defends against a tampered request).
+    """
     applied = []
     errors = {}
-    for key, value in payload.items():
+    work = dict(payload)
+    if "SAMPLE_RATE_HZ" in work:
+        work["BANDWIDTH_HZ"] = work["SAMPLE_RATE_HZ"]
+    for key, value in work.items():
+        spec = settings_store.EDITABLE_KEYS.get(key)
+        if spec and "options" in spec:
+            allowed = {str(o["value"]) if isinstance(o, dict) else str(o)
+                       for o in spec["options"]}
+            if str(value) not in allowed:
+                errors[key] = f"value '{value}' not in allowed options"
+                continue
         try:
             settings_store.set_override(db, key, str(value))
             applied.append(key)

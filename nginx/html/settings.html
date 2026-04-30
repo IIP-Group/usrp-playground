@@ -65,6 +65,7 @@ function formatValue(v) {
 function render() {
     const groups = {};
     for (const [key, spec] of Object.entries(current)) {
+        if (spec.hidden) continue;          // mirrored / managed automatically
         (groups[spec.group] ||= []).push({key, ...spec});
     }
 
@@ -73,7 +74,16 @@ function render() {
         const rows = groups[g].map(s => {
             const id = `f-${s.key}`;
             let input;
-            if (s.type === "bool") {
+            if (Array.isArray(s.options) && s.options.length) {
+                // Fixed dropdown — values not in the list are NOT selectable.
+                const opts = s.options.map(o => {
+                    const value = (typeof o === "object") ? o.value : o;
+                    const label = (typeof o === "object") ? (o.label || String(o.value)) : String(o);
+                    const sel = String(s.value) === String(value) ? 'selected' : '';
+                    return `<option value="${esc(value)}" ${sel}>${esc(label)}</option>`;
+                }).join("");
+                input = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">${opts}</select>`;
+            } else if (s.type === "bool") {
                 input = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">
                     <option value="true"  ${s.value === true  ? 'selected' : ''}>true</option>
                     <option value="false" ${s.value === false ? 'selected' : ''}>false</option>
