@@ -101,7 +101,13 @@
         <div class="row" style="margin-top: 10px;">
             <div style="flex: 1">
                 <label>SMTP Host</label>
-                <input id="smtp-host" value="mail.ethz.ch" style="width: 100%">
+                <input id="smtp-host" list="smtp-host-options" value="mail.ethz.ch" style="width: 100%">
+                <datalist id="smtp-host-options">
+                    <option value="mail.ethz.ch">
+                    <option value="smtp.ee.ethz.ch">
+                    <option value="mail.ee.ethz.ch">
+                    <option value="smtp.ethz.ch">
+                </datalist>
             </div>
             <div style="width: 100px">
                 <label>Port</label>
