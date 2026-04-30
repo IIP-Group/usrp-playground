@@ -107,13 +107,44 @@ function downsamplePlot(f, y, target = 1024) {
 }
 
 // ---- Canvas line plot ----
+// Stash inputs on the element so we can redraw on resize without re-running
+// the FFT pipeline.
 function drawLinePlot(canvas, x, y, opts = {}) {
+    canvas.__plot = { x, y, opts };
+    _drawPlotNow(canvas);
+}
+
+// Single ResizeObserver for all plots — redraws on layout changes.
+let _plotResizeObs = null;
+function _ensureResizeObserver(canvas) {
+    if (canvas.__plotObs) return;
+    if (!_plotResizeObs) {
+        _plotResizeObs = new ResizeObserver(entries => {
+            for (const e of entries) _drawPlotNow(e.target);
+        });
+    }
+    _plotResizeObs.observe(canvas);
+    canvas.__plotObs = true;
+}
+
+function _drawPlotNow(canvas) {
+    const data = canvas.__plot;
+    if (!data) return;
+    _ensureResizeObserver(canvas);
+
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w <= 0 || h <= 0) {
+        // Layout not ready yet (e.g. hidden parent). Try again once it is.
+        requestAnimationFrame(() => _drawPlotNow(canvas));
+        return;
+    }
     canvas.width = w * dpr; canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
+
+    const { x, y, opts } = data;
 
     const padL = 50, padR = 14, padT = 18, padB = 26;
     const plotW = w - padL - padR, plotH = h - padT - padB;
