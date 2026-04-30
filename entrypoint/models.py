@@ -16,6 +16,7 @@ class User(Base):
     email = Column(String(255), nullable=False)                # volle E-Mail
     first_name = Column(String(128))
     last_name = Column(String(128))
+    tags = Column(Text, nullable=False, default="")            # comma-separated, lowercase
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

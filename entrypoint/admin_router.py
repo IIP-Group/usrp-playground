@@ -29,6 +29,43 @@ router = APIRouter(prefix="/admin/api", tags=["admin"])
 ETH_ID_RE = re.compile(r"^[a-z][a-z0-9]{2,31}$", re.IGNORECASE)
 
 
+# ---------- Tags helpers ----------
+
+_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9 _-]{0,31}$")
+
+
+def _parse_tags(value) -> list[str]:
+    """Normalise tag input from string (comma/semicolon-separated) or list.
+    Returns deduped list of lowercase tags. Silently drops invalid entries."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = re.split(r"[,;\n]", value)
+    else:
+        parts = list(value)
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in parts:
+        t = str(raw).strip().lower()
+        if not t or t in seen:
+            continue
+        if not _TAG_RE.match(t):
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+
+
+def _tags_to_str(tags: list[str]) -> str:
+    return ",".join(tags)
+
+
+def _tags_from_str(s: str | None) -> list[str]:
+    if not s:
+        return []
+    return [t for t in (x.strip() for x in s.split(",")) if t]
+
+
 # ---------------- LOGIN ----------------
 
 @router.post("/login")
@@ -209,6 +246,7 @@ def _user_row(db: Session, u: User) -> dict:
         "email": u.email,
         "first_name": u.first_name,
         "last_name": u.last_name,
+        "tags": _tags_from_str(u.tags),
         "token": tok.token if tok else None,
         "submits": submits_count,
         "last_submit": last_submit,
@@ -219,6 +257,7 @@ def _user_row(db: Session, u: User) -> dict:
 @router.get("/users")
 def users_list(
     q: Optional[str] = None,
+    tag: Optional[str] = None,  # comma-separated list, AND-filter
     db: Session = Depends(get_db),
     _: dict = Depends(auth.require_admin),
 ):
@@ -231,8 +270,33 @@ def users_list(
             | func.lower(User.first_name).like(like)
             | func.lower(User.last_name).like(like)
         )
+    if tag:
+        # AND-filter: every requested tag must be present in u.tags
+        for t in _parse_tags(tag):
+            query = query.filter(func.lower(User.tags).like(f"%{t}%"))
     users = query.order_by(User.eth_id).all()
-    return [_user_row(db, u) for u in users]
+    rows = [_user_row(db, u) for u in users]
+    if tag:
+        # Substring-LIKE can over-match (e.g. "alpha" matches "alphabet"). Filter
+        # exactly here against the parsed tag list returned to the client.
+        wanted = set(_parse_tags(tag))
+        rows = [r for r in rows if wanted.issubset(set(r["tags"]))]
+    return rows
+
+
+@router.get("/users/tags")
+def users_all_tags(
+    db: Session = Depends(get_db),
+    _: dict = Depends(auth.require_admin),
+):
+    """Return all distinct tags currently in use, with usage counts."""
+    counts: dict[str, int] = {}
+    for (raw,) in db.query(User.tags).all():
+        for t in _tags_from_str(raw):
+            counts[t] = counts.get(t, 0) + 1
+    out = [{"tag": t, "count": c} for t, c in counts.items()]
+    out.sort(key=lambda x: (-x["count"], x["tag"]))
+    return out
 
 
 @router.post("/users")
@@ -247,12 +311,13 @@ def users_create(
     email = (payload.get("email") or f"{eth_id}@ethz.ch").strip()
     first = (payload.get("first_name") or "").strip()
     last = (payload.get("last_name") or "").strip()
+    tags = _tags_to_str(_parse_tags(payload.get("tags")))
 
     existing = db.query(User).filter(User.eth_id == eth_id).first()
     if existing:
         raise HTTPException(status_code=409, detail="User already exists")
 
-    u = User(eth_id=eth_id, email=email, first_name=first, last_name=last)
+    u = User(eth_id=eth_id, email=email, first_name=first, last_name=last, tags=tags)
     db.add(u)
     db.flush()
 
@@ -292,6 +357,23 @@ def users_delete(
     return {"ok": True}
 
 
+@router.patch("/users/{user_id}/tags")
+def users_set_tags(
+    user_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: dict = Depends(auth.require_admin),
+):
+    """Replace tags on one user. payload: {tags: "a,b,c" | ["a","b"]}"""
+    u = db.query(User).filter(User.id == user_id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    u.tags = _tags_to_str(_parse_tags(payload.get("tags")))
+    db.commit()
+    db.refresh(u)
+    return _user_row(db, u)
+
+
 @router.post("/users/bulk")
 def users_bulk(
     payload: dict,
@@ -325,23 +407,52 @@ def users_bulk(
         db.commit()
         return {"ok": True, "action": action, "count": len(updated), "users": updated}
 
+    if action in ("tags_add", "tags_remove", "tags_set"):
+        wanted = _parse_tags(payload.get("tags"))
+        users = db.query(User).filter(User.id.in_(ids)).all()
+        for u in users:
+            current = _tags_from_str(u.tags)
+            if action == "tags_set":
+                new = wanted
+            elif action == "tags_add":
+                new = current + [t for t in wanted if t not in current]
+            else:  # tags_remove
+                drop = set(wanted)
+                new = [t for t in current if t not in drop]
+            u.tags = _tags_to_str(new)
+        db.commit()
+        return {"ok": True, "action": action, "count": len(users)}
+
     raise HTTPException(status_code=400, detail=f"Unbekannte Aktion '{action}'")
 
 
 @router.post("/users/upload_csv")
 async def users_upload_csv(
     file: UploadFile = File(...),
+    tags: str = Form(""),
     db: Session = Depends(get_db),
     _: dict = Depends(auth.require_admin),
 ):
     """
     CSV format (Moodle participants):
-        "First name","Last name","ID number","Email address",Groups
-    Wir ziehen First/Last/ID-number/Email. ID number = rsahleanu@ethz.ch → ETH-ID.
+        "First name","Last name","ID number","Email address",Groups,[Tags]
+
+    `tags` form field: comma-separated tags applied to every imported user
+    (in addition to any tags found in the per-row "Tags" column).
     """
     raw = (await file.read()).decode("utf-8", errors="replace")
     reader = csv.reader(io.StringIO(raw))
-    header = next(reader, None)
+    header = next(reader, None) or []
+
+    # Find optional "tags" column index (case-insensitive)
+    tag_col_idx: Optional[int] = None
+    for i, h in enumerate(header):
+        if h.strip().lower() in ("tag", "tags"):
+            tag_col_idx = i
+            break
+
+    base_tags = _parse_tags(tags)
+
     created = 0
     skipped = 0
     errors: list[str] = []
@@ -354,6 +465,7 @@ async def users_upload_csv(
         last = row[1].strip() if len(row) > 1 else ""
         idnum = row[2].strip() if len(row) > 2 else ""
         email = row[3].strip() if len(row) > 3 else ""
+        row_tags = row[tag_col_idx].strip() if (tag_col_idx is not None and tag_col_idx < len(row)) else ""
 
         # Pull ETH-ID from whichever column has xxx@ethz.ch
         eth_id = None
@@ -371,7 +483,10 @@ async def users_upload_csv(
             continue
 
         full_email = email if email else f"{eth_id}@ethz.ch"
-        u = User(eth_id=eth_id, email=full_email, first_name=first, last_name=last)
+        # Merge per-row tags with base tags, dedupe
+        merged = list(dict.fromkeys(base_tags + _parse_tags(row_tags)))
+        u = User(eth_id=eth_id, email=full_email, first_name=first, last_name=last,
+                 tags=_tags_to_str(merged))
         db.add(u)
         db.flush()
         db.add(Token(token=token_gen.generate_token(eth_id),

@@ -88,6 +88,13 @@ def _log(db, action, token_id=None, eth_id=None, n_samples=None, detail=None, ip
 def startup():
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Idempotent schema migrations for columns added after initial deploy.
+    # init.sql only runs on a fresh DB; existing volumes need ALTER.
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS tags TEXT NOT NULL DEFAULT ''"
+        ))
     from sqlalchemy.orm import Session as S
     with S(bind=engine) as db:
         if not db.query(Token).filter(Token.token == DEFAULT_TOKEN).first():

@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL,
     first_name VARCHAR(128),
     last_name VARCHAR(128),
+    tags TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP DEFAULT NOW()
 );
 
