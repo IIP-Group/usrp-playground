@@ -54,8 +54,16 @@ class ChipInput {
         if (!v || !ChipInput.VALID_RE.test(v) || this.tags.includes(v)) return false;
         this.tags.push(v);
         this._render();
+        this._scrollInputIntoView();
         this.onChange(this.getValue());
         return true;
+    }
+
+    _scrollInputIntoView() {
+        // Keep the cursor visible at the end of the chip row
+        requestAnimationFrame(() => {
+            this.host.scrollLeft = this.host.scrollWidth;
+        });
     }
 
     removeTag(t) {
