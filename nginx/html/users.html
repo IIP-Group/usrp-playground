@@ -4,10 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Users — USRP Benchmark</title>
-    <link rel="stylesheet" href="/css/styles.css?v=4">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
 <div class="app">
@@ -217,8 +214,8 @@
     </div>
 </div>
 
-<script src="/js/app.js?v=4"></script>
-<script src="/js/chip_input.js?v=4"></script>
+<script src="/js/app.js"></script>
+<script src="/js/chip_input.js"></script>
 <script>
 initShell("users");
 
@@ -284,7 +281,7 @@ async function loadAllTags() {
 
 function renderTags(tags) {
     if (!tags || !tags.length) {
-        return '<span class="tag-empty">— Tags hinzufügen</span>';
+        return '<span class="tag-empty">–</span>';
     }
     return tags.map(t => `<span class="chip">${esc(t)}</span>`).join("");
 }
