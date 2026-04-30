@@ -45,8 +45,8 @@
             text-transform: uppercase; letter-spacing: 0.04em;
             margin-bottom: 8px;
         }
-        canvas.plot { width: 100%; height: 240px; display: block; }
-        canvas.plot-wide { width: 100%; height: 220px; display: block; }
+        canvas.plot { width: 100%; height: 300px; display: block; }
+        canvas.plot-wide { width: 100%; height: 240px; display: block; }
         .bench-status { min-height: 22px; color: var(--text-dim); font-size: 13px; }
         .bench-status.err { color: var(--err); }
         .bench-status.ok  { color: var(--ok); }
@@ -226,19 +226,19 @@ function renderRun(run) {
     const txF = run.tx.f.map(v => v / 1e6);
     const rxF = run.rx.f.map(v => v / 1e6);
     const xMin = -fsMHz / 2, xMax = +fsMHz / 2;
-    const txYmin = Math.max(...run.tx.mag_db) - 80;
-    const rxYmin = Math.max(...run.rx.mag_db) - 80;
+    const txYmax = Math.max(...run.tx.mag_db) + 5;
+    const rxYmax = Math.max(...run.rx.mag_db) + 5;
 
     Benchmark.drawLinePlot(document.getElementById("tx-plot"), txF, run.tx.mag_db, {
         xMin, xMax, xLabel: "Frequency [MHz]", yLabel: "Magnitude [dB]",
         xMark: run.peak.target_hz / 1e6,
-        yMin: txYmin, yMax: Math.max(...run.tx.mag_db) + 5,
+        yMin: 0, yMax: txYmax,
         color: "#5b8def",
     });
     Benchmark.drawLinePlot(document.getElementById("rx-plot"), rxF, run.rx.mag_db, {
         xMin, xMax, xLabel: "Frequency [MHz]", yLabel: "Magnitude [dB]",
         xMark: run.peak.measured_hz / 1e6,
-        yMin: rxYmin, yMax: Math.max(...run.rx.mag_db) + 5,
+        yMin: 0, yMax: rxYmax,
         color: "#8b5bef",
     });
     Benchmark.drawLinePlot(document.getElementById("profile-plot"), run.profile.t_ms, run.profile.p_db, {
