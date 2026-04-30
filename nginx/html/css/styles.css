@@ -399,31 +399,32 @@ tr:hover .copy-btn { opacity: 0.7; }
 .chip {
     display: inline-flex;
     align-items: center;
-    height: 24px;
-    padding: 0 10px;
-    background: rgba(91, 141, 239, 0.16);
-    color: #cfdcf6;
-    border: none;
-    border-radius: 12px;
+    height: 26px;
+    padding: 0 12px;
+    background: rgba(91, 141, 239, 0.22);
+    color: #dbe6ff;
+    border: 1px solid rgba(91, 141, 239, 0.35);
+    border-radius: 13px;
     font-size: 12px;
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
     user-select: none;
     flex-shrink: 0;
-    transition: background 0.12s;
+    transition: background 0.12s, border-color 0.12s;
 }
-.chip.chip-removable { padding-right: 3px; }
+.chip:hover { background: rgba(91, 141, 239, 0.3); }
+.chip.chip-removable { padding-right: 4px; }
 .chip .chip-x {
     width: 18px;
     height: 18px;
-    margin-left: 5px;
+    margin-left: 6px;
     border: none;
     border-radius: 50%;
-    background: transparent;
-    color: rgba(207, 220, 246, 0.55);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(219, 230, 255, 0.7);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
     padding: 0;
     display: inline-flex;

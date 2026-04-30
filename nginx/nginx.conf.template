@@ -51,6 +51,14 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
+    # --- Static assets: never cache (avoids stale CSS/JS after deploys) ---
+    location ~* \.(css|js|html)$ {
+        add_header Cache-Control "no-cache, must-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
+        expires off;
+        try_files $uri =404;
+    }
+
     # --- Static frontend (everything else) ---
     location / {
         try_files $uri $uri/ /index.html;
