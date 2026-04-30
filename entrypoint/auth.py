@@ -1,13 +1,13 @@
 """
 Admin authentication via HTTP-only session cookie.
 
-Credentials kommen aus der .env:
+Credentials are read from the .env:
     ADMIN_USERNAME=admin
     ADMIN_PASSWORD=...
-    ADMIN_SESSION_SECRET=...   # für HMAC der Session-Cookies
+    ADMIN_SESSION_SECRET=...   # HMAC key for the session cookies
 
-Session-Cookie enthält ein signiertes (HMAC) Token mit Ablaufzeit.
-Kein Datenbank-Roundtrip nötig.
+The session cookie carries an HMAC-signed token plus expiry — no DB
+round-trip is needed for auth.
 """
 import os
 import hmac

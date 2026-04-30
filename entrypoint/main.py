@@ -20,8 +20,8 @@ DATA_DIR = Path("/data")
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 DEFAULT_TOKEN = os.getenv("DEFAULT_AUTH_TOKEN", "default-bench-token-2024")
-# In-memory cache der Limits. Wird aus settings_store (DB > env > default)
-# gefüllt und nach jedem Settings-Save automatisch refresht.
+# In-memory cache for limits. Populated from settings_store (DB > env >
+# default) and refreshed after every settings save.
 _LIMITS = {
     "MAX_QUEUE": int(os.getenv("MAX_QUEUE", os.getenv("MAX_WS_CONNECTIONS", "100"))),
     "MAX_QUEUE_PER_IP": int(os.getenv("MAX_QUEUE_PER_IP", os.getenv("MAX_WS_PER_IP", "5"))),

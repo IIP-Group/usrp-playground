@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,14 +17,14 @@
         </div>
 
         <div class="toolbar">
-            <input id="search" class="search-input" placeholder="Suche nach Name, ETH-ID, Email ...">
-            <button id="btn-add" class="btn btn-primary">User hinzufügen</button>
-            <button id="btn-upload" class="btn">CSV Upload</button>
+            <input id="search" class="search-input" placeholder="Search by name, ETH-ID, email...">
+            <button id="btn-add" class="btn btn-primary">Add user</button>
+            <button id="btn-upload" class="btn">CSV upload</button>
             <span class="sp"></span>
-            <button id="btn-bulk-regenerate" class="btn" disabled>Token erneuern</button>
+            <button id="btn-bulk-regenerate" class="btn" disabled>Regenerate token</button>
             <button id="btn-bulk-tags" class="btn" disabled>Tags…</button>
-            <button id="btn-bulk-email" class="btn" disabled>Token-Mail</button>
-            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Löschen</button>
+            <button id="btn-bulk-email" class="btn" disabled>Token email</button>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Delete</button>
         </div>
 
         <div class="tag-filter-bar">
@@ -45,11 +45,11 @@
                         <th>Tags</th>
                         <th>Token</th>
                         <th class="num">Submits</th>
-                        <th>Letzter Submit</th>
+                        <th>Last submit</th>
                     </tr>
                 </thead>
                 <tbody id="users-body">
-                    <tr><td colspan="8" class="empty">Laden…</td></tr>
+                    <tr><td colspan="8" class="empty">Loading…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -61,30 +61,30 @@
 <!-- Add user modal -->
 <div class="modal-backdrop" id="modal-add">
     <div class="modal">
-        <h3>Neuer User</h3>
+        <h3>New user</h3>
         <div class="form-row">
             <label>ETH-ID</label>
             <input id="add-eth-id" type="text" autocomplete="off">
         </div>
         <div class="form-row">
-            <label>Vorname</label>
+            <label>First name</label>
             <input id="add-first" type="text">
         </div>
         <div class="form-row">
-            <label>Nachname</label>
+            <label>Last name</label>
             <input id="add-last" type="text">
         </div>
         <div class="form-row">
-            <label>Email <span class="text-dim" style="font-weight: normal;">— leer = &lt;eth-id&gt;@ethz.ch</span></label>
+            <label>Email <span class="text-dim" style="font-weight: normal;">— empty = &lt;eth-id&gt;@ethz.ch</span></label>
             <input id="add-email" type="email">
         </div>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— Leertaste, Komma oder Enter erstellt einen Tag</span></label>
+            <label>Tags <span class="text-dim" style="font-weight: normal;">— space, comma or enter creates a tag</span></label>
             <div id="add-tags-input"></div>
         </div>
         <div class="actions">
-            <button class="btn" onclick="closeModal('modal-add')">Abbrechen</button>
-            <button class="btn btn-primary" id="btn-add-confirm">Erstellen</button>
+            <button class="btn" onclick="closeModal('modal-add')">Cancel</button>
+            <button class="btn btn-primary" id="btn-add-confirm">Create</button>
         </div>
     </div>
 </div>
@@ -92,18 +92,18 @@
 <!-- CSV upload modal -->
 <div class="modal-backdrop" id="modal-csv">
     <div class="modal">
-        <h3>CSV Upload</h3>
+        <h3>CSV upload</h3>
         <p class="text-dim" style="font-size: 13px;">
-            Erwartetes Moodle-Format: <code>First name, Last name, ID number, Email, Groups, [Tags]</code>.
-            Eine optionale <strong>Tags</strong>-Spalte wird pro Zeile übernommen.
+            Expected Moodle format: <code>First name, Last name, ID number, Email, Groups, [Tags]</code>.
+            An optional <strong>Tags</strong> column is applied per row.
         </p>
         <div class="form-row" style="margin-top: 12px;">
-            <label>Standard-Tags für alle importierten User <span class="text-dim" style="font-weight: normal;">— optional</span></label>
+            <label>Default tags applied to all imported users <span class="text-dim" style="font-weight: normal;">— optional</span></label>
             <div id="csv-tags-input"></div>
         </div>
         <div class="actions">
-            <button class="btn" onclick="closeModal('modal-csv')">Abbrechen</button>
-            <button class="btn btn-primary" id="btn-csv-pick">CSV auswählen…</button>
+            <button class="btn" onclick="closeModal('modal-csv')">Cancel</button>
+            <button class="btn btn-primary" id="btn-csv-pick">Choose CSV…</button>
         </div>
     </div>
 </div>
@@ -111,14 +111,14 @@
 <!-- Edit single-user tags modal -->
 <div class="modal-backdrop" id="modal-tags">
     <div class="modal">
-        <h3>Tags bearbeiten <span id="tags-modal-user" class="text-dim" style="font-weight: normal; font-size: 14px;"></span></h3>
+        <h3>Edit tags <span id="tags-modal-user" class="text-dim" style="font-weight: normal; font-size: 14px;"></span></h3>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— Leertaste, Komma oder Enter erstellt einen Tag</span></label>
+            <label>Tags <span class="text-dim" style="font-weight: normal;">— space, comma or enter creates a tag</span></label>
             <div id="single-tags-input"></div>
         </div>
         <div class="actions">
-            <button class="btn" onclick="closeModal('modal-tags')">Abbrechen</button>
-            <button class="btn btn-primary" id="btn-tags-save">Speichern</button>
+            <button class="btn" onclick="closeModal('modal-tags')">Cancel</button>
+            <button class="btn btn-primary" id="btn-tags-save">Save</button>
         </div>
     </div>
 </div>
@@ -126,13 +126,13 @@
 <!-- Bulk tags modal -->
 <div class="modal-backdrop" id="modal-bulk-tags">
     <div class="modal">
-        <h3>Tags auf <span id="bulk-tags-count">0</span> User anwenden</h3>
+        <h3>Apply tags to <span id="bulk-tags-count">0</span> user(s)</h3>
         <div class="form-row">
-            <label>Aktion</label>
+            <label>Action</label>
             <select id="bulk-tags-action">
-                <option value="tags_add">Hinzufügen</option>
-                <option value="tags_remove">Entfernen</option>
-                <option value="tags_set">Komplett ersetzen</option>
+                <option value="tags_add">Add</option>
+                <option value="tags_remove">Remove</option>
+                <option value="tags_set">Replace</option>
             </select>
         </div>
         <div class="form-row">
@@ -140,8 +140,8 @@
             <div id="bulk-tags-input"></div>
         </div>
         <div class="actions">
-            <button class="btn" onclick="closeModal('modal-bulk-tags')">Abbrechen</button>
-            <button class="btn btn-primary" id="btn-bulk-tags-confirm">Anwenden</button>
+            <button class="btn" onclick="closeModal('modal-bulk-tags')">Cancel</button>
+            <button class="btn btn-primary" id="btn-bulk-tags-confirm">Apply</button>
         </div>
     </div>
 </div>
@@ -149,11 +149,11 @@
 <!-- Email modal -->
 <div class="modal-backdrop" id="modal-email">
     <div class="modal">
-        <h3>Token-Mail versenden</h3>
+        <h3>Send token email</h3>
 
         <div class="notice warn">
-            Deine ETH-Credentials werden <strong>nicht</strong> gespeichert — sie werden nur
-            für diesen Sende-Vorgang benutzt.
+            Your ETH credentials are <strong>not</strong> stored — they are only kept
+            for the duration of this send.
         </div>
 
         <div class="row">
@@ -162,13 +162,13 @@
                 <input id="smtp-user" style="width: 100%" autocomplete="off">
             </div>
             <div style="flex: 1">
-                <label>Passwort</label>
+                <label>Password</label>
                 <input id="smtp-pass" type="password" style="width: 100%" autocomplete="off">
             </div>
         </div>
         <div class="row" style="margin-top: 10px;">
             <div style="flex: 1.2">
-                <label>SMTP Server</label>
+                <label>SMTP server</label>
                 <select id="smtp-preset" style="width: 100%"></select>
             </div>
             <div style="flex: 1.2">
@@ -182,33 +182,33 @@
         </div>
         <div class="row" style="margin-top: 10px;">
             <div style="flex: 1">
-                <label>Absender-Email <span class="text-dim" style="font-weight: normal;">— optional</span></label>
-                <input id="smtp-from" placeholder="leer = Username" style="width: 100%">
+                <label>Sender email <span class="text-dim" style="font-weight: normal;">— optional</span></label>
+                <input id="smtp-from" placeholder="empty = username" style="width: 100%">
             </div>
         </div>
         <div style="margin-top: 10px;">
-            <button id="btn-smtp-test" class="btn btn-sm">Verbindung prüfen</button>
+            <button id="btn-smtp-test" class="btn btn-sm">Test connection</button>
             <span id="smtp-test-status" class="text-dim"></span>
         </div>
 
         <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border);">
 
         <div class="form-row">
-            <label>Betreff</label>
+            <label>Subject</label>
             <input id="mail-subject" value="Your USRP Benchmark Token" style="width: 100%">
         </div>
         <div class="form-row">
             <div class="row">
-                <label style="margin: 0;">Body — Platzhalter: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
+                <label style="margin: 0;">Body — placeholders: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
                 <span class="sp"></span>
-                <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-template" title="Template neu laden">↺ Vorlage laden</button>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-template" title="Reload template">↺ Load template</button>
             </div>
             <textarea id="mail-body" rows="10" style="width: 100%; font-family: var(--mono);"></textarea>
         </div>
 
         <div class="actions">
-            <button class="btn" onclick="closeModal('modal-email')">Abbrechen</button>
-            <button class="btn btn-primary" id="btn-send-mails">Senden an ausgewählte</button>
+            <button class="btn" onclick="closeModal('modal-email')">Cancel</button>
+            <button class="btn btn-primary" id="btn-send-mails">Send to selected</button>
         </div>
         <div id="send-results" style="margin-top: 12px;"></div>
     </div>
@@ -221,11 +221,11 @@ initShell("users");
 
 // ---- SMTP server presets ----
 const SMTP_PRESETS = [
-    { id: "iis",     label: "IIS (iis-mail.ee.ethz.ch)", host: "iis-mail.ee.ethz.ch", port: 587 },
-    { id: "ethz",    label: "ETH zentral (mail.ethz.ch)", host: "mail.ethz.ch",       port: 587 },
-    { id: "ee-smtp", label: "D-ITET (smtp.ee.ethz.ch)",   host: "smtp.ee.ethz.ch",    port: 587 },
-    { id: "ee-mail", label: "D-ITET (mail.ee.ethz.ch)",   host: "mail.ee.ethz.ch",    port: 587 },
-    { id: "custom",  label: "Custom — frei konfigurieren", host: "",                  port: 587 },
+    { id: "iis",     label: "IIS (iis-mail.ee.ethz.ch)",   host: "iis-mail.ee.ethz.ch", port: 587 },
+    { id: "ethz",    label: "ETH central (mail.ethz.ch)",  host: "mail.ethz.ch",        port: 587 },
+    { id: "ee-smtp", label: "D-ITET (smtp.ee.ethz.ch)",    host: "smtp.ee.ethz.ch",     port: 587 },
+    { id: "ee-mail", label: "D-ITET (mail.ee.ethz.ch)",    host: "mail.ee.ethz.ch",     port: 587 },
+    { id: "custom",  label: "Custom — configure manually", host: "",                    port: 587 },
 ];
 const DEFAULT_PRESET = "iis";
 
@@ -237,24 +237,24 @@ const tagSuggestionStrings = () => allTagCounts.map(t => t.tag);
 
 // ---- ChipInput instances ----
 const filterTags = new ChipInput(document.getElementById("filter-chip-input"), {
-    placeholder: "Tag tippen oder auswählen…",
+    placeholder: "Type or pick a tag…",
     suggestionsFn: tagSuggestionStrings,
     onChange: () => loadUsers(),
 });
 const addTags = new ChipInput(document.getElementById("add-tags-input"), {
-    placeholder: "z.B. group-a hs2026",
+    placeholder: "e.g. group-a hs2026",
     suggestionsFn: tagSuggestionStrings,
 });
 const csvTags = new ChipInput(document.getElementById("csv-tags-input"), {
-    placeholder: "z.B. hs2026 batch-3",
+    placeholder: "e.g. hs2026 batch-3",
     suggestionsFn: tagSuggestionStrings,
 });
 const singleTags = new ChipInput(document.getElementById("single-tags-input"), {
-    placeholder: "Tag tippen…",
+    placeholder: "Type a tag…",
     suggestionsFn: tagSuggestionStrings,
 });
 const bulkTags = new ChipInput(document.getElementById("bulk-tags-input"), {
-    placeholder: "Tag tippen…",
+    placeholder: "Type a tag…",
     suggestionsFn: tagSuggestionStrings,
 });
 
@@ -267,7 +267,7 @@ async function loadUsers() {
     const url = "/users" + (params.toString() ? `?${params}` : "");
     try {
         allUsers = await apiFetch(url);
-        document.getElementById("user-count").textContent = `${allUsers.length} User`;
+        document.getElementById("user-count").textContent = `${allUsers.length} users`;
         render();
     } catch (e) {
         toast(e.message, "err");
@@ -289,7 +289,7 @@ function renderTags(tags) {
 function render() {
     const body = document.getElementById("users-body");
     if (!allUsers.length) {
-        body.innerHTML = '<tr><td colspan="8" class="empty">Keine User</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" class="empty">No users</td></tr>';
         updateBulkButtons();
         return;
     }
@@ -298,13 +298,13 @@ function render() {
         const tokenCell = u.token
             ? `<div class="copy-cell">
                    <span class="mono">${esc(u.token)}</span>
-                   <button class="copy-btn" data-copy="${esc(u.token)}" title="Kopieren">⎘</button>
+                   <button class="copy-btn" data-copy="${esc(u.token)}" title="Copy">⎘</button>
                </div>`
             : '<span class="text-dim">–</span>';
         const emailCell = u.email
             ? `<div class="copy-cell">
                    <span class="text-dim">${esc(u.email)}</span>
-                   <button class="copy-btn" data-copy="${esc(u.email)}" title="Kopieren">⎘</button>
+                   <button class="copy-btn" data-copy="${esc(u.email)}" title="Copy">⎘</button>
                </div>`
             : '<span class="text-dim">–</span>';
         const tagsCell = `<div class="tag-cell" data-edit-id="${u.id}">${renderTags(u.tags)}<span class="tag-edit-hint">✎</span></div>`;
@@ -334,14 +334,14 @@ function render() {
             const value = btn.dataset.copy;
             try {
                 await navigator.clipboard.writeText(value);
-                toast("Kopiert", "ok");
+                toast("Copied", "ok");
             } catch {
                 const ta = document.createElement("textarea");
                 ta.value = value;
                 document.body.appendChild(ta);
                 ta.select();
-                try { document.execCommand("copy"); toast("Kopiert", "ok"); }
-                catch { toast("Kopieren fehlgeschlagen", "err"); }
+                try { document.execCommand("copy"); toast("Copied", "ok"); }
+                catch { toast("Copy failed", "err"); }
                 ta.remove();
             }
         });
@@ -388,7 +388,7 @@ document.getElementById("btn-add").addEventListener("click", () => {
 });
 document.getElementById("btn-add-confirm").addEventListener("click", async () => {
     const eth_id = document.getElementById("add-eth-id").value.trim();
-    if (!eth_id) { toast("ETH-ID fehlt", "err"); return; }
+    if (!eth_id) { toast("ETH-ID is required", "err"); return; }
     try {
         await apiFetch("/users", {method: "POST", body: JSON.stringify({
             eth_id,
@@ -398,7 +398,7 @@ document.getElementById("btn-add-confirm").addEventListener("click", async () =>
             tags: addTags.getValue(),
         })});
         closeModal("modal-add");
-        toast("User erstellt", "ok");
+        toast("User created", "ok");
         await loadAllTags();
         loadUsers();
     } catch (e) { toast(e.message, "err"); }
@@ -421,7 +421,7 @@ document.getElementById("csv-input").addEventListener("change", async (e) => {
     fd.append("tags", csvTags.getValue().join(","));
     try {
         const r = await apiFetch("/users/upload_csv", {method: "POST", body: fd});
-        toast(`Importiert: ${r.created} erstellt, ${r.skipped} übersprungen`, "ok");
+        toast(`Imported: ${r.created} created, ${r.skipped} skipped`, "ok");
         await loadAllTags();
         loadUsers();
     } catch (err) { toast(err.message, "err"); }
@@ -432,22 +432,22 @@ document.getElementById("csv-input").addEventListener("change", async (e) => {
 document.getElementById("btn-bulk-delete").addEventListener("click", async () => {
     const n = selected.size;
     if (!n) return;
-    const pw = await askPassword(`${n} User werden gelöscht. Passwort zur Bestätigung:`);
+    const pw = await askPassword(`${n} user(s) will be deleted. Enter password to confirm:`);
     if (pw === null) return;
     try {
         await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
             action: "delete", ids: [...selected], password: pw,
         })});
-        selected.clear(); toast(`${n} User gelöscht`, "ok");
+        selected.clear(); toast(`${n} user(s) deleted`, "ok");
         await loadAllTags(); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
 
 document.getElementById("btn-bulk-regenerate").addEventListener("click", async () => {
-    if (!confirm(`${selected.size} Tokens neu generieren?`)) return;
+    if (!confirm(`Regenerate ${selected.size} token(s)?`)) return;
     try {
         const r = await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "regenerate", ids: [...selected]})});
-        toast(`${r.count} Tokens erneuert`, "ok");
+        toast(`${r.count} token(s) regenerated`, "ok");
         loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
@@ -468,7 +468,7 @@ document.getElementById("btn-tags-save").addEventListener("click", async () => {
     try {
         await apiFetch(`/users/${tagsEditingId}/tags`, {method: "PATCH", body: JSON.stringify({tags: singleTags.getValue()})});
         closeModal("modal-tags");
-        toast("Tags aktualisiert", "ok");
+        toast("Tags updated", "ok");
         await loadAllTags(); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
@@ -484,13 +484,13 @@ document.getElementById("btn-bulk-tags").addEventListener("click", () => {
 document.getElementById("btn-bulk-tags-confirm").addEventListener("click", async () => {
     const action = document.getElementById("bulk-tags-action").value;
     const tags = bulkTags.getValue();
-    if (!tags.length && action !== "tags_set") { toast("Tags fehlen", "err"); return; }
+    if (!tags.length && action !== "tags_set") { toast("Tags are required", "err"); return; }
     try {
         const r = await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
             action, ids: [...selected], tags,
         })});
         closeModal("modal-bulk-tags");
-        toast(`${r.count} User aktualisiert`, "ok");
+        toast(`${r.count} user(s) updated`, "ok");
         await loadAllTags(); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
@@ -541,7 +541,7 @@ document.getElementById("smtp-preset").addEventListener("change", applyPreset);
 document.getElementById("btn-reset-template").addEventListener("click", loadEmailTemplate);
 document.getElementById("btn-smtp-test").addEventListener("click", async () => {
     const st = document.getElementById("smtp-test-status");
-    st.textContent = "  Prüfe…";
+    st.textContent = "  Testing…";
     try {
         const r = await apiFetch("/email/test", {method: "POST", body: JSON.stringify(readSmtp())});
         st.textContent = "  " + r.message;
@@ -558,12 +558,12 @@ document.getElementById("btn-send-mails").addEventListener("click", async () => 
         body: document.getElementById("mail-body").value,
     };
     const resEl = document.getElementById("send-results");
-    resEl.innerHTML = '<div class="notice">Senden…</div>';
+    resEl.innerHTML = '<div class="notice">Sending…</div>';
     try {
         const r = await apiFetch("/email/send", {method: "POST", body: JSON.stringify(payload)});
         const ok = r.results.filter(x => x.ok).length;
         const fail = r.results.length - ok;
-        const parts = [`<div class="notice ${fail ? 'warn' : 'ok'}"><strong>${ok}</strong> gesendet, <strong>${fail}</strong> fehlgeschlagen</div>`];
+        const parts = [`<div class="notice ${fail ? 'warn' : 'ok'}"><strong>${ok}</strong> sent, <strong>${fail}</strong> failed</div>`];
         if (fail > 0) {
             parts.push('<table><thead><tr><th>User</th><th>Status</th></tr></thead><tbody>');
             for (const x of r.results.filter(x => !x.ok)) {

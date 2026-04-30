@@ -1,17 +1,17 @@
 # USRP Benchmark — Student Guide
 
-Willkommen! Hier findest du alles was du brauchst um deine Wellenformen über das gemeinsame USRP zu testen.
+Welcome! This page has everything you need to test your waveforms over the shared USRP.
 
 ---
 
-## 1. Was ist das?
+## 1. What is this?
 
-Ein gemeinsamer Server, der dein Basisband-Signal über einen echten USRP X410 sendet und das empfangene Signal zurückliefert. Du arbeitest lokal (Python, MATLAB, ...), das Senden/Empfangen übernimmt der Server.
+A shared server that transmits your baseband signal over a real USRP X410 and returns what it received. You work locally (Python, MATLAB, ...); the server takes care of TX/RX.
 
-- Zwei USRPs X410, verkabelt mit 10 dB Attenuator
-- Master Clock: 250 MHz
-- Standard-Sample-Rate: 25 MHz (250 MHz / 10)
-- Carrier: 2.4 GHz (konfigurierbar)
+- Two USRP X410, connected via 10 dB attenuator
+- Master clock: 250 MHz
+- Default sample rate: 31.25 MHz (250 MHz / 8)
+- Carrier: 2.4 GHz (configurable)
 
 ---
 
@@ -21,21 +21,21 @@ Ein gemeinsamer Server, der dein Basisband-Signal über einen echten USRP X410 s
 pip install git+https://github.com/RaresBares/USRP-Benchmark-System.git
 ```
 
-Das installiert das Python-Package `usrp_benchmark` mit der Klasse `USRPClient` sowie das CLI-Tool `usrp-client`.
+This installs the Python package `usrp_benchmark` with the `USRPClient` class plus the `usrp-client` CLI tool.
 
-Empfohlen: frische virtuelle Umgebung.
-
----
-
-## 3. Dein Token
-
-Du hast per Mail ein personalisiertes Token bekommen (beginnt mit deinem ETH-Kürzel). Damit authentifizierst du dich am Server.
-
-**Wichtig:** nicht weitergeben. Wenn dein Token weg ist oder missbraucht wird: melde dich beim Assistenten.
+Recommended: a fresh virtual environment.
 
 ---
 
-## 4. Minimal-Beispiel (Python)
+## 3. Your token
+
+You received a personal token by email (it starts with your ETH-ID). Use it to authenticate against the server.
+
+**Important:** do not share it. If your token leaks or is misused, contact the assistant.
+
+---
+
+## 4. Minimal example (Python)
 
 ```python
 import numpy as np
@@ -44,82 +44,82 @@ from usrp_benchmark import USRPClient
 USRPClient.setup(
     host="129.132.24.210",
     port=80,
-    token="DEIN-TOKEN-HIER",
+    token="YOUR-TOKEN-HERE",
 )
 
-# Server erreichbar?
+# Server reachable?
 print("Server OK:", USRPClient.check())
 
-# Radio-Info abfragen
+# Query radio info
 info = USRPClient.info()
 print(f"Sample Rate: {info['sample_rate_hz']/1e6} MHz")
 print(f"Carrier:     {info['carrier_frequency_hz']/1e9} GHz")
 
-# Testsignal erzeugen (1 MHz komplexer Sinus)
+# Build a test signal (1 MHz complex sine)
 fs = info['sample_rate_hz']
 t  = np.arange(100_000) / fs
 tx = np.exp(1j * 2 * np.pi * 1e6 * t).astype(np.complex64)
 
-# Senden & Empfangen
+# Transmit and receive
 rx = USRPClient.send(tx, verbose=True)
-print(f"Empfangen: {len(rx)} Samples")
+print(f"Received: {len(rx)} samples")
 ```
 
 ---
 
-## 5. Die wichtigsten Methoden
+## 5. The most important methods
 
-| Aufruf | Rückgabe |
+| Call | Returns |
 |---|---|
-| `USRPClient.setup(host, port, token)` | — Einmal pro Session |
-| `USRPClient.check()` | bool — Server erreichbar? |
-| `USRPClient.info()` | dict — Sample Rate, Carrier, Gains, Limits |
-| `USRPClient.send(signal)` | numpy array — empfangenes Signal |
-| `USRPClient.send(signal, verbose=True)` | numpy array — mit Live-Status-Ausgabe |
+| `USRPClient.setup(host, port, token)` | — call once per session |
+| `USRPClient.check()` | bool — server reachable? |
+| `USRPClient.info()` | dict — sample rate, carrier, gains, limits |
+| `USRPClient.send(signal)` | numpy array — received signal |
+| `USRPClient.send(signal, verbose=True)` | numpy array — with live status output |
 
-`signal` muss ein **komplexes numpy Array** sein (IQ-Samples). Wird intern zu `complex64` konvertiert.
-
----
-
-## 6. Was passiert mit dem Signal
-
-1. **Upload** — dein Signal geht als Binary an den Server
-2. **Queue** — falls andere vor dir dran sind, wartest du
-3. **Duty Cycle Check** — der Server schaut dass wir unter der TX-Zeit-Quote bleiben (10% / 60s Fenster)
-4. **Listen Before Talk** — kurzer RX-Check: ist der Kanal frei? Wenn nicht: Backoff und nochmal probieren
-5. **TX + RX gleichzeitig** — das Signal wird gesendet, gleichzeitig wird empfangen
-6. **Download** — das empfangene Signal kommt zurück als Binary
-
-Das Ergebnis enthält **Guard-Regionen** vor und nach deinem Signal (ca. 100 ms bei Standard-Settings). Der Grund: damit du garantiert den gesamten Burst empfängst, auch bei kleinen Timing-Abweichungen.
+`signal` must be a **complex numpy array** (IQ samples). It is converted to `complex64` internally.
 
 ---
 
-## 7. CLI-Tool (ohne Python-Code)
+## 6. What happens to your signal
 
-Wenn du das Signal aus einer anderen Sprache erzeugst (MATLAB, C, GNU Radio) oder einfach nur schnell ein File durchjagen willst — nach `pip install` steht `usrp-client` im Terminal bereit.
+1. **Upload** — your signal is sent to the server as binary
+2. **Queue** — if other tasks are ahead of you, you wait
+3. **Duty cycle check** — the server makes sure we stay below the TX time quota (10% / 60 s window)
+4. **Listen Before Talk** — short RX check: is the channel free? If not, back off and retry
+5. **TX + RX simultaneously** — the signal is transmitted while RX captures
+6. **Download** — the received signal comes back as binary
 
-**Format der Datei:** `.f32` — interleaved Float32, Reihenfolge `real, imag, real, imag, ...`. Das ist dasselbe Format das auch GNU Radio und viele SDR-Tools verwenden.
+The result contains **guard regions** before and after your signal (~100 ms with default settings). This guarantees you capture the whole burst even with small timing drift.
 
-**Aufruf:**
+---
+
+## 7. CLI tool (no Python required)
+
+If your signal is generated in another language (MATLAB, C, GNU Radio) or you just want to push a file through quickly, after `pip install` the `usrp-client` command is available in your terminal.
+
+**File format:** `.f32` — interleaved float32, in the order `real, imag, real, imag, ...`. This is the same format used by GNU Radio and most SDR tools.
+
+**Usage:**
 
 ```bash
 usrp-client -i input.f32 -o output.f32 \
             -s 129.132.24.210:80 \
-            -t DEIN-TOKEN-HIER
+            -t YOUR-TOKEN-HERE
 ```
 
-**Argumente:**
+**Arguments:**
 
-| Flag | Bedeutung | Default |
+| Flag | Meaning | Default |
 |---|---|---|
-| `-i`, `--input` | Pfad zur Eingabedatei (`.f32`, interleaved IQ) | — (required) |
-| `-o`, `--output` | Pfad für die empfangene Datei | `output.f32` |
-| `-s`, `--server` | Server-Adresse `host:port` | `localhost:8000` |
-| `-t`, `--token` | Auth-Token aus deiner E-Mail | default-bench-token |
+| `-i`, `--input` | Path to input file (`.f32`, interleaved IQ) | — (required) |
+| `-o`, `--output` | Path for the received file | `output.f32` |
+| `-s`, `--server` | Server address `host:port` | `localhost:8000` |
+| `-t`, `--token` | Auth token from your email | default-bench-token |
 
-Während der Ausführung bekommst du Status-Updates auf der Konsole: `[upload]`, `[queued]`, `[waiting]`, `[running]`, `[done]`, `[result]`.
+While running you get status updates on stdout: `[upload]`, `[queued]`, `[waiting]`, `[running]`, `[done]`, `[result]`.
 
-**Beispiel: F32 aus numpy erzeugen** (falls du in Python ein Signal hast und es via CLI schicken willst):
+**Example: produce f32 from numpy** (if you have a signal in Python and want to send it via the CLI):
 
 ```python
 import numpy as np
@@ -130,7 +130,7 @@ raw[1::2] = sig.imag
 raw.tofile("input.f32")
 ```
 
-Und zurücklesen:
+And read it back:
 
 ```python
 import numpy as np
@@ -141,13 +141,13 @@ rx = raw[0::2] + 1j * raw[1::2]
 **MATLAB:**
 
 ```matlab
-% schreiben
+% write
 sig = exp(1i*2*pi*1e6*(0:99999)/25e6);
 fid = fopen('input.f32','wb');
 fwrite(fid, [real(sig); imag(sig)], 'float32');   % interleaved
 fclose(fid);
 
-% lesen
+% read
 fid = fopen('output.f32','rb');
 raw = fread(fid, Inf, 'float32');
 fclose(fid);
@@ -156,25 +156,25 @@ rx  = raw(1:2:end) + 1i*raw(2:2:end);
 
 ---
 
-## 8. Häufige Fehler
+## 8. Common errors
 
-| Fehler | Bedeutung | Fix |
+| Error | Meaning | Fix |
 |---|---|---|
-| `auth_failed` | Falsches Token | Token aus der E-Mail nochmal kopieren |
-| `queue_full` | Zu viele Tasks in der Queue | Warten, später probieren |
-| `file_too_large` | Signal zu gross (>200 MB) | Kleineres Signal oder mehrere kleinere Bursts |
-| `SLEEPING ZZZZ` | Server ist gerade ausgeschaltet (Wartung) | Später probieren |
-| `Duty cycle limit` | TX-Zeit-Quote aufgebraucht | Server wartet automatisch |
-| `Listen Before Talk failed` | Kanal war 10× in Folge belegt | Später probieren, vielleicht ist gerade jemand sehr aktiv |
+| `auth_failed` | Wrong token | Re-copy the token from your email |
+| `queue_full` | Too many tasks queued | Wait, retry later |
+| `file_too_large` | Signal too large (>200 MB) | Send a smaller signal or multiple smaller bursts |
+| `SLEEPING ZZZZ` | Server is currently off (maintenance) | Try later |
+| `Duty cycle limit` | TX time quota used up | Server waits automatically |
+| `Listen Before Talk failed` | Channel was busy 10× in a row | Try later, someone else may be very active |
 
 ---
 
-## 9. Fragen / Bugs
+## 9. Questions / bugs
 
 GitHub Issues: [github.com/RaresBares/USRP-Benchmark-System/issues](https://github.com/RaresBares/USRP-Benchmark-System/issues)
 
-Oder direkt an den Assistenten (siehe deine Token-Mail).
+Or contact the assistant directly (see your token email).
 
 ---
 
-<p class="text-dim">Letzte Änderung: April 2026 · <a href="https://github.com/RaresBares/USRP-Benchmark-System">Source auf GitHub</a></p>
+<p class="text-dim">Last updated: April 2026 · <a href="https://github.com/RaresBares/USRP-Benchmark-System">Source on GitHub</a></p>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -126,13 +126,13 @@ async function refresh() {
         renderLogs(logs);
     } catch (e) {
         document.getElementById("notice-area").innerHTML =
-            `<div class="notice err">Fehler beim Laden: ${esc(e.message)}</div>`;
+            `<div class="notice err">Failed to load: ${esc(e.message)}</div>`;
     }
 }
 
 function renderTasks(tasks) {
     if (!tasks.length) {
-        document.getElementById("tasks-table").innerHTML = '<div class="empty">Keine Tasks</div>';
+        document.getElementById("tasks-table").innerHTML = '<div class="empty">No tasks</div>';
         return;
     }
     const rows = tasks.map(t => {
@@ -150,14 +150,14 @@ function renderTasks(tasks) {
     }).join("");
     document.getElementById("tasks-table").innerHTML = `
         <table>
-            <thead><tr><th>User</th><th class="num">Samples</th><th>State</th><th>Erstellt</th></tr></thead>
+            <thead><tr><th>User</th><th class="num">Samples</th><th>State</th><th>Created</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 }
 
 function renderLogs(logs) {
     if (!logs.length) {
-        document.getElementById("logs-table").innerHTML = '<div class="empty">Keine Logs</div>';
+        document.getElementById("logs-table").innerHTML = '<div class="empty">No logs</div>';
         return;
     }
     const rows = logs.map(l => `
@@ -169,7 +169,7 @@ function renderLogs(logs) {
         </tr>`).join("");
     document.getElementById("logs-table").innerHTML = `
         <table>
-            <thead><tr><th>User</th><th>Action</th><th class="num">Samples</th><th>Zeit</th></tr></thead>
+            <thead><tr><th>User</th><th>Action</th><th class="num">Samples</th><th>Time</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 }

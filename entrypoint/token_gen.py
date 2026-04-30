@@ -6,10 +6,10 @@ Recipe:
     hash = SHA-256(raw)
     token = eth_id + "-" + base32(hash[:15])   # 24 chars of entropy, human readable
 
-Das macht:
-- An den eth_id gebunden (pseudo-prefix, damit man beim Log direkt sieht wem der Token gehört)
-- Nicht raten-bar ohne Secret (OS-Random + Secret)
-- Kollision praktisch unmöglich (128 Bit Entropie)
+Properties:
+- Bound to the eth_id (pseudo-prefix so logs show who owns the token)
+- Cannot be guessed without the secret (OS random + secret)
+- Collisions practically impossible (128 bits of entropy)
 """
 import os
 import base64

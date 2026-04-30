@@ -1,11 +1,11 @@
 """
 USRP server "sleep/wake" gate.
 
-Wenn state == 'sleeping':
-- Neue WebSocket-Verbindungen bekommen "Server is currently Sleeping zzZZ...."
-- Worker pollt ebenfalls diesen State und hört auf zu arbeiten
+When state == 'sleeping':
+- New WebSocket connections get "Server is currently Sleeping zzZZ...."
+- The worker polls the same state and stops processing tasks.
 
-State wird in DB gespeichert (single-row server_state table).
+State is persisted in the DB (single-row `server_state` table).
 """
 from sqlalchemy.orm import Session
 from datetime import datetime

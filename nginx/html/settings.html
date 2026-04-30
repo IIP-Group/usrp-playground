@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,19 +13,19 @@
         <div class="row" style="margin-bottom: 20px;">
             <h2 style="margin: 0;">Settings</h2>
             <span class="sp"></span>
-            <button id="btn-save" class="btn btn-primary">Alle Änderungen speichern</button>
+            <button id="btn-save" class="btn btn-primary">Save all changes</button>
         </div>
 
         <div class="notice warn">
-            Änderungen werden zur Laufzeit übernommen und wirken beim nächsten
-            Task des Workers — der USRP-Teil wird automatisch neu konfiguriert.
+            Changes are applied at runtime and take effect on the worker's next
+            task — the USRP is reconfigured automatically.
         </div>
 
         <div id="notice-area"></div>
 
         <div class="scroll-region" style="padding: 0 18px 18px;">
             <div id="groups">
-                <div class="empty">Laden…</div>
+                <div class="empty">Loading…</div>
             </div>
         </div>
     </main>
@@ -90,7 +90,7 @@ function render() {
                     <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
                 </td>
                 <td>${input}</td>
-                <td style="width: 28px; text-align: center;"><span class="settings-dot" data-dot="${s.key}" title="gespeichert"></span></td>
+                <td style="width: 28px; text-align: center;"><span class="settings-dot" data-dot="${s.key}" title="saved"></span></td>
             </tr>`;
         }).join("");
         return `
@@ -107,22 +107,22 @@ function onChange(key) {
     const dot = document.querySelector(`[data-dot="${key}"]`);
     if (el.value === savedValues[key]) {
         dirty.delete(key);
-        if (dot) { dot.classList.remove("dirty"); dot.title = "gespeichert"; }
+        if (dot) { dot.classList.remove("dirty"); dot.title = "saved"; }
     } else {
         dirty.add(key);
-        if (dot) { dot.classList.add("dirty"); dot.title = "nicht gespeichert"; }
+        if (dot) { dot.classList.add("dirty"); dot.title = "unsaved"; }
     }
     updateSaveButton();
 }
 
 function updateSaveButton() {
     const btn = document.getElementById("btn-save");
-    btn.textContent = dirty.size ? `Änderungen speichern (${dirty.size})` : "Alle Änderungen speichern";
+    btn.textContent = dirty.size ? `Save changes (${dirty.size})` : "Save all changes";
     btn.disabled = dirty.size === 0;
 }
 
 document.getElementById("btn-save").addEventListener("click", async () => {
-    if (!dirty.size) { toast("Keine Änderungen"); return; }
+    if (!dirty.size) { toast("No changes"); return; }
     const payload = {};
     for (const key of dirty) {
         const el = document.getElementById("f-" + key);
@@ -132,12 +132,12 @@ document.getElementById("btn-save").addEventListener("click", async () => {
         const r = await apiFetch("/settings", {method: "PUT", body: JSON.stringify(payload)});
         const errCount = Object.keys(r.errors || {}).length;
         if (errCount) {
-            toast(`${r.applied.length} gespeichert, ${errCount} Fehler`, "err");
+            toast(`${r.applied.length} saved, ${errCount} error(s)`, "err");
         } else {
-            toast(`${r.applied.length} gespeichert`, "ok");
+            toast(`${r.applied.length} saved`, "ok");
         }
         dirty.clear();
-        document.getElementById("btn-save").textContent = "Alle Änderungen speichern";
+        document.getElementById("btn-save").textContent = "Save all changes";
         loadSettings();
     } catch (e) { toast(e.message, "err"); }
 });

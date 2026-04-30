@@ -8,7 +8,7 @@ from database import Base
 class User(Base):
     """
     Registered course participant. Owns one token.
-    ETH-Kürzel (eth_id) is the part before @ethz.ch — used for display/logging.
+    ETH ID (eth_id) is the part before @ethz.ch — used for display/logging.
     """
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)

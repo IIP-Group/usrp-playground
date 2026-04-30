@@ -1,17 +1,17 @@
 <p>Hi [FIRST_NAME],</p>
 
-<p>hier dein persönlicher Token für den USRP-Benchmark-Server:</p>
+<p>here is your personal token for the USRP Benchmark server:</p>
 
 <pre style="background:#f4f4f4; padding:10px; border-radius:4px;">[TOKEN]</pre>
 
-<p>Los geht's:</p>
+<p>Get started:</p>
 <ul>
-  <li><strong>Anleitung für Studierende:</strong>
+  <li><strong>Student guide:</strong>
     <a href="http://129.132.24.210/docs.html">http://129.132.24.210/docs.html</a></li>
-  <li><strong>GitHub Repository:</strong>
+  <li><strong>GitHub repository:</strong>
     <a href="https://github.com/RaresBares/USRP-Benchmark-System">github.com/RaresBares/USRP-Benchmark-System</a></li>
 </ul>
 
-<p>Bitte den Token nicht weitergeben. Fragen? Einfach auf diese Mail antworten.</p>
+<p>Please do not share your token. Questions? Just reply to this email.</p>
 
-<p>Viele Grüsse</p>
+<p>Best regards</p>

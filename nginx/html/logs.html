@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -18,7 +18,7 @@
 
         <div class="toolbar">
             <select id="filter-action">
-                <option value="">Alle Actions</option>
+                <option value="">All actions</option>
                 <option value="submit">submit</option>
                 <option value="download">download</option>
                 <option value="cancelled">cancelled</option>
@@ -34,10 +34,10 @@
                 <option value="500">500</option>
             </select>
             <button id="btn-refresh" class="btn">Reload</button>
-            <label><input type="checkbox" id="auto-refresh" checked> Auto-Refresh</label>
+            <label><input type="checkbox" id="auto-refresh" checked> Auto-refresh</label>
             <span class="sp"></span>
-            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Ausgewählte löschen</button>
-            <button id="btn-delete-all" class="btn btn-danger">Alle Logs löschen</button>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Delete selected</button>
+            <button id="btn-delete-all" class="btn btn-danger">Delete all logs</button>
         </div>
 
         <div class="scroll-region">
@@ -45,7 +45,7 @@
                 <thead>
                     <tr>
                         <th style="width: 40px;"><input type="checkbox" id="select-all" class="big-check"></th>
-                        <th>Zeit</th>
+                        <th>Time</th>
                         <th>User</th>
                         <th>Action</th>
                         <th class="num">Samples</th>
@@ -54,7 +54,7 @@
                     </tr>
                 </thead>
                 <tbody id="logs-body">
-                    <tr><td colspan="7" class="empty">Laden…</td></tr>
+                    <tr><td colspan="7" class="empty">Loading…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -94,10 +94,10 @@ function actionBadge(a) {
 }
 
 function render() {
-    document.getElementById("log-count").textContent = `${allLogs.length} Einträge`;
+    document.getElementById("log-count").textContent = `${allLogs.length} entries`;
     const body = document.getElementById("logs-body");
     if (!allLogs.length) {
-        body.innerHTML = '<tr><td colspan="7" class="empty">Keine Logs</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="empty">No logs</td></tr>';
         updateBulk();
         return;
     }
@@ -129,7 +129,7 @@ function updateBulk() {
     const n = selected.size;
     const btn = document.getElementById("btn-bulk-delete");
     btn.disabled = !n;
-    btn.textContent = n ? `${n} löschen` : "Ausgewählte löschen";
+    btn.textContent = n ? `Delete ${n}` : "Delete selected";
 
     const selAll = document.getElementById("select-all");
     if (allLogs.length) {
@@ -149,7 +149,7 @@ document.getElementById("select-all").addEventListener("change", (e) => {
 document.getElementById("btn-bulk-delete").addEventListener("click", async () => {
     const n = selected.size;
     if (!n) return;
-    const pw = await askPassword(`${n} Logs werden gelöscht. Passwort zur Bestätigung:`);
+    const pw = await askPassword(`${n} log entry/entries will be deleted. Enter password to confirm:`);
     if (pw === null) return;
     try {
         const r = await apiFetch("/logs/bulk", {method: "POST", body: JSON.stringify({
@@ -157,19 +157,19 @@ document.getElementById("btn-bulk-delete").addEventListener("click", async () =>
             ids: [...selected],
             password: pw,
         })});
-        selected.clear(); toast(`${r.count} Logs gelöscht`, "ok"); loadLogs();
+        selected.clear(); toast(`${r.count} log(s) deleted`, "ok"); loadLogs();
     } catch (e) { toast(e.message, "err"); }
 });
 
 document.getElementById("btn-delete-all").addEventListener("click", async () => {
-    const pw = await askPassword("ALLE Logs werden gelöscht. Passwort zur Bestätigung:");
+    const pw = await askPassword("ALL logs will be deleted. Enter password to confirm:");
     if (pw === null) return;
     try {
         const r = await apiFetch("/logs/bulk", {method: "POST", body: JSON.stringify({
             action: "delete_all",
             password: pw,
         })});
-        selected.clear(); toast(`${r.count} Logs gelöscht`, "ok"); loadLogs();
+        selected.clear(); toast(`${r.count} log(s) deleted`, "ok"); loadLogs();
     } catch (e) { toast(e.message, "err"); }
 });
 

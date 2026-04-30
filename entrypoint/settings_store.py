@@ -1,11 +1,11 @@
 """
-Zentrale Config-Auflösung für USRP-relevante Parameter.
+Central config resolution for USRP-relevant parameters.
 
-Reihenfolge: DB-Override > .env > Default.
+Lookup order: DB override > .env > default.
 
-Beim Schreiben über die Admin-UI landen Änderungen in der DB (Tabelle
-setting_overrides). Der Worker pollt diese Tabelle periodisch bzw. beim
-nächsten Task — dadurch ist "reload" praktisch sofort ohne Restart.
+Saving from the admin UI writes to the `setting_overrides` table. The
+worker polls this table periodically / on the next task, so "reload" is
+effectively immediate without a restart.
 """
 import os
 from typing import Any
@@ -13,101 +13,101 @@ from sqlalchemy.orm import Session
 from models import SettingOverride
 
 
-# Welche Keys dürfen per Admin-UI überschrieben werden, welcher Typ und welche Beschreibung?
+# Which keys can be overridden via the admin UI? Each spec lists type and description.
 EDITABLE_KEYS: dict[str, dict] = {
     # Radio
     "CARRIER_FREQUENCY_HZ": {"type": "int", "group": "radio",
         "label": "Carrier Frequency (Hz)",
-        "desc": "Trägerfrequenz, auf der gesendet/empfangen wird. Typisch 2.4 GHz für ISM-Band."},
+        "desc": "Carrier frequency used for transmit/receive. Typically 2.4 GHz for the ISM band."},
     "SAMPLE_RATE_HZ":       {"type": "int", "group": "radio",
         "label": "Sample Rate (Hz)",
-        "desc": "Abtastrate des USRP. Bestimmt die Basisband-Bandbreite (typisch 25 MSps)."},
+        "desc": "USRP sample rate. Determines the baseband bandwidth (typically 25 MSps)."},
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
         "label": "Bandwidth (Hz)",
-        "desc": "Analoger Anti-Aliasing-Filter im USRP-Frontend. Sollte ≤ Sample Rate sein."},
+        "desc": "Analog anti-aliasing filter in the USRP front-end. Should be ≤ sample rate."},
     "TX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "TX Gain (dB)",
-        "desc": "Sendeverstärkung des USRP. 0 = aus, 30 = mittel, ~70 = max."},
+        "desc": "USRP transmit gain. 0 = off, 30 = mid, ~70 = max."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "RX Gain (dB)",
-        "desc": "Empfangsverstärkung. Zu hoch → Sättigung, zu niedrig → Rauschen."},
+        "desc": "Receive gain. Too high → saturation, too low → noise."},
     "CHANNEL_SNR_DB":       {"type": "float", "group": "radio",
         "label": "Sim. SNR (dB)",
-        "desc": "Künstliches SNR im AWGN-Simulator-Modus (nur ohne echten USRP)."},
+        "desc": "Synthetic SNR in AWGN simulator mode (only when no real USRP is attached)."},
     "ANTENNA_TX":           {"type": "str",   "group": "radio",
         "label": "TX Antenna",
-        "desc": "Antennen-Port am USRP für Senden (z.B. TX/RX0)."},
+        "desc": "USRP antenna port used for transmit (e.g. TX/RX0)."},
     "ANTENNA_RX":           {"type": "str",   "group": "radio",
         "label": "RX Antenna",
-        "desc": "Antennen-Port am USRP für Empfangen (z.B. RX1)."},
+        "desc": "USRP antenna port used for receive (e.g. RX1)."},
     "MASTER_CLOCK_RATE":    {"type": "int",   "group": "radio",
         "label": "Master Clock Rate (Hz)",
-        "desc": "Interner USRP-Takt. Sample Rate muss durch diesen Wert teilbar sein."},
+        "desc": "Internal USRP clock. The sample rate must be a divisor of this value."},
 
     # Guard (random uniform)
     "BEGIN_GUARD_MIN_SEC":  {"type": "float", "group": "guard",
         "label": "Begin Guard Min (s)",
-        "desc": "Minimale Pause vor dem Sendebeginn (random ∈ [Min, Max]). Schützt vor Klick-Artefakten."},
+        "desc": "Minimum pause before transmission starts (random ∈ [min, max]). Avoids click artefacts."},
     "BEGIN_GUARD_MAX_SEC":  {"type": "float", "group": "guard",
         "label": "Begin Guard Max (s)",
-        "desc": "Maximale Pause vor dem Sendebeginn."},
+        "desc": "Maximum pause before transmission starts."},
     "END_GUARD_MIN_SEC":    {"type": "float", "group": "guard",
         "label": "End Guard Min (s)",
-        "desc": "Minimale Pause nach dem Sendeende (Reverb/Empfänger-Latenz)."},
+        "desc": "Minimum pause after transmission ends (reverb / receiver latency)."},
     "END_GUARD_MAX_SEC":    {"type": "float", "group": "guard",
         "label": "End Guard Max (s)",
-        "desc": "Maximale Pause nach dem Sendeende."},
+        "desc": "Maximum pause after transmission ends."},
     "INITIAL_DELAY":        {"type": "float", "group": "guard",
         "label": "Initial Delay (s)",
-        "desc": "Verzögerung zwischen Task-Start und erstem Sample."},
+        "desc": "Delay between task start and the first sample."},
 
     # Duty cycle
     "DUTY_CYCLE_MAX_PERCENT": {"type": "float", "group": "safety",
         "label": "Max Duty Cycle (%)",
-        "desc": "Maximaler Anteil aktiver Sendezeit innerhalb des Fensters. ETSI-konform meist 10%."},
+        "desc": "Maximum fraction of active transmit time within the window. ETSI-compliant value is typically 10%."},
     "DUTY_CYCLE_WINDOW_SEC":  {"type": "float", "group": "safety",
         "label": "Duty Cycle Window (s)",
-        "desc": "Zeitfenster, über das der Duty Cycle gemessen wird (typisch 60s)."},
+        "desc": "Time window over which duty cycle is measured (typically 60 s)."},
 
     # LBT
     "LBT_ENABLED":        {"type": "bool",  "group": "safety",
         "label": "Listen Before Talk",
-        "desc": "Vor dem Senden prüfen ob der Kanal frei ist. Empfohlen für ISM-Band-Compliance."},
+        "desc": "Sense the channel before transmitting. Recommended for ISM-band compliance."},
     "LBT_THRESHOLD_DBFS": {"type": "float", "group": "safety",
         "label": "LBT Threshold (dBFS)",
-        "desc": "Pegelschwelle: über diesem Wert gilt der Kanal als belegt."},
+        "desc": "Power threshold above which the channel is considered busy."},
     "LBT_SENSE_SAMPLES":  {"type": "int",   "group": "safety",
         "label": "LBT Sense Samples",
-        "desc": "Wieviele Samples zum Pegel-Mitteln genutzt werden."},
+        "desc": "Number of samples used for the power average."},
     "LBT_MAX_RETRIES":    {"type": "int",   "group": "safety",
         "label": "LBT Max Retries",
-        "desc": "Wie oft erneut versucht wird, falls Kanal belegt — danach Fehler."},
+        "desc": "How often to retry if the channel is busy — after that, error out."},
     "LBT_BACKOFF_SEC":    {"type": "float", "group": "safety",
         "label": "LBT Backoff (s)",
-        "desc": "Wartezeit zwischen LBT-Versuchen (random uniform)."},
+        "desc": "Wait time between LBT attempts (random uniform)."},
 
     # Limits
     "MAX_UPLOAD_MB":      {"type": "int", "group": "limits",
         "label": "Max Upload (MB)",
-        "desc": "Maximale Signalgröße pro Upload. Größere Uploads werden vom Server abgelehnt."},
+        "desc": "Maximum signal size per upload. Larger uploads are rejected by the server."},
     "MAX_SAMPLES":        {"type": "int", "group": "limits",
         "label": "Max Samples",
-        "desc": "Maximale Anzahl IQ-Samples pro Task. Schutz vor zu langen Aufnahmen."},
+        "desc": "Maximum number of IQ samples per task. Protects against excessively long captures."},
     "TASK_TTL_HOURS":     {"type": "int", "group": "limits",
         "label": "Task TTL (h)",
-        "desc": "Wie lange Task-Dateien (input/output) auf der Disk bleiben, bevor sie aufgeräumt werden."},
+        "desc": "How long task files (input/output) stay on disk before they get cleaned up."},
     "MAX_QUEUE":          {"type": "int", "group": "limits",
         "label": "Max Queue Size",
-        "desc": "Gesamt-Obergrenze gleichzeitig laufender + wartender Tasks. Mehr Clients werden mit 'queue full' (HTTP 403) sofort abgewiesen."},
+        "desc": "Total cap of running + waiting tasks. Additional clients get 'queue full' (HTTP 403) immediately."},
     "MAX_QUEUE_PER_IP":   {"type": "int", "group": "limits",
         "label": "Max Queue per IP",
-        "desc": "Maximale Tasks pro Client-IP gleichzeitig. Schützt vor einzelnen Spammern, ohne andere Clients zu behindern."},
+        "desc": "Maximum concurrent tasks per client IP. Stops one spammer from blocking other clients."},
     "UPLOAD_TIMEOUT_SEC": {"type": "float", "group": "limits",
         "label": "Upload Timeout (s)",
-        "desc": "Wie lange der Server nach dem WebSocket-Connect auf die Signal-Daten wartet, bevor er den Slot wieder freigibt (Slow-Loris-Schutz)."},
+        "desc": "How long the server waits for signal data after the WebSocket connect before releasing the slot (slow-loris guard)."},
     "POLL_INTERVAL_SEC":  {"type": "float", "group": "limits",
         "label": "Status-Poll Interval (s)",
-        "desc": "Wie oft der Server dem Client seinen Queue-Status mitteilt, während die Task wartet."},
+        "desc": "How often the server pushes queue-status updates while the task is waiting."},
 }
 
 

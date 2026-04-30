@@ -24,15 +24,18 @@ async function apiFetch(path, opts = {}) {
     return data;
 }
 
-// Relative-time "vor X Minuten / Stunden / Tagen"
+// Relative-time "X minutes / hours / days ago"
 function relTime(isoDate) {
     if (!isoDate) return "–";
     const d = new Date(isoDate + (isoDate.endsWith("Z") ? "" : "Z"));
     const diffSec = Math.max(0, (Date.now() - d.getTime()) / 1000);
-    if (diffSec < 60) return "gerade eben";
-    if (diffSec < 3600) return `vor ${Math.floor(diffSec / 60)} Minuten`;
-    if (diffSec < 86400) return `vor ${Math.floor(diffSec / 3600)} Stunden`;
-    return `vor ${Math.floor(diffSec / 86400)} Tagen`;
+    if (diffSec < 60) return "just now";
+    if (diffSec < 120) return "1 minute ago";
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)} minutes ago`;
+    if (diffSec < 7200) return "1 hour ago";
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} hours ago`;
+    if (diffSec < 172800) return "1 day ago";
+    return `${Math.floor(diffSec / 86400)} days ago`;
 }
 
 // Toast notifications
@@ -74,7 +77,7 @@ function initShell(activePage) {
                 <a href="/settings.html"  data-page="settings">Settings</a>
             </nav>
             <div class="footer">
-                <button id="logout-btn" class="btn btn-sm">Abmelden</button>
+                <button id="logout-btn" class="btn btn-sm">Sign out</button>
             </div>
         `;
         side.querySelectorAll("nav a").forEach(a => {
@@ -111,16 +114,16 @@ function askPassword(message) {
             host.className = "modal-backdrop";
             host.innerHTML = `
                 <div class="modal" style="width: 420px;">
-                    <h3>Bestätigung</h3>
+                    <h3>Confirmation</h3>
                     <p id="__pw_msg" class="text-dim" style="margin-bottom: 14px;"></p>
                     <div class="form-row">
-                        <label>Admin-Passwort</label>
+                        <label>Admin password</label>
                         <input type="password" id="__pw_input" autocomplete="current-password" style="width: 100%;">
                     </div>
                     <div id="__pw_err" class="notice err" style="display:none;"></div>
                     <div class="actions">
-                        <button class="btn" id="__pw_cancel">Abbrechen</button>
-                        <button class="btn btn-danger" id="__pw_ok">Bestätigen</button>
+                        <button class="btn" id="__pw_cancel">Cancel</button>
+                        <button class="btn btn-danger" id="__pw_ok">Confirm</button>
                     </div>
                 </div>`;
             document.body.appendChild(host);
@@ -129,7 +132,7 @@ function askPassword(message) {
         const err = document.getElementById("__pw_err");
         input.value = "";
         err.style.display = "none";
-        document.getElementById("__pw_msg").textContent = message || "Bitte Admin-Passwort eingeben:";
+        document.getElementById("__pw_msg").textContent = message || "Please enter the admin password:";
         host.classList.add("open");
         input.focus();
 
@@ -142,7 +145,7 @@ function askPassword(message) {
         };
         ok.onclick = () => {
             const v = input.value;
-            if (!v) { err.textContent = "Passwort darf nicht leer sein"; err.style.display = "block"; return; }
+            if (!v) { err.textContent = "Password cannot be empty"; err.style.display = "block"; return; }
             done(v);
         };
         cancel.onclick = () => done(null);

@@ -1,10 +1,11 @@
 """
-SMTP Helper for sending token emails.
+SMTP helper for sending token emails.
 
-Der Admin gibt seine ETH-Credentials im Web-UI ein (werden nur für die Dauer des
-Sendens gehalten — kein Storage). Das Template enthält [TOKEN] als Platzhalter.
+The admin enters their credentials in the web UI; they are kept only for
+the duration of the send, never stored. The body template uses [TOKEN]
+as a placeholder.
 
-ETH SMTP:
+ETH SMTP defaults:
     host: mail.ethz.ch    port: 587 (STARTTLS)
 """
 import smtplib

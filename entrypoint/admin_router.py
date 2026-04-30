@@ -1,8 +1,9 @@
 """
 Admin API routes.
 
-Alle Endpoints unter /admin/api/* sind per Session-Cookie geschützt (ausser /login).
-Antworten sind JSON. Das Frontend ist statisch (nginx) und konsumiert diese API.
+All endpoints under /admin/api/* are protected by a session cookie
+(except /login). Responses are JSON. The frontend is static (nginx) and
+consumes this API.
 """
 import csv
 import io
@@ -163,7 +164,7 @@ def logs_bulk(
     """
     password = payload.get("password", "")
     if not auth.check_credentials(session["username"], password):
-        raise HTTPException(status_code=401, detail="Passwort falsch")
+        raise HTTPException(status_code=401, detail="Wrong password")
 
     action = payload.get("action")
     if action == "delete_all":
@@ -176,7 +177,7 @@ def logs_bulk(
     ids = payload.get("ids") or []
     if action == "delete":
         if not ids:
-            raise HTTPException(status_code=400, detail="Keine Logs ausgewählt")
+            raise HTTPException(status_code=400, detail="No logs selected")
         # If selected logs reference "submit" with a task uid in detail, also
         # drop those tasks. Cheaper alternative: match by task uid in detail.
         rows = db.query(Log).filter(Log.id.in_(ids)).all()
@@ -194,7 +195,7 @@ def logs_bulk(
         return {"ok": True, "action": action, "count": n,
                 "logs": n, "tasks": len(task_uids)}
 
-    raise HTTPException(status_code=400, detail=f"Unbekannte Aktion '{action}'")
+    raise HTTPException(status_code=400, detail=f"Unknown action '{action}'")
 
 
 @router.get("/tasks")
@@ -385,12 +386,12 @@ def users_bulk(
     action = payload.get("action")
     ids = payload.get("ids") or []
     if not ids:
-        raise HTTPException(status_code=400, detail="Keine Users ausgewählt")
+        raise HTTPException(status_code=400, detail="No users selected")
 
     if action == "delete":
         password = payload.get("password", "")
         if not auth.check_credentials(session["username"], password):
-            raise HTTPException(status_code=401, detail="Passwort falsch")
+            raise HTTPException(status_code=401, detail="Wrong password")
         n = _delete_users_cascade(db, ids)
         return {"ok": True, "action": action, "count": n}
 
@@ -424,7 +425,7 @@ def users_bulk(
         db.commit()
         return {"ok": True, "action": action, "count": len(users)}
 
-    raise HTTPException(status_code=400, detail=f"Unbekannte Aktion '{action}'")
+    raise HTTPException(status_code=400, detail=f"Unknown action '{action}'")
 
 
 @router.post("/users/upload_csv")

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -94,7 +94,7 @@
 </div>
 
 <div class="doc-wrap">
-    <div id="doc" class="doc">Laden…</div>
+    <div id="doc" class="doc">Loading…</div>
 </div>
 
 <script>
@@ -105,7 +105,7 @@ fetch("/docs.md?_=" + Date.now())
         document.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
     })
     .catch(e => {
-        document.getElementById("doc").textContent = "Konnte docs.md nicht laden: " + e.message;
+        document.getElementById("doc").textContent = "Failed to load docs.md: " + e.message;
     });
 </script>
 </body>
