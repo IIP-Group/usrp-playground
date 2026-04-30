@@ -27,10 +27,9 @@
             <button id="btn-bulk-delete" class="btn btn-danger" disabled>Löschen</button>
         </div>
 
-        <div id="tag-filter" class="tag-filter-bar" style="display:none">
+        <div class="tag-filter-bar">
             <span class="filter-label">Filter:</span>
-            <span id="tag-filter-chips"></span>
-            <button id="btn-clear-tag-filter" class="btn btn-sm btn-ghost" style="display:none">×&nbsp;Filter zurücksetzen</button>
+            <div id="filter-chip-input"></div>
         </div>
 
         <div id="notice-area"></div>
@@ -76,12 +75,12 @@
             <input id="add-last" type="text">
         </div>
         <div class="form-row">
-            <label>Email (leer = &lt;eth-id&gt;@ethz.ch)</label>
+            <label>Email <span class="text-dim" style="font-weight: normal;">— leer = &lt;eth-id&gt;@ethz.ch</span></label>
             <input id="add-email" type="email">
         </div>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— mit Komma trennen</span></label>
-            <input id="add-tags" type="text" placeholder="z.B. group-a, hs2026">
+            <label>Tags <span class="text-dim" style="font-weight: normal;">— Leertaste, Komma oder Enter erstellt einen Tag</span></label>
+            <div id="add-tags-input"></div>
         </div>
         <div class="actions">
             <button class="btn" onclick="closeModal('modal-add')">Abbrechen</button>
@@ -90,7 +89,7 @@
     </div>
 </div>
 
-<!-- CSV upload modal (asks for default tags before file dialog) -->
+<!-- CSV upload modal -->
 <div class="modal-backdrop" id="modal-csv">
     <div class="modal">
         <h3>CSV Upload</h3>
@@ -100,7 +99,7 @@
         </p>
         <div class="form-row" style="margin-top: 12px;">
             <label>Standard-Tags für alle importierten User <span class="text-dim" style="font-weight: normal;">— optional</span></label>
-            <input id="csv-default-tags" type="text" placeholder="z.B. hs2026, batch-3">
+            <div id="csv-tags-input"></div>
         </div>
         <div class="actions">
             <button class="btn" onclick="closeModal('modal-csv')">Abbrechen</button>
@@ -114,10 +113,9 @@
     <div class="modal">
         <h3>Tags bearbeiten <span id="tags-modal-user" class="text-dim" style="font-weight: normal; font-size: 14px;"></span></h3>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— mit Komma trennen</span></label>
-            <input id="tags-input" type="text" autocomplete="off">
+            <label>Tags <span class="text-dim" style="font-weight: normal;">— Leertaste, Komma oder Enter erstellt einen Tag</span></label>
+            <div id="single-tags-input"></div>
         </div>
-        <div id="tags-suggestions" class="row" style="flex-wrap: wrap; gap: 4px; margin-top: 4px;"></div>
         <div class="actions">
             <button class="btn" onclick="closeModal('modal-tags')">Abbrechen</button>
             <button class="btn btn-primary" id="btn-tags-save">Speichern</button>
@@ -138,10 +136,9 @@
             </select>
         </div>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— mit Komma trennen</span></label>
-            <input id="bulk-tags-input" type="text" autocomplete="off">
+            <label>Tags</label>
+            <div id="bulk-tags-input"></div>
         </div>
-        <div id="bulk-tags-suggestions" class="row" style="flex-wrap: wrap; gap: 4px; margin-top: 4px;"></div>
         <div class="actions">
             <button class="btn" onclick="closeModal('modal-bulk-tags')">Abbrechen</button>
             <button class="btn btn-primary" id="btn-bulk-tags-confirm">Anwenden</button>
@@ -172,9 +169,7 @@
         <div class="row" style="margin-top: 10px;">
             <div style="flex: 1.2">
                 <label>SMTP Server</label>
-                <select id="smtp-preset" style="width: 100%">
-                    <!-- options injected by JS -->
-                </select>
+                <select id="smtp-preset" style="width: 100%"></select>
             </div>
             <div style="flex: 1.2">
                 <label>Host</label>
@@ -187,8 +182,8 @@
         </div>
         <div class="row" style="margin-top: 10px;">
             <div style="flex: 1">
-                <label>Absender-Email</label>
-                <input id="smtp-from" placeholder="optional" style="width: 100%">
+                <label>Absender-Email <span class="text-dim" style="font-weight: normal;">— optional</span></label>
+                <input id="smtp-from" placeholder="leer = Username" style="width: 100%">
             </div>
         </div>
         <div style="margin-top: 10px;">
@@ -220,6 +215,7 @@
 </div>
 
 <script src="/js/app.js"></script>
+<script src="/js/chip_input.js"></script>
 <script>
 initShell("users");
 
@@ -235,14 +231,39 @@ const DEFAULT_PRESET = "iis";
 
 let allUsers = [];
 let selected = new Set();
-let activeTagFilter = new Set();          // tags currently filtering the list
-let allTagCounts = [];                    // [{tag, count}, ...] from /users/tags
+let allTagCounts = [];   // [{tag, count}, ...]
+
+const tagSuggestionStrings = () => allTagCounts.map(t => t.tag);
+
+// ---- ChipInput instances ----
+const filterTags = new ChipInput(document.getElementById("filter-chip-input"), {
+    placeholder: "Tag tippen oder auswählen…",
+    suggestionsFn: tagSuggestionStrings,
+    onChange: () => loadUsers(),
+});
+const addTags = new ChipInput(document.getElementById("add-tags-input"), {
+    placeholder: "z.B. group-a hs2026",
+    suggestionsFn: tagSuggestionStrings,
+});
+const csvTags = new ChipInput(document.getElementById("csv-tags-input"), {
+    placeholder: "z.B. hs2026 batch-3",
+    suggestionsFn: tagSuggestionStrings,
+});
+const singleTags = new ChipInput(document.getElementById("single-tags-input"), {
+    placeholder: "Tag tippen…",
+    suggestionsFn: tagSuggestionStrings,
+});
+const bulkTags = new ChipInput(document.getElementById("bulk-tags-input"), {
+    placeholder: "Tag tippen…",
+    suggestionsFn: tagSuggestionStrings,
+});
 
 async function loadUsers() {
     const q = document.getElementById("search").value.trim();
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (activeTagFilter.size) params.set("tag", [...activeTagFilter].join(","));
+    const f = filterTags.getValue();
+    if (f.length) params.set("tag", f.join(","));
     const url = "/users" + (params.toString() ? `?${params}` : "");
     try {
         allUsers = await apiFetch(url);
@@ -254,41 +275,11 @@ async function loadUsers() {
 }
 
 async function loadAllTags() {
-    try {
-        allTagCounts = await apiFetch("/users/tags");
-    } catch { allTagCounts = []; }
-    renderTagFilter();
+    try { allTagCounts = await apiFetch("/users/tags"); }
+    catch { allTagCounts = []; }
 }
 
-function renderTagFilter() {
-    const bar = document.getElementById("tag-filter");
-    const wrap = document.getElementById("tag-filter-chips");
-    if (!allTagCounts.length) { bar.style.display = "none"; return; }
-    bar.style.display = "flex";
-    wrap.innerHTML = allTagCounts.map(t => {
-        const active = activeTagFilter.has(t.tag) ? "active" : "";
-        return `<span class="chip filter-chip ${active}" data-tag="${esc(t.tag)}">${esc(t.tag)}<span class="chip-count">${t.count}</span></span>`;
-    }).join("");
-    wrap.querySelectorAll(".filter-chip").forEach(el => {
-        el.addEventListener("click", () => {
-            const tag = el.dataset.tag;
-            if (activeTagFilter.has(tag)) activeTagFilter.delete(tag);
-            else activeTagFilter.add(tag);
-            renderTagFilter();
-            loadUsers();
-        });
-    });
-    document.getElementById("btn-clear-tag-filter").style.display =
-        activeTagFilter.size ? "" : "none";
-}
-
-document.getElementById("btn-clear-tag-filter").addEventListener("click", () => {
-    activeTagFilter.clear();
-    renderTagFilter();
-    loadUsers();
-});
-
-function renderChips(tags) {
+function renderTags(tags) {
     if (!tags || !tags.length) {
         return '<span class="tag-empty">— Tags hinzufügen</span>';
     }
@@ -316,13 +307,13 @@ function render() {
                    <button class="copy-btn" data-copy="${esc(u.email)}" title="Kopieren">⎘</button>
                </div>`
             : '<span class="text-dim">–</span>';
-        const tagsCell = `<div class="tag-cell" data-edit-id="${u.id}">${renderChips(u.tags)}<span class="tag-edit-hint">✎</span></div>`;
+        const tagsCell = `<div class="tag-cell" data-edit-id="${u.id}">${renderTags(u.tags)}<span class="tag-edit-hint">✎</span></div>`;
         return `<tr>
             <td><input type="checkbox" class="row-check big-check" data-id="${u.id}" ${checked}></td>
             <td class="mono"><strong>${esc(u.eth_id)}</strong></td>
             <td>${esc(u.first_name || "")} ${esc(u.last_name || "")}</td>
             <td>${emailCell}</td>
-            <td>${tagsCell}</td>
+            <td class="tags-col">${tagsCell}</td>
             <td>${tokenCell}</td>
             <td class="num">${u.submits}</td>
             <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "–"}</td>
@@ -391,7 +382,8 @@ document.getElementById("select-all").addEventListener("change", (e) => {
 
 // ---- Add user ----
 document.getElementById("btn-add").addEventListener("click", () => {
-    ["add-eth-id","add-first","add-last","add-email","add-tags"].forEach(id => document.getElementById(id).value = "");
+    ["add-eth-id","add-first","add-last","add-email"].forEach(id => document.getElementById(id).value = "");
+    addTags.clear();
     openModal("modal-add");
 });
 document.getElementById("btn-add-confirm").addEventListener("click", async () => {
@@ -403,17 +395,18 @@ document.getElementById("btn-add-confirm").addEventListener("click", async () =>
             first_name: document.getElementById("add-first").value,
             last_name: document.getElementById("add-last").value,
             email: document.getElementById("add-email").value,
-            tags: document.getElementById("add-tags").value,
+            tags: addTags.getValue(),
         })});
         closeModal("modal-add");
         toast("User erstellt", "ok");
-        loadUsers(); loadAllTags();
+        await loadAllTags();
+        loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
 
 // ---- CSV upload ----
 document.getElementById("btn-upload").addEventListener("click", () => {
-    document.getElementById("csv-default-tags").value = "";
+    csvTags.clear();
     openModal("modal-csv");
 });
 document.getElementById("btn-csv-pick").addEventListener("click", () => {
@@ -425,11 +418,12 @@ document.getElementById("csv-input").addEventListener("change", async (e) => {
     if (!file) return;
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("tags", document.getElementById("csv-default-tags").value || "");
+    fd.append("tags", csvTags.getValue().join(","));
     try {
         const r = await apiFetch("/users/upload_csv", {method: "POST", body: fd});
         toast(`Importiert: ${r.created} erstellt, ${r.skipped} übersprungen`, "ok");
-        loadUsers(); loadAllTags();
+        await loadAllTags();
+        loadUsers();
     } catch (err) { toast(err.message, "err"); }
     e.target.value = "";
 });
@@ -442,11 +436,10 @@ document.getElementById("btn-bulk-delete").addEventListener("click", async () =>
     if (pw === null) return;
     try {
         await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
-            action: "delete",
-            ids: [...selected],
-            password: pw,
+            action: "delete", ids: [...selected], password: pw,
         })});
-        selected.clear(); toast(`${n} User gelöscht`, "ok"); loadUsers(); loadAllTags();
+        selected.clear(); toast(`${n} User gelöscht`, "ok");
+        await loadAllTags(); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
 
@@ -460,64 +453,45 @@ document.getElementById("btn-bulk-regenerate").addEventListener("click", async (
 });
 
 // ---- Edit single-user tags ----
-function renderSuggestionList(containerId, currentTags, inputEl) {
-    const wrap = document.getElementById(containerId);
-    const have = new Set(currentTags);
-    const sugg = allTagCounts.filter(t => !have.has(t.tag)).slice(0, 12);
-    wrap.innerHTML = sugg.map(t =>
-        `<span class="chip filter-chip" data-tag="${esc(t.tag)}">+ ${esc(t.tag)}</span>`
-    ).join("");
-    wrap.querySelectorAll(".filter-chip").forEach(el => {
-        el.addEventListener("click", () => {
-            const cur = inputEl.value.trim();
-            inputEl.value = cur ? `${cur}, ${el.dataset.tag}` : el.dataset.tag;
-            renderSuggestionList(containerId, [...currentTags, el.dataset.tag], inputEl);
-        });
-    });
-}
-
 let tagsEditingId = null;
 function openTagEditor(userId) {
     const u = allUsers.find(x => x.id === userId);
     if (!u) return;
     tagsEditingId = userId;
     document.getElementById("tags-modal-user").textContent = `· ${u.eth_id}`;
-    const inp = document.getElementById("tags-input");
-    inp.value = (u.tags || []).join(", ");
-    renderSuggestionList("tags-suggestions", u.tags || [], inp);
+    singleTags.setValue(u.tags || []);
     openModal("modal-tags");
-    setTimeout(() => inp.focus(), 50);
+    setTimeout(() => singleTags.focus(), 50);
 }
 document.getElementById("btn-tags-save").addEventListener("click", async () => {
     if (tagsEditingId == null) return;
-    const tags = document.getElementById("tags-input").value;
     try {
-        await apiFetch(`/users/${tagsEditingId}/tags`, {method: "PATCH", body: JSON.stringify({tags})});
+        await apiFetch(`/users/${tagsEditingId}/tags`, {method: "PATCH", body: JSON.stringify({tags: singleTags.getValue()})});
         closeModal("modal-tags");
         toast("Tags aktualisiert", "ok");
-        loadUsers(); loadAllTags();
+        await loadAllTags(); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
 
 // ---- Bulk tags ----
 document.getElementById("btn-bulk-tags").addEventListener("click", () => {
     document.getElementById("bulk-tags-count").textContent = String(selected.size);
-    document.getElementById("bulk-tags-input").value = "";
     document.getElementById("bulk-tags-action").value = "tags_add";
-    renderSuggestionList("bulk-tags-suggestions", [], document.getElementById("bulk-tags-input"));
+    bulkTags.clear();
     openModal("modal-bulk-tags");
+    setTimeout(() => bulkTags.focus(), 50);
 });
 document.getElementById("btn-bulk-tags-confirm").addEventListener("click", async () => {
     const action = document.getElementById("bulk-tags-action").value;
-    const tags = document.getElementById("bulk-tags-input").value.trim();
-    if (!tags && action !== "tags_set") { toast("Tags fehlen", "err"); return; }
+    const tags = bulkTags.getValue();
+    if (!tags.length && action !== "tags_set") { toast("Tags fehlen", "err"); return; }
     try {
         const r = await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
             action, ids: [...selected], tags,
         })});
         closeModal("modal-bulk-tags");
         toast(`${r.count} User aktualisiert`, "ok");
-        loadUsers(); loadAllTags();
+        await loadAllTags(); loadUsers();
     } catch (e) { toast(e.message, "err"); }
 });
 
@@ -538,7 +512,7 @@ function applyPreset() {
     if (id === "custom") {
         host.removeAttribute("readonly");
         port.removeAttribute("readonly");
-        if (!host.value || SMTP_PRESETS.some(p => p.host === host.value)) host.value = "";
+        if (SMTP_PRESETS.some(p => p.host === host.value)) host.value = "";
         host.focus();
     } else {
         host.value = preset.host;
@@ -614,8 +588,7 @@ function readSmtp() {
 }
 
 buildSmtpPresetOptions();
-loadUsers();
-loadAllTags();
+loadAllTags().then(loadUsers);
 </script>
 </body>
 </html>

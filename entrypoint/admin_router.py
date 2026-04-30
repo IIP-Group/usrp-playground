@@ -31,16 +31,17 @@ ETH_ID_RE = re.compile(r"^[a-z][a-z0-9]{2,31}$", re.IGNORECASE)
 
 # ---------- Tags helpers ----------
 
-_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9 _-]{0,31}$")
+_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
 def _parse_tags(value) -> list[str]:
-    """Normalise tag input from string (comma/semicolon-separated) or list.
-    Returns deduped list of lowercase tags. Silently drops invalid entries."""
+    """Normalise tag input from string (whitespace/comma/semicolon-separated)
+    or list. Returns deduped list of lowercase tags. Silently drops invalid
+    entries."""
     if value is None:
         return []
     if isinstance(value, str):
-        parts = re.split(r"[,;\n]", value)
+        parts = re.split(r"[\s,;]+", value)
     else:
         parts = list(value)
     out: list[str] = []
