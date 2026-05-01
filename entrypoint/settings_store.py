@@ -35,22 +35,21 @@ EDITABLE_KEYS: dict[str, dict] = {
             {"value": 5_800_000_000, "label": "5.8 GHz — ISM"},
         ]},
     "SAMPLE_RATE_HZ":       {"type": "int", "group": "radio",
-        "label": "Sample Rate (Hz)",
+        "label": "Sample Rate",
         "desc": "USRP sample rate. Bandwidth is locked to this value automatically."},
     # BANDWIDTH_HZ is auto-mirrored to SAMPLE_RATE_HZ on save (see admin_router).
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
-        "label": "Bandwidth (Hz)",
+        "label": "Bandwidth",
         "desc": "Analog anti-aliasing filter — locked to Sample Rate.",
         "hidden": True},
     "TX_GAIN_DB":           {"type": "float", "group": "radio",
-        "label": "TX Gain (dB)",
-        "desc": "USRP transmit gain. 0 = off, 30 = mid, ~70 = max."},
+        "label": "TX Gain",
+        "desc": "USRP transmit gain — main knob for output power. Combined "
+                "with antenna gain and cable loss it determines EIRP. Lower "
+                "this until EIRP stays under the band's regulatory limit."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
-        "label": "RX Gain (dB)",
+        "label": "RX Gain",
         "desc": "Receive gain. Too high → saturation, too low → noise."},
-    "CHANNEL_SNR_DB":       {"type": "float", "group": "radio",
-        "label": "Sim. SNR (dB)",
-        "desc": "Synthetic SNR in AWGN simulator mode (only when no real USRP is attached)."},
     "ANTENNA_TX":           {"type": "str",   "group": "radio",
         "label": "TX Antenna",
         "desc": "USRP antenna port used for transmit (e.g. TX/RX0)."},
@@ -60,27 +59,27 @@ EDITABLE_KEYS: dict[str, dict] = {
 
     # Guard (random uniform)
     "BEGIN_GUARD_MIN_SEC":  {"type": "float", "group": "guard",
-        "label": "Begin Guard Min (s)",
+        "label": "Begin Guard Min",
         "desc": "Minimum pause before transmission starts (random ∈ [min, max]). Avoids click artefacts."},
     "BEGIN_GUARD_MAX_SEC":  {"type": "float", "group": "guard",
-        "label": "Begin Guard Max (s)",
+        "label": "Begin Guard Max",
         "desc": "Maximum pause before transmission starts."},
     "END_GUARD_MIN_SEC":    {"type": "float", "group": "guard",
-        "label": "End Guard Min (s)",
+        "label": "End Guard Min",
         "desc": "Minimum pause after transmission ends (reverb / receiver latency)."},
     "END_GUARD_MAX_SEC":    {"type": "float", "group": "guard",
-        "label": "End Guard Max (s)",
+        "label": "End Guard Max",
         "desc": "Maximum pause after transmission ends."},
     "INITIAL_DELAY":        {"type": "float", "group": "guard",
-        "label": "Initial Delay (s)",
+        "label": "Initial Delay",
         "desc": "Delay between task start and the first sample."},
 
     # Duty cycle
     "DUTY_CYCLE_MAX_PERCENT": {"type": "float", "group": "safety",
-        "label": "Max Duty Cycle (%)",
+        "label": "Max Duty Cycle",
         "desc": "Maximum fraction of active transmit time within the window. ETSI-compliant value is typically 10%."},
     "DUTY_CYCLE_WINDOW_SEC":  {"type": "float", "group": "safety",
-        "label": "Duty Cycle Window (s)",
+        "label": "Duty Cycle Window",
         "desc": "Time window over which duty cycle is measured (typically 60 s)."},
 
     # LBT
@@ -88,7 +87,7 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "Listen Before Talk",
         "desc": "Sense the channel before transmitting. Recommended for ISM-band compliance."},
     "LBT_THRESHOLD_DBFS": {"type": "float", "group": "safety",
-        "label": "LBT Threshold (dBFS)",
+        "label": "LBT Threshold",
         "desc": "Power threshold above which the channel is considered busy."},
     "LBT_SENSE_SAMPLES":  {"type": "int",   "group": "safety",
         "label": "LBT Sense Samples",
@@ -97,18 +96,18 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "LBT Max Retries",
         "desc": "How often to retry if the channel is busy — after that, error out."},
     "LBT_BACKOFF_SEC":    {"type": "float", "group": "safety",
-        "label": "LBT Backoff (s)",
+        "label": "LBT Backoff",
         "desc": "Wait time between LBT attempts (random uniform)."},
 
     # Limits
     "MAX_UPLOAD_MB":      {"type": "int", "group": "limits",
-        "label": "Max Upload (MB)",
+        "label": "Max Upload",
         "desc": "Maximum signal size per upload. Larger uploads are rejected by the server."},
     "MAX_SAMPLES":        {"type": "int", "group": "limits",
         "label": "Max Samples",
         "desc": "Maximum number of IQ samples per task. Protects against excessively long captures."},
     "TASK_TTL_HOURS":     {"type": "int", "group": "limits",
-        "label": "Task TTL (h)",
+        "label": "Task TTL",
         "desc": "How long task files (input/output) stay on disk before they get cleaned up."},
     "MAX_QUEUE":          {"type": "int", "group": "limits",
         "label": "Max Queue Size",
@@ -117,10 +116,10 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "Max Queue per IP",
         "desc": "Maximum concurrent tasks per client IP. Stops one spammer from blocking other clients."},
     "UPLOAD_TIMEOUT_SEC": {"type": "float", "group": "limits",
-        "label": "Upload Timeout (s)",
+        "label": "Upload Timeout",
         "desc": "How long the server waits for signal data after the WebSocket connect before releasing the slot (slow-loris guard)."},
     "POLL_INTERVAL_SEC":  {"type": "float", "group": "limits",
-        "label": "Status-Poll Interval (s)",
+        "label": "Status-Poll Interval",
         "desc": "How often the server pushes queue-status updates while the task is waiting."},
 }
 
@@ -210,6 +209,12 @@ _BAND_FALLBACKS = {
         "eirp_dbm": 10,
         "dc_pct":   None,
         "lbt":      False,
+        # Native USRP rate close to 1 MHz (250 MHz / 256). Subband is
+        # 1.74 MHz wide so the signal cannot exceed it.
+        "fs":       976_562,
+        # Conservative TX gain that lands well under 10 dBm EIRP for a
+        # typical 3 dBi antenna + 2 dB cable loss.
+        "tx_gain":  20,
         "note":     "433.05–434.79 MHz, 10 mW ERP. Highest legal "
                     "continuous-TX option in this band without licence.",
     },
@@ -219,6 +224,9 @@ _BAND_FALLBACKS = {
         "eirp_dbm": 27,
         "dc_pct":   10,
         "lbt":      False,
+        # 869.4–869.65 MHz subband is only 250 kHz wide. 250/1024 native.
+        "fs":       244_140,
+        "tx_gain":  30,
         "note":     "Use 869.4–869.65 MHz subband. Other 868 MHz subbands "
                     "are tighter (25 mW / 0.1–1 %).",
     },
@@ -228,6 +236,9 @@ _BAND_FALLBACKS = {
         "eirp_dbm": 20,
         "dc_pct":   None,
         "lbt":      False,
+        # Plenty of band (83.5 MHz). 250/8 = 31.25 MHz native.
+        "fs":       31_250_000,
+        "tx_gain":  30,
         "note":     "2400–2483.5 MHz wideband. Spread-spectrum or LBT "
                     "recommended for ETSI EN 300 328 compliance.",
     },
@@ -237,6 +248,8 @@ _BAND_FALLBACKS = {
         "eirp_dbm": 14,
         "dc_pct":   None,
         "lbt":      False,
+        "fs":       31_250_000,
+        "tx_gain":  25,
         "note":     "5725–5875 MHz non-specific SRD. Power-limited but "
                     "no duty cycle.",
     },
@@ -303,9 +316,47 @@ def list_bands() -> list[dict]:
             "carrier_hz":      pick(prefix + "CARRIER_HZ", int, fb.get("carrier")),
             "max_eirp_dbm":    pick(prefix + "MAX_EIRP_DBM", float, fb.get("eirp_dbm")),
             "duty_cycle_pct":  pick(prefix + "DUTY_CYCLE_PERCENT", float, fb.get("dc_pct")),
+            "sample_rate_hz":  pick(prefix + "SAMPLE_RATE_HZ", int, fb.get("fs")),
+            "tx_gain_db":      pick(prefix + "TX_GAIN_DB", float, fb.get("tx_gain")),
             "lbt_required":    _opt_bool(prefix + "LBT_REQUIRED")
                                if (prefix + "LBT_REQUIRED") in os.environ
                                else fb.get("lbt"),
             "note":            pick(prefix + "NOTE", str, fb.get("note", "")),
         })
     return out
+
+
+# Settings keys that come from the active band preset; the UI locks these
+# fields so they cannot be edited freely.
+LOCKED_BY_BAND = (
+    "CARRIER_FREQUENCY_HZ",
+    "SAMPLE_RATE_HZ",
+    "BANDWIDTH_HZ",
+    "TX_GAIN_DB",
+)
+
+
+def apply_band(db: Session, band_id: str) -> dict:
+    """Persist a band preset's regulatory envelope to the settings store.
+    Returns the dict of keys that were written (canonical strings)."""
+    bands = list_bands()
+    band = next((b for b in bands if b["id"] == band_id), None)
+    if band is None:
+        raise ValueError(f"Unknown band '{band_id}'")
+
+    payload: dict[str, str] = {}
+    if band["carrier_hz"] is not None:
+        payload["CARRIER_FREQUENCY_HZ"] = str(int(band["carrier_hz"]))
+    if band["sample_rate_hz"] is not None:
+        payload["SAMPLE_RATE_HZ"] = str(int(band["sample_rate_hz"]))
+        payload["BANDWIDTH_HZ"]   = str(int(band["sample_rate_hz"]))
+    if band["tx_gain_db"] is not None:
+        payload["TX_GAIN_DB"] = str(float(band["tx_gain_db"]))
+    if band["duty_cycle_pct"] is not None:
+        payload["DUTY_CYCLE_MAX_PERCENT"] = str(float(band["duty_cycle_pct"]))
+    if band["lbt_required"] is not None:
+        payload["LBT_ENABLED"] = "true" if band["lbt_required"] else "false"
+
+    for key, value in payload.items():
+        set_override(db, key, value)
+    return payload

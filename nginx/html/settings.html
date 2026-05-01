@@ -39,6 +39,15 @@
         .band-note {
             font-size: 12px; margin-top: 12px; line-height: 1.5;
         }
+        /* Settings rows that are dictated by the active band preset */
+        .locked-by-band {
+            opacity: 0.55;
+            pointer-events: none;
+        }
+        .locked-by-band select,
+        .locked-by-band input {
+            cursor: not-allowed !important;
+        }
     </style>
 </head>
 <body>
@@ -140,7 +149,6 @@ const FIELD_UNITS = {
     SAMPLE_RATE_HZ:        { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
     TX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
     RX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
-    CHANNEL_SNR_DB:        { units: UNIT_DB,              defaultUnit: "db"  },
     LBT_THRESHOLD_DBFS:    { units: UNIT_DBFS,            defaultUnit: "dbfs"},
 
     BEGIN_GUARD_MIN_SEC:   { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
@@ -187,14 +195,44 @@ async function loadSettings() {
 
 // ---- Band presets (regulatory limits, REC 70-03) ----
 let bandPresets = [];
+let lockedKeys = [];
 
 async function loadBands() {
-    try { bandPresets = await apiFetch("/bands"); }
-    catch { bandPresets = []; }
+    try {
+        const resp = await apiFetch("/bands");
+        bandPresets = resp.bands || [];
+        lockedKeys  = resp.locked_keys || [];
+    }
+    catch { bandPresets = []; lockedKeys = []; }
     const sel = document.getElementById("band-select");
     sel.innerHTML = bandPresets.map(b =>
         `<option value="${b.id}">${esc(b.label)}</option>`).join("");
-    if (bandPresets.length) renderBandInfo(bandPresets[0]);
+    // Pre-select the band whose carrier matches the saved CARRIER_FREQUENCY_HZ.
+    const cur = current["CARRIER_FREQUENCY_HZ"]?.value;
+    const match = bandPresets.find(b => Number(b.carrier_hz) === Number(cur));
+    if (match) sel.value = match.id;
+    if (bandPresets.length) {
+        const active = bandPresets.find(b => b.id === sel.value) || bandPresets[0];
+        renderBandInfo(active);
+    }
+    applyLockedStyling();
+}
+
+function applyLockedStyling() {
+    for (const k of lockedKeys || []) {
+        const w = widgets[k];
+        if (!w) continue;
+        let host = (w instanceof UnitInput) ? w.host : w;
+        if (host && host.classList) host.classList.add("locked-by-band");
+        const inputs = (w instanceof UnitInput) ? [w.input, w.select]
+                     : (w.querySelectorAll ? [...w.querySelectorAll("input,select")]
+                                           : [w]);
+        inputs.forEach(el => {
+            if (!el) return;
+            el.setAttribute("disabled", "");
+            el.title = "Locked by active band preset";
+        });
+    }
 }
 
 function fmtFreq(hz) {
@@ -240,41 +278,21 @@ document.addEventListener("change", (e) => {
     }
 });
 
-document.getElementById("btn-apply-band").addEventListener("click", () => {
+document.getElementById("btn-apply-band").addEventListener("click", async () => {
     const id = document.getElementById("band-select").value;
-    const b = bandPresets.find(x => x.id === id);
-    if (!b) return;
-    let n = 0;
-    if (b.carrier_hz != null) {
-        savedValues["CARRIER_FREQUENCY_HZ"] = String(b.carrier_hz);
-        const w = widgets["CARRIER_FREQUENCY_HZ"];
-        if (w && w.tagName === "SELECT") {
-            // Carrier is a fixed-options <select>; if our band carrier matches
-            // an existing option, just select it. Otherwise add an option for
-            // it on the fly.
-            const opt = [...w.options].find(o => Number(o.value) === b.carrier_hz);
-            if (opt) opt.selected = true;
-            else {
-                const e2 = document.createElement("option");
-                e2.value = b.carrier_hz; e2.textContent = fmtFreq(b.carrier_hz);
-                e2.selected = true; w.appendChild(e2);
-            }
-            onChange("CARRIER_FREQUENCY_HZ");
-            n++;
-        }
+    const btn = document.getElementById("btn-apply-band");
+    btn.disabled = true;
+    try {
+        const r = await apiFetch(`/bands/${id}/apply`, {method: "POST"});
+        const n = Object.keys(r.applied || {}).length;
+        toast(`Band preset applied — ${n} setting(s) saved`, "ok");
+        await loadSettings();   // re-render with persisted values + lock state
+        await loadBands();      // re-pick the matching band
+    } catch (e) {
+        toast(e.message, "err");
+    } finally {
+        btn.disabled = false;
     }
-    if (b.duty_cycle_pct != null) {
-        const w = widgets["DUTY_CYCLE_MAX_PERCENT"];
-        if (w && w instanceof UnitInput) { w.setValue(b.duty_cycle_pct); onChange("DUTY_CYCLE_MAX_PERCENT"); n++; }
-    }
-    if (b.lbt_required != null) {
-        const w = widgets["LBT_ENABLED"];
-        if (w && w.tagName === "SELECT") {
-            w.value = b.lbt_required ? "true" : "false";
-            onChange("LBT_ENABLED"); n++;
-        }
-    }
-    toast(`Band preset applied — ${n} field(s) staged. Click Save to commit.`, "ok");
 });
 
 function canonString(v) {
@@ -372,6 +390,7 @@ function render() {
             widgets[key] = el;
         }
     }
+    applyLockedStyling();
 }
 
 function onChange(key) {
@@ -423,8 +442,10 @@ document.getElementById("btn-save").addEventListener("click", async () => {
     } catch (e) { toast(e.message, "err"); }
 });
 
-loadSettings();
-loadBands();
+(async () => {
+    await loadSettings();
+    await loadBands();
+})();
 </script>
 </body>
 </html>

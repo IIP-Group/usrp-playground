@@ -193,7 +193,6 @@ function renderRun(run) {
         ["Bandwidth",    f.freq(inf.bandwidth_hz)],
         ["TX gain",      inf.tx_gain_db + " dB"],
         ["RX gain",      inf.rx_gain_db + " dB"],
-        ["Real USRP",    inf.use_real_usrp ? "yes" : "no (AWGN sim)"],
         ["Antenna TX",   inf.antenna_tx || "—"],
         ["Antenna RX",   inf.antenna_rx || "—"],
         ["Begin guard",  (Number(inf.begin_guard_min_sec)*1000).toFixed(1) + " ms"],

@@ -29,8 +29,7 @@ async def run(server, token, input_path, output_path):
                     fc = info.get("carrier_frequency_hz", 0) / 1e6
                     bw = info.get("bandwidth_hz", 0) / 1e6
                     sr = info.get("sample_rate_hz", 0) / 1e6
-                    snr = info.get("channel_snr_db", "?")
-                    print(f"[info] Carrier: {fc:.0f} MHz | BW: {bw:.0f} MHz | Rate: {sr:.0f} MSps | SNR: {snr} dB")
+                    print(f"[info] Carrier: {fc:.0f} MHz | BW: {bw:.0f} MHz | Rate: {sr:.0f} MSps")
                 elif info.get("message") == "done":
                     print("[done] Processing complete, receiving file...")
                 elif info.get("message") == "queued":

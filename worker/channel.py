@@ -19,8 +19,6 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s"
 )
 
-USE_REAL_USRP = os.getenv("USE_REAL_USRP", "false").lower() == "true"
-
 # ---- DB-override-aware config resolution -----------------------------------
 # Falls die DB erreichbar ist und ein override existiert, überschreibt der die
 # .env. Sonst Fallback auf .env + default.
@@ -88,18 +86,6 @@ OPERATION_TIMEOUT_MARGIN = 5.0
 CONNECTIVITY_TIMEOUT_MS = 2000
 CONFIGURE_TIMEOUT_MS = 5000
 SIGNAL_LOAD_TIMEOUT_MS = 10000
-
-
-def _awgn_send_and_receive(signal):
-    signal_power = np.mean(np.abs(signal) ** 2)
-    if signal_power == 0:
-        return signal
-    snr_db = _get("CHANNEL_SNR_DB", 20.0, float)
-    noise_power = signal_power / (10 ** (snr_db / 10))
-    noise = np.sqrt(noise_power / 2) * (
-        np.random.randn(len(signal)) + 1j * np.random.randn(len(signal))
-    )
-    return signal + noise
 
 
 class USRPChannel:
@@ -496,10 +482,6 @@ _channel = None
 
 def send_and_receive(signal):
     global _channel
-
-    if not USE_REAL_USRP:
-        return _awgn_send_and_receive(signal)
-
     if _channel is None:
         _channel = USRPChannel()
     return _channel.send_and_receive(signal)

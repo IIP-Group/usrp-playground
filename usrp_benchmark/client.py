@@ -99,11 +99,6 @@ class USRPClient:
 
     @classmethod
     @property
-    def snr(cls) -> float:
-        return cls._fetch_info().get("channel_snr_db", 0)
-
-    @classmethod
-    @property
     def max_samples(cls) -> int:
         return cls._fetch_info().get("max_samples", 0)
 
@@ -159,9 +154,7 @@ class USRPClient:
                     fc = info.get("carrier_frequency_hz", 0) / 1e6
                     bw = info.get("bandwidth_hz", 0) / 1e6
                     sr = info.get("sample_rate_hz", 0) / 1e6
-                    snr = info.get("channel_snr_db", "?")
-                    usrp = "USRP" if info.get("use_real_usrp") else "AWGN"
-                    print(f"[info] {usrp} | Carrier: {fc:.0f} MHz | BW: {bw:.0f} MHz | Rate: {sr:.0f} MSps | SNR: {snr} dB")
+                    print(f"[info] USRP | Carrier: {fc:.0f} MHz | BW: {bw:.0f} MHz | Rate: {sr:.0f} MSps")
 
                 elif msg_type == "queued":
                     pos = info.get("queue_position", 0)

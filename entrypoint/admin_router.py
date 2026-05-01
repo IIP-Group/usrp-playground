@@ -586,7 +586,30 @@ def settings_get(db: Session = Depends(get_db), _: dict = Depends(auth.require_a
 @router.get("/bands")
 def bands_get(_: dict = Depends(auth.require_admin)):
     """License-free SRD band presets (carrier, max EIRP, duty cycle, LBT)."""
-    return settings_store.list_bands()
+    return {
+        "bands": settings_store.list_bands(),
+        "locked_keys": list(settings_store.LOCKED_BY_BAND),
+    }
+
+
+@router.post("/bands/{band_id}/apply")
+def bands_apply(
+    band_id: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(auth.require_admin),
+):
+    """Persist a band preset's settings (carrier, sample rate, TX gain,
+    duty cycle, LBT)."""
+    try:
+        applied = settings_store.apply_band(db, band_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    try:
+        import main as _main
+        _main.refresh_limits()
+    except Exception:
+        pass
+    return {"ok": True, "applied": applied}
 
 
 @router.put("/settings")
