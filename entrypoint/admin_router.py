@@ -597,18 +597,39 @@ def settings_put(
 ):
     """payload: {key: value, ...} — only EDITABLE_KEYS are accepted.
 
-    Linked keys: BANDWIDTH_HZ is always kept equal to SAMPLE_RATE_HZ; if the
-    UI sends a SAMPLE_RATE_HZ change we mirror it to BANDWIDTH_HZ here so the
-    radio config stays consistent without exposing both fields to the admin.
+    Linked keys
+    -----------
+    SAMPLE_RATE_BANDWIDTH_RATIO drives SAMPLE_RATE_HZ: sample_rate = bandwidth × ratio.
+    Locked keys (see EDITABLE_KEYS spec `locked: True`) are rejected when sent
+    from the UI — they may only be changed via .env.
 
-    Validation: if a key has an `options` list, the value must be one of the
-    allowed values (defends against a tampered request).
+    Validation
+    ----------
+    If a key has an `options` list, the value must be one of the allowed values
+    (defends against a tampered request).
     """
     applied = []
     errors = {}
     work = dict(payload)
-    if "SAMPLE_RATE_HZ" in work:
-        work["BANDWIDTH_HZ"] = work["SAMPLE_RATE_HZ"]
+
+    # Reject any attempt to write a locked field from the UI.
+    for key in list(work.keys()):
+        spec = settings_store.EDITABLE_KEYS.get(key)
+        if spec and spec.get("locked"):
+            errors[key] = "field is locked (change via .env)"
+            del work[key]
+
+    # If the ratio changed, recompute SAMPLE_RATE_HZ here.
+    if "SAMPLE_RATE_BANDWIDTH_RATIO" in work:
+        try:
+            ratio = max(1, min(5, int(float(work["SAMPLE_RATE_BANDWIDTH_RATIO"]))))
+            bw = int(settings_store.get(db, "BANDWIDTH_HZ", 15_625_000))
+            work["SAMPLE_RATE_BANDWIDTH_RATIO"] = ratio
+            work["SAMPLE_RATE_HZ"] = bw * ratio
+        except Exception as e:
+            errors["SAMPLE_RATE_BANDWIDTH_RATIO"] = f"invalid ratio: {e}"
+            del work["SAMPLE_RATE_BANDWIDTH_RATIO"]
+
     for key, value in work.items():
         spec = settings_store.EDITABLE_KEYS.get(key)
         if spec and "options" in spec:

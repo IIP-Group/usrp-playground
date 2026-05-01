@@ -27,21 +27,34 @@ EDITABLE_KEYS: dict[str, dict] = {
     # Radio
     "CARRIER_FREQUENCY_HZ": {"type": "int", "group": "radio",
         "label": "Carrier Frequency",
-        "desc": "Carrier within the 2.4 GHz SRD band (2400-2483.5 MHz). Recommended: 2475 MHz to stay clear of WLAN channels."},
-    "SAMPLE_RATE_HZ":       {"type": "int", "group": "radio",
-        "label": "Sample Rate",
-        "desc": "USRP sample rate. Bandwidth is locked to this value automatically."},
-    # BANDWIDTH_HZ is auto-mirrored to SAMPLE_RATE_HZ on save (see admin_router).
+        "locked": True,
+        "desc": "Carrier within the 2.4 GHz SRD band (2400-2483.5 MHz). "
+                "Locked: change via .env CARRIER_FREQUENCY_HZ, not from the UI."},
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
         "label": "Bandwidth",
-        "desc": "Analog anti-aliasing filter — locked to Sample Rate.",
+        "locked": True,
+        "desc": "Analog anti-aliasing filter at the USRP front-end. "
+                "Locked: change via .env BANDWIDTH_HZ. The actual sample "
+                "rate is derived as bandwidth × ratio (see slider below)."},
+    "SAMPLE_RATE_BANDWIDTH_RATIO": {"type": "int", "group": "radio",
+        "label": "Sample / Bandwidth Ratio",
+        "min": 1, "max": 5,
+        "desc": "Oversampling factor — sample rate = bandwidth × this ratio. "
+                "Higher ratio = more headroom against aliasing, lower noise "
+                "density in the signal band, sharper digital filters. "
+                "Costs proportionally more network throughput."},
+    # SAMPLE_RATE_HZ is computed from BANDWIDTH_HZ × ratio on save.
+    "SAMPLE_RATE_HZ":       {"type": "int", "group": "radio",
+        "label": "Sample Rate",
+        "desc": "Derived: bandwidth × ratio.",
         "hidden": True},
     "TX_POWER_DBM":         {"type": "float", "group": "radio",
         "label": "TX Power",
+        "locked": True,
         "desc": "Calibrated absolute output power at the USRP TX/RX SMA "
-                "(uses UHD's set_tx_power_reference, EEPROM-calibrated). "
-                "EIRP = TX Power − cable loss + antenna gain — keep that "
-                "under 10 dBm for the 2.4 GHz SRD band."},
+                "(uses UHD's set_tx_power_reference). Locked at the .env "
+                "default to keep EIRP under the 10 dBm SRD limit. "
+                "Change via .env TX_POWER_DBM if you really need to."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "RX Gain",
         "desc": "Receive gain. Too high → saturation, too low → noise."},

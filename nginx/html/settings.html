@@ -12,6 +12,73 @@
             border-radius: var(--radius);
             padding: 14px 18px;
             margin-bottom: 18px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .locked-field {
+            opacity: 0.55;
+            pointer-events: none;
+        }
+        .locked-field input,
+        .locked-field select,
+        .locked-field .unit-input,
+        .locked-field .unit-input-num,
+        .locked-field .unit-input-sel {
+            cursor: not-allowed !important;
+        }
+        .locked-badge {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-left: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1px 5px;
+        }
+        .ratio-slider-row {
+            display: flex; align-items: center; gap: 12px;
+            width: 100%;
+        }
+        .ratio-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            outline: none;
+        }
+        .ratio-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            box-shadow: 0 0 0 4px rgba(91, 141, 239, 0.15);
+        }
+        .ratio-slider::-moz-range-thumb {
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: none;
+        }
+        .ratio-display {
+            font-family: var(--mono);
+            font-size: 13px;
+            color: var(--text);
+            min-width: 80px;
+        }
+        .ratio-derived {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-dim);
+            min-width: 110px;
         }
         .band-head {
             display: flex; align-items: center; gap: 12px;
@@ -254,7 +321,17 @@ function render() {
             const fu         = FIELD_UNITS[s.key];
 
             let inputHtml;
-            if (hasOptions) {
+            if (s.key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
+                const min = s.min || 1, max = s.max || 5;
+                inputHtml = `<div class="ratio-slider-row">
+                    <input type="range" id="${id}" data-key="${s.key}"
+                           min="${min}" max="${max}" step="1"
+                           value="${s.value || 2}" class="ratio-slider"
+                           oninput="onRatioChange()">
+                    <span class="ratio-display" id="ratio-display">${s.value || 2}× (over-sampling)</span>
+                    <span class="ratio-derived" id="ratio-derived"></span>
+                </div>`;
+            } else if (hasOptions) {
                 inputHtml = makeOptionsSelect(s);
             } else if (isBool) {
                 inputHtml = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">
@@ -270,9 +347,12 @@ function render() {
             const info = s.desc
                 ? `<span class="info-icon" tabindex="0" title="${esc(s.desc)}" aria-label="${esc(s.desc)}">i</span>`
                 : "";
-            return `<tr>
+            const lockedBadge = s.locked
+                ? `<span class="locked-badge">.env</span>` : "";
+            const rowClass = s.locked ? "locked-field" : "";
+            return `<tr class="${rowClass}">
                 <td style="width: 260px;">
-                    <strong>${esc(s.label)}</strong> ${info}
+                    <strong>${esc(s.label)}</strong> ${info} ${lockedBadge}
                     <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
                 </td>
                 <td>${inputHtml}</td>
@@ -294,7 +374,10 @@ function render() {
         const el = document.getElementById(`f-${key}`);
         if (!el) continue;
         const fu = FIELD_UNITS[key];
-        if (fu && !(Array.isArray(spec.options) && spec.options.length) && spec.type !== "bool") {
+        if (key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
+            // Native <input type=range> — read .value directly
+            widgets[key] = el;
+        } else if (fu && !(Array.isArray(spec.options) && spec.options.length) && spec.type !== "bool") {
             const w = new UnitInput(el, {
                 units: fu.units,
                 defaultUnit: fu.defaultUnit,
@@ -307,7 +390,26 @@ function render() {
             widgets[key] = el;
         }
     }
+    refreshRatioDerived();
 }
+
+// Update the "= bandwidth × ratio" derived-sample-rate display.
+function refreshRatioDerived() {
+    const r = document.getElementById("f-SAMPLE_RATE_BANDWIDTH_RATIO");
+    if (!r) return;
+    const ratio = Number(r.value) || 1;
+    const bw = Number(current["BANDWIDTH_HZ"]?.value) || 0;
+    const fs = bw * ratio;
+    const disp = document.getElementById("ratio-display");
+    const der  = document.getElementById("ratio-derived");
+    if (disp) disp.textContent = `${ratio}× over-sampling`;
+    if (der)  der.textContent  = `→ fs = ${(fs/1e6).toFixed(3)} MHz`;
+}
+
+window.onRatioChange = function () {
+    refreshRatioDerived();
+    onChange("SAMPLE_RATE_BANDWIDTH_RATIO");
+};
 
 function onChange(key) {
     const cur = readWidgetCanon(key);
