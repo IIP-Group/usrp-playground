@@ -1,4 +1,4 @@
-# USRP Benchmark System
+# USRP Sandbox System
 
 A distributed system for sending complex baseband signals through a simulated (later real) USRP/UHD wireless channel. Built for university lab courses where students submit IQ samples and receive the channel-impaired result.
 

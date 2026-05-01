@@ -67,7 +67,7 @@ function initShell(activePage) {
     if (side) {
         side.innerHTML = `
             <div class="brand">
-                <h1>USRP Benchmark</h1>
+                <h1>USRP Sandbox</h1>
                 <small>Admin Panel</small>
             </div>
             <nav>

@@ -1,4 +1,4 @@
-# USRP Benchmark — Student Guide
+# USRP Sandbox — Student Guide
 
 Welcome! This page has everything you need to test your waveforms over the shared USRP.
 

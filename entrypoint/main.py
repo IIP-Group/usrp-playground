@@ -13,7 +13,7 @@ import server_state
 import settings_store
 from admin_router import router as admin_router
 
-app = FastAPI(title="USRP Benchmark System")
+app = FastAPI(title="USRP Sandbox System")
 app.include_router(admin_router)
 
 DATA_DIR = Path("/data")
