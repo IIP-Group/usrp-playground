@@ -192,3 +192,120 @@ def set_override(db: Session, key: str, value: str) -> None:
 def clear_override(db: Session, key: str) -> None:
     db.query(SettingOverride).filter(SettingOverride.key == key).delete()
     db.commit()
+
+
+# ---------------- Band presets (license-free SRD, REC 70-03) ----------------
+# Each preset describes the regulatory envelope of one ISM/SRD band. Values
+# come from the .env (BAND_<id>_*). An unregulated field is represented by
+# `None` and rendered as "—" in the UI.
+
+_BAND_IDS = ("433", "868", "2400", "5800")
+
+# Built-in defaults so the feature works even if .env is missing the
+# BAND_* keys. Anything in the .env (or "" for "not regulated") wins.
+_BAND_FALLBACKS = {
+    "433": {
+        "label":    "433 MHz — 10 mW ERP, no duty cycle",
+        "carrier":  433_920_000,
+        "eirp_dbm": 10,
+        "dc_pct":   None,
+        "lbt":      False,
+        "note":     "433.05–434.79 MHz, 10 mW ERP. Highest legal "
+                    "continuous-TX option in this band without licence.",
+    },
+    "868": {
+        "label":    "868 MHz — 500 mW ERP, 10 % duty cycle",
+        "carrier":  869_525_000,
+        "eirp_dbm": 27,
+        "dc_pct":   10,
+        "lbt":      False,
+        "note":     "Use 869.4–869.65 MHz subband. Other 868 MHz subbands "
+                    "are tighter (25 mW / 0.1–1 %).",
+    },
+    "2400": {
+        "label":    "2.4 GHz — 100 mW EIRP, no duty cycle",
+        "carrier":  2_400_000_000,
+        "eirp_dbm": 20,
+        "dc_pct":   None,
+        "lbt":      False,
+        "note":     "2400–2483.5 MHz wideband. Spread-spectrum or LBT "
+                    "recommended for ETSI EN 300 328 compliance.",
+    },
+    "5800": {
+        "label":    "5.8 GHz — 25 mW EIRP, no duty cycle",
+        "carrier":  5_800_000_000,
+        "eirp_dbm": 14,
+        "dc_pct":   None,
+        "lbt":      False,
+        "note":     "5725–5875 MHz non-specific SRD. Power-limited but "
+                    "no duty cycle.",
+    },
+}
+
+
+def _env(name: str, default: str = "") -> str:
+    v = os.getenv(name)
+    return default if v is None else v
+
+
+def _opt_float(name: str):
+    raw = _env(name).strip()
+    if raw == "":
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _opt_int(name: str):
+    raw = _env(name).strip()
+    if raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _opt_bool(name: str):
+    raw = _env(name).strip().lower()
+    if raw in ("1", "true", "yes", "on"):  return True
+    if raw in ("0", "false", "no", "off"): return False
+    return None
+
+
+def list_bands() -> list[dict]:
+    """Return the configured band presets — .env wins, fallbacks fill gaps.
+
+    Each setting honours an explicit empty value in the .env as "not
+    regulated" (rendered as "—"). Only keys that are completely *missing*
+    fall back to the built-in defaults.
+    """
+    def pick(envname: str, parser, fallback):
+        if envname in os.environ:
+            raw = os.environ[envname].strip()
+            if raw == "":
+                return None
+            try:
+                return parser(raw)
+            except ValueError:
+                return fallback
+        return fallback
+
+    out = []
+    for bid in _BAND_IDS:
+        prefix = f"BAND_{bid}_"
+        fb = _BAND_FALLBACKS.get(bid, {})
+        out.append({
+            "id":              bid,
+            "label":           pick(prefix + "LABEL", str, fb.get("label", f"{bid} MHz")),
+            "carrier_hz":      pick(prefix + "CARRIER_HZ", int, fb.get("carrier")),
+            "max_eirp_dbm":    pick(prefix + "MAX_EIRP_DBM", float, fb.get("eirp_dbm")),
+            "duty_cycle_pct":  pick(prefix + "DUTY_CYCLE_PERCENT", float, fb.get("dc_pct")),
+            "lbt_required":    _opt_bool(prefix + "LBT_REQUIRED")
+                               if (prefix + "LBT_REQUIRED") in os.environ
+                               else fb.get("lbt"),
+            "note":            pick(prefix + "NOTE", str, fb.get("note", "")),
+        })
+    return out

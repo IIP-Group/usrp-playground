@@ -5,6 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Settings — USRP Benchmark</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .band-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+            margin-bottom: 18px;
+        }
+        .band-head {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 14px;
+        }
+        .band-title { font-weight: 600; font-size: 14px; }
+        .band-info {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .band-stat {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .band-stat .k {
+            font-size: 11px; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.04em;
+        }
+        .band-stat .v { font-family: var(--mono); font-size: 14px; }
+        .band-stat .v.muted { color: var(--text-dim); }
+        .band-note {
+            font-size: 12px; margin-top: 12px; line-height: 1.5;
+        }
+    </style>
 </head>
 <body>
 <div class="app">
@@ -22,6 +57,25 @@
         </div>
 
         <div id="notice-area"></div>
+
+        <div class="band-card">
+            <div class="band-head">
+                <div>
+                    <div class="band-title">Band preset</div>
+                    <div class="text-dim" style="font-size: 12px;">License-free SRD limits — REC 70-03</div>
+                </div>
+                <span class="sp"></span>
+                <select id="band-select" style="min-width: 320px;"></select>
+                <button id="btn-apply-band" class="btn btn-primary" disabled>Apply preset</button>
+            </div>
+            <div id="band-info" class="band-info">
+                <div class="band-stat"><span class="k">Carrier</span><span class="v" id="band-carrier">—</span></div>
+                <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="band-eirp">—</span></div>
+                <div class="band-stat"><span class="k">Duty cycle</span><span class="v" id="band-dc">—</span></div>
+                <div class="band-stat"><span class="k">LBT required</span><span class="v" id="band-lbt">—</span></div>
+            </div>
+            <div id="band-note" class="band-note text-dim"></div>
+        </div>
 
         <div class="scroll-region" style="padding: 0 18px 18px;">
             <div id="groups">
@@ -130,6 +184,98 @@ async function loadSettings() {
         updateSaveButton();
     } catch (e) { toast(e.message, "err"); }
 }
+
+// ---- Band presets (regulatory limits, REC 70-03) ----
+let bandPresets = [];
+
+async function loadBands() {
+    try { bandPresets = await apiFetch("/bands"); }
+    catch { bandPresets = []; }
+    const sel = document.getElementById("band-select");
+    sel.innerHTML = bandPresets.map(b =>
+        `<option value="${b.id}">${esc(b.label)}</option>`).join("");
+    if (bandPresets.length) renderBandInfo(bandPresets[0]);
+}
+
+function fmtFreq(hz) {
+    if (hz == null) return "—";
+    if (hz >= 1e9) return (hz/1e9).toFixed(3) + " GHz";
+    if (hz >= 1e6) return (hz/1e6).toFixed(3) + " MHz";
+    if (hz >= 1e3) return (hz/1e3).toFixed(3) + " kHz";
+    return hz + " Hz";
+}
+function fmtPower(dbm) {
+    if (dbm == null) return "—";
+    const mW = Math.pow(10, dbm/10);
+    return `${dbm.toFixed(0)} dBm (${mW < 1 ? mW.toFixed(2) : mW.toFixed(0)} mW)`;
+}
+function fmtDC(pct) {
+    if (pct == null) return "—";
+    return pct.toFixed(pct < 1 ? 2 : 0) + " %";
+}
+function fmtLbt(req) {
+    if (req == null) return "—";
+    return req ? "yes" : "no";
+}
+
+function renderBandInfo(b) {
+    const setStat = (id, val, txt) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = txt;
+        el.classList.toggle("muted", val == null);
+    };
+    setStat("band-carrier", b.carrier_hz,     fmtFreq(b.carrier_hz));
+    setStat("band-eirp",    b.max_eirp_dbm,   fmtPower(b.max_eirp_dbm));
+    setStat("band-dc",      b.duty_cycle_pct, fmtDC(b.duty_cycle_pct));
+    setStat("band-lbt",     b.lbt_required,   fmtLbt(b.lbt_required));
+    document.getElementById("band-note").textContent = b.note || "";
+    document.getElementById("btn-apply-band").disabled = false;
+}
+
+document.addEventListener("change", (e) => {
+    if (e.target?.id === "band-select") {
+        const b = bandPresets.find(x => x.id === e.target.value);
+        if (b) renderBandInfo(b);
+    }
+});
+
+document.getElementById("btn-apply-band").addEventListener("click", () => {
+    const id = document.getElementById("band-select").value;
+    const b = bandPresets.find(x => x.id === id);
+    if (!b) return;
+    let n = 0;
+    if (b.carrier_hz != null) {
+        savedValues["CARRIER_FREQUENCY_HZ"] = String(b.carrier_hz);
+        const w = widgets["CARRIER_FREQUENCY_HZ"];
+        if (w && w.tagName === "SELECT") {
+            // Carrier is a fixed-options <select>; if our band carrier matches
+            // an existing option, just select it. Otherwise add an option for
+            // it on the fly.
+            const opt = [...w.options].find(o => Number(o.value) === b.carrier_hz);
+            if (opt) opt.selected = true;
+            else {
+                const e2 = document.createElement("option");
+                e2.value = b.carrier_hz; e2.textContent = fmtFreq(b.carrier_hz);
+                e2.selected = true; w.appendChild(e2);
+            }
+            onChange("CARRIER_FREQUENCY_HZ");
+            n++;
+        }
+    }
+    if (b.duty_cycle_pct != null) {
+        const w = widgets["DUTY_CYCLE_MAX_PERCENT"];
+        if (w && w instanceof UnitInput) { w.setValue(b.duty_cycle_pct); onChange("DUTY_CYCLE_MAX_PERCENT"); n++; }
+    }
+    if (b.lbt_required != null) {
+        const w = widgets["LBT_ENABLED"];
+        if (w && w.tagName === "SELECT") {
+            w.value = b.lbt_required ? "true" : "false";
+            onChange("LBT_ENABLED"); n++;
+        }
+    }
+    toast(`Band preset applied — ${n} field(s) staged. Click Save to commit.`, "ok");
+});
 
 function canonString(v) {
     if (typeof v === "boolean") return v ? "true" : "false";
@@ -278,6 +424,7 @@ document.getElementById("btn-save").addEventListener("click", async () => {
 });
 
 loadSettings();
+loadBands();
 </script>
 </body>
 </html>

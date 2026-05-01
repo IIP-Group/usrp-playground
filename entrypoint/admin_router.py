@@ -583,6 +583,12 @@ def settings_get(db: Session = Depends(get_db), _: dict = Depends(auth.require_a
     return settings_store.all_current(db)
 
 
+@router.get("/bands")
+def bands_get(_: dict = Depends(auth.require_admin)):
+    """License-free SRD band presets (carrier, max EIRP, duty cycle, LBT)."""
+    return settings_store.list_bands()
+
+
 @router.put("/settings")
 def settings_put(
     payload: dict,
