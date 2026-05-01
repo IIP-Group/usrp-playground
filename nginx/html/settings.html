@@ -39,15 +39,6 @@
         .band-note {
             font-size: 12px; margin-top: 12px; line-height: 1.5;
         }
-        /* Settings rows that are dictated by the active band preset */
-        .locked-by-band {
-            opacity: 0.55;
-            pointer-events: none;
-        }
-        .locked-by-band select,
-        .locked-by-band input {
-            cursor: not-allowed !important;
-        }
     </style>
 </head>
 <body>
@@ -70,20 +61,17 @@
         <div class="band-card">
             <div class="band-head">
                 <div>
-                    <div class="band-title">Band preset</div>
-                    <div class="text-dim" style="font-size: 12px;">License-free SRD limits — REC 70-03</div>
+                    <div class="band-title" id="srd-label">2.4 GHz SRD</div>
+                    <div class="text-dim" style="font-size: 12px;">RIR1008-11 / EN 300 440 — license-exempt</div>
                 </div>
-                <span class="sp"></span>
-                <select id="band-select" style="min-width: 320px;"></select>
-                <button id="btn-apply-band" class="btn btn-primary" disabled>Apply preset</button>
             </div>
-            <div id="band-info" class="band-info">
-                <div class="band-stat"><span class="k">Carrier</span><span class="v" id="band-carrier">—</span></div>
-                <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="band-eirp">—</span></div>
-                <div class="band-stat"><span class="k">Duty cycle</span><span class="v" id="band-dc">—</span></div>
-                <div class="band-stat"><span class="k">LBT required</span><span class="v" id="band-lbt">—</span></div>
+            <div class="band-info">
+                <div class="band-stat"><span class="k">Frequency band</span><span class="v" id="srd-band">—</span></div>
+                <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="srd-eirp">—</span></div>
+                <div class="band-stat"><span class="k">Duty cycle</span><span class="v muted">—</span></div>
+                <div class="band-stat"><span class="k">LBT required</span><span class="v muted">—</span></div>
             </div>
-            <div id="band-note" class="band-note text-dim"></div>
+            <div id="srd-note" class="band-note text-dim"></div>
         </div>
 
         <div class="scroll-region" style="padding: 0 18px 18px;">
@@ -146,6 +134,7 @@ const UNIT_COUNT      = [{ key: "n", label: "count",      mul: 1 }];
 // Per-setting unit configuration. Default unit is what shows on first render.
 // Backend storage stays unchanged; UnitInput converts at the widget boundary.
 const FIELD_UNITS = {
+    CARRIER_FREQUENCY_HZ:  { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
     SAMPLE_RATE_HZ:        { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
     TX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
     RX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
@@ -193,46 +182,18 @@ async function loadSettings() {
     } catch (e) { toast(e.message, "err"); }
 }
 
-// ---- Band presets (regulatory limits, REC 70-03) ----
-let bandPresets = [];
-let lockedKeys = [];
-
-async function loadBands() {
-    try {
-        const resp = await apiFetch("/bands");
-        bandPresets = resp.bands || [];
-        lockedKeys  = resp.locked_keys || [];
-    }
-    catch { bandPresets = []; lockedKeys = []; }
-    const sel = document.getElementById("band-select");
-    sel.innerHTML = bandPresets.map(b =>
-        `<option value="${b.id}">${esc(b.label)}</option>`).join("");
-    // Pre-select the band whose carrier matches the saved CARRIER_FREQUENCY_HZ.
-    const cur = current["CARRIER_FREQUENCY_HZ"]?.value;
-    const match = bandPresets.find(b => Number(b.carrier_hz) === Number(cur));
-    if (match) sel.value = match.id;
-    if (bandPresets.length) {
-        const active = bandPresets.find(b => b.id === sel.value) || bandPresets[0];
-        renderBandInfo(active);
-    }
-    applyLockedStyling();
-}
-
-function applyLockedStyling() {
-    for (const k of lockedKeys || []) {
-        const w = widgets[k];
-        if (!w) continue;
-        let host = (w instanceof UnitInput) ? w.host : w;
-        if (host && host.classList) host.classList.add("locked-by-band");
-        const inputs = (w instanceof UnitInput) ? [w.input, w.select]
-                     : (w.querySelectorAll ? [...w.querySelectorAll("input,select")]
-                                           : [w]);
-        inputs.forEach(el => {
-            if (!el) return;
-            el.setAttribute("disabled", "");
-            el.title = "Locked by active band preset";
-        });
-    }
+// ---- 2.4 GHz SRD info banner (RIR1008-11) ----
+async function loadSrdBand() {
+    let band;
+    try { band = await apiFetch("/srd_band"); }
+    catch { return; }
+    document.getElementById("srd-label").textContent = band.label;
+    document.getElementById("srd-band").textContent =
+        `${(band.f_min_hz/1e6).toFixed(1)}–${(band.f_max_hz/1e6).toFixed(1)} MHz`;
+    const mW = Math.pow(10, band.max_eirp_dbm/10);
+    document.getElementById("srd-eirp").textContent =
+        `${band.max_eirp_dbm.toFixed(0)} dBm (${mW < 1 ? mW.toFixed(2) : mW.toFixed(0)} mW)`;
+    document.getElementById("srd-note").textContent = band.note || "";
 }
 
 function fmtFreq(hz) {
@@ -251,50 +212,6 @@ function fmtDC(pct) {
     if (pct == null) return "—";
     return pct.toFixed(pct < 1 ? 2 : 0) + " %";
 }
-function fmtLbt(req) {
-    if (req == null) return "—";
-    return req ? "yes" : "no";
-}
-
-function renderBandInfo(b) {
-    const setStat = (id, val, txt) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.textContent = txt;
-        el.classList.toggle("muted", val == null);
-    };
-    setStat("band-carrier", b.carrier_hz,     fmtFreq(b.carrier_hz));
-    setStat("band-eirp",    b.max_eirp_dbm,   fmtPower(b.max_eirp_dbm));
-    setStat("band-dc",      b.duty_cycle_pct, fmtDC(b.duty_cycle_pct));
-    setStat("band-lbt",     b.lbt_required,   fmtLbt(b.lbt_required));
-    document.getElementById("band-note").textContent = b.note || "";
-    document.getElementById("btn-apply-band").disabled = false;
-}
-
-document.addEventListener("change", (e) => {
-    if (e.target?.id === "band-select") {
-        const b = bandPresets.find(x => x.id === e.target.value);
-        if (b) renderBandInfo(b);
-    }
-});
-
-document.getElementById("btn-apply-band").addEventListener("click", async () => {
-    const id = document.getElementById("band-select").value;
-    const btn = document.getElementById("btn-apply-band");
-    btn.disabled = true;
-    try {
-        const r = await apiFetch(`/bands/${id}/apply`, {method: "POST"});
-        const n = Object.keys(r.applied || {}).length;
-        toast(`Band preset applied — ${n} setting(s) saved`, "ok");
-        await loadSettings();   // re-render with persisted values + lock state
-        await loadBands();      // re-pick the matching band
-    } catch (e) {
-        toast(e.message, "err");
-    } finally {
-        btn.disabled = false;
-    }
-});
-
 function canonString(v) {
     if (typeof v === "boolean") return v ? "true" : "false";
     return String(v);
@@ -390,7 +307,6 @@ function render() {
             widgets[key] = el;
         }
     }
-    applyLockedStyling();
 }
 
 function onChange(key) {
@@ -444,7 +360,7 @@ document.getElementById("btn-save").addEventListener("click", async () => {
 
 (async () => {
     await loadSettings();
-    await loadBands();
+    await loadSrdBand();
 })();
 </script>
 </body>
