@@ -165,16 +165,50 @@ def get(db: Session, key: str, default: Any = None) -> Any:
     return default
 
 
+# Display defaults — used by the Settings UI when no DB override / .env value
+# is set, so that fields show a real number instead of an empty string (which
+# also confuses the dirty-tracking comparison).
+_DISPLAY_DEFAULTS = {
+    "SAMPLE_RATE_BANDWIDTH_RATIO": 2,
+}
+
+
 def all_current(db: Session) -> dict:
-    """Snapshot of all editable settings, with their current effective values."""
+    """Snapshot of all editable settings, with their current effective values.
+
+    Locked fields bypass any DB override:
+    - CARRIER_FREQUENCY_HZ is always computed as the centre of the SRD band
+      (so carrier ± bandwidth/2 stays inside the legal range).
+    - All other locked fields read from .env / built-in defaults only.
+    """
     out = {}
     for key, spec in EDITABLE_KEYS.items():
-        out[key] = {
-            **spec,
-            "value": get(db, key, default=""),
-            "source": _source(db, key),
-        }
+        if spec.get("locked"):
+            value = _locked_value(key)
+            source = "computed" if key == "CARRIER_FREQUENCY_HZ" else "env"
+        else:
+            value = get(db, key, default=_DISPLAY_DEFAULTS.get(key, ""))
+            source = _source(db, key)
+        out[key] = {**spec, "value": value, "source": source}
     return out
+
+
+def _locked_value(key: str):
+    """Resolve a locked field's value without touching the DB."""
+    if key == "CARRIER_FREQUENCY_HZ":
+        band = srd_band_info()
+        return (int(band["f_min_hz"]) + int(band["f_max_hz"])) // 2
+    spec = EDITABLE_KEYS.get(key, {})
+    type_ = spec.get("type", "str")
+    raw = os.getenv(key, "")
+    if raw == "":
+        # No .env override — fall back to a sensible built-in.
+        defaults = {
+            "BANDWIDTH_HZ": 15_625_000,
+            "TX_POWER_DBM": 7.5,
+        }
+        return defaults.get(key, "")
+    return _coerce(raw, type_)
 
 
 def _source(db: Session, key: str) -> str:
