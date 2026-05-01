@@ -25,14 +25,15 @@ from models import SettingOverride
 # editable from the UI.
 EDITABLE_KEYS: dict[str, dict] = {
     # Radio
-    # Carrier is fixed by .env and used internally; no need to surface it
-    # in the UI — the SRD info card already tells the user the legal band.
+    # Carrier is the centre of the SRD band by default. Visible in the UI
+    # but locked — change via .env CARRIER_FREQUENCY_HZ if a non-centred
+    # carrier is required.
     "CARRIER_FREQUENCY_HZ": {"type": "int", "group": "radio",
         "label": "Carrier Frequency",
-        "hidden": True,
         "locked": True,
-        "desc": "Set via .env (CARRIER_FREQUENCY_HZ). Must lie inside the "
-                "SRD band, with bandwidth/2 of margin on each side."},
+        "desc": "Centre of the transmitted band — defaults to the middle "
+                "of the SRD band (2441.75 MHz). The signal occupies "
+                "carrier ± bandwidth/2."},
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
         "label": "Bandwidth",
         "locked": True,

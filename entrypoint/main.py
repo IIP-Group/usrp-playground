@@ -55,8 +55,13 @@ def _radio_info(db: Session) -> dict:
     def g(key, default):
         return settings_store.get(db, key, default)
 
+    # Default carrier = centre of the SRD band, so that
+    # carrier ± bandwidth/2 always sits inside the legal range.
+    band = settings_store.srd_band_info()
+    default_carrier = (int(band["f_min_hz"]) + int(band["f_max_hz"])) // 2
+
     return {
-        "carrier_frequency_hz": int(g("CARRIER_FREQUENCY_HZ", 2_400_000_000)),
+        "carrier_frequency_hz": int(g("CARRIER_FREQUENCY_HZ", default_carrier)),
         "sample_rate_hz":       int(g("SAMPLE_RATE_HZ", 25_000_000)),
         "bandwidth_hz":         int(g("BANDWIDTH_HZ", 25_000_000)),
         "tx_gain_db":           float(g("TX_GAIN_DB", 30)),

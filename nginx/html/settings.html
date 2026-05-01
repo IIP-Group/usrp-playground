@@ -93,23 +93,23 @@
 
         <div id="notice-area"></div>
 
-        <div class="band-card">
-            <div class="band-head">
-                <div>
-                    <div class="band-title" id="srd-label">2.4 GHz SRD</div>
-                    <div class="text-dim" style="font-size: 12px;">RIR1008-11 / EN 300 440 — license-exempt</div>
-                </div>
-            </div>
-            <div class="band-info">
-                <div class="band-stat"><span class="k">Frequency band</span><span class="v" id="srd-band">—</span></div>
-                <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="srd-eirp">—</span></div>
-                <div class="band-stat"><span class="k">Duty cycle</span><span class="v muted">—</span></div>
-                <div class="band-stat"><span class="k">LBT required</span><span class="v muted">—</span></div>
-            </div>
-            <div id="srd-note" class="band-note text-dim"></div>
-        </div>
-
         <div class="scroll-region" style="padding: 0 18px 18px;">
+            <div class="band-card">
+                <div class="band-head">
+                    <div>
+                        <div class="band-title" id="srd-label">2.4 GHz SRD</div>
+                        <div class="text-dim" style="font-size: 12px;">RIR1008-11 / EN 300 440 — license-exempt</div>
+                    </div>
+                </div>
+                <div class="band-info">
+                    <div class="band-stat"><span class="k">Frequency band</span><span class="v" id="srd-band">—</span></div>
+                    <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="srd-eirp">—</span></div>
+                    <div class="band-stat"><span class="k">Duty cycle</span><span class="v muted">—</span></div>
+                    <div class="band-stat"><span class="k">LBT required</span><span class="v muted">—</span></div>
+                </div>
+                <div id="srd-note" class="band-note text-dim"></div>
+            </div>
+
             <div id="groups">
                 <div class="empty">Loading…</div>
             </div>
@@ -170,6 +170,7 @@ const UNIT_COUNT      = [{ key: "n", label: "count",      mul: 1 }];
 // Backend storage stays unchanged; UnitInput converts at the widget boundary.
 const FIELD_UNITS = {
     CARRIER_FREQUENCY_HZ:  { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
+    BANDWIDTH_HZ:          { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
     SAMPLE_RATE_HZ:        { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
     TX_POWER_DBM:          { units: [{key: "dbm", label: "dBm", mul: 1}], defaultUnit: "dbm" },
     RX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
