@@ -136,7 +136,7 @@ const UNIT_COUNT      = [{ key: "n", label: "count",      mul: 1 }];
 const FIELD_UNITS = {
     CARRIER_FREQUENCY_HZ:  { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
     SAMPLE_RATE_HZ:        { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
-    TX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
+    TX_POWER_DBM:          { units: [{key: "dbm", label: "dBm", mul: 1}], defaultUnit: "dbm" },
     RX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
     LBT_THRESHOLD_DBFS:    { units: UNIT_DBFS,            defaultUnit: "dbfs"},
 

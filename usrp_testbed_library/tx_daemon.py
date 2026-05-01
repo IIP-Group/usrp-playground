@@ -120,7 +120,7 @@ class TXDaemon(BaseUSRPDaemon):
             logging.warning(f"Could not read hardware state: {e}")
             # Continue with empty state - first configure will set everything
 
-    def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0"):
+    def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0", channel_powers=None):
 
         with self._op_guard("configure_usrp"):
             # Validate that at least one type of channel is specified
@@ -218,8 +218,26 @@ class TXDaemon(BaseUSRPDaemon):
                     self.usrp.set_tx_freq(tune_req, ch)
                 actual_fc = self.usrp.get_tx_freq(ch)
 
-                # Only set gain if it changed for this channel
-                if ch_gain_changed:
+                # Power-reference mode: caller passed an absolute target dBm
+                # for this channel. Use UHD's calibrated set_tx_power_reference
+                # so we know what comes out of the SMA. Falls back to gain mode
+                # if no power was supplied OR if the firmware/cal table does
+                # not support the power API.
+                expected_power_dbm = (channel_powers or {}).get(ch)
+                actual_power_dbm = None
+                used_power_api = False
+                if expected_power_dbm is not None:
+                    try:
+                        if ch_gain_changed:
+                            self.usrp.set_tx_power_reference(float(expected_power_dbm), ch)
+                        actual_power_dbm = self.usrp.get_tx_power_reference(ch)
+                        used_power_api = True
+                    except Exception as e:
+                        logging.warning(
+                            f"set_tx_power_reference unavailable on ch {ch} "
+                            f"({e}); falling back to set_tx_gain"
+                        )
+                if not used_power_api and ch_gain_changed:
                     self.usrp.set_tx_gain(expected_gain, ch)
                 actual_gain = self.usrp.get_tx_gain(ch)
 
@@ -233,6 +251,7 @@ class TXDaemon(BaseUSRPDaemon):
                 self.channel_configs[ch] = {
                     'fc': fc,
                     'gain': expected_gain,
+                    'power_dbm': expected_power_dbm,
                     'antenna': antenna,
                     'role': role
                 }
@@ -242,6 +261,7 @@ class TXDaemon(BaseUSRPDaemon):
                     "fs": actual_fs,
                     "fc": actual_fc,
                     "G_TX": actual_gain,
+                    "P_TX_DBM": actual_power_dbm,
                     "antenna": actual_antenna
                 }
 
@@ -615,12 +635,24 @@ def main():
                     g_tx = validate_gain_dict(request["G_TX"], all_channels)
 
                     ant_req = request.get("antenna", "TX/RX0")
-                    
+
+                    # Optional power-reference targets in dBm. Caller sends a
+                    # dict {channel: dbm} via P_TX_DBM. If present, the daemon
+                    # uses set_tx_power_reference() (calibrated) instead of
+                    # set_tx_gain() (relative) for those channels.
+                    p_tx_dbm = None
+                    if "P_TX_DBM" in request and request["P_TX_DBM"] is not None:
+                        raw = request["P_TX_DBM"]
+                        if isinstance(raw, dict):
+                            p_tx_dbm = {int(k): float(v) for k, v in raw.items()}
+                        else:
+                            p_tx_dbm = {ch: float(raw) for ch in all_channels}
+
                     actual_settings = tx_daemon.configure_usrp(
                         fs=fs_req, fc=fc_req, sync_channels=sc_req, intf_channels=ic_req,
-                        channel_gains=g_tx, antenna=ant_req
+                        channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm
                     )
-                    
+
                     requested_params = {
                         "fs": fs_req,
                         "fc": fc_req,

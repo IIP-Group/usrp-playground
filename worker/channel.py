@@ -48,7 +48,7 @@ def _get(key: str, default, type_=str):
     val = _db_override(key)
     if val is None:
         val = os.getenv(key)
-    if val is None:
+    if val is None or val == "":
         return default
     if type_ is int:   return int(float(val))
     if type_ is float: return float(val)
@@ -138,6 +138,10 @@ class USRPChannel:
 
         fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
+        # TX_POWER_DBM (calibrated absolute output) wins over TX_GAIN_DB
+        # (relative). Both are forwarded so the daemon can pick power-API
+        # when supported and fall back to gain otherwise.
+        tx_power_dbm = _get("TX_POWER_DBM", None, float)
         tx_gain = _get("TX_GAIN_DB", 30.0, float)
         rx_gain = _get("RX_GAIN_DB", 30.0, float)
         antenna_tx = _get("ANTENNA_TX", "TX/RX0")
@@ -151,6 +155,8 @@ class USRPChannel:
             "G_TX": {str(TX_CHANNEL): tx_gain},
             "antenna": antenna_tx,
         }
+        if tx_power_dbm is not None:
+            tx_cmd["P_TX_DBM"] = {str(TX_CHANNEL): float(tx_power_dbm)}
         self._tx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._tx_req.send_json(tx_cmd)
         resp = self._tx_req.recv_json()

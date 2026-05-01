@@ -36,11 +36,12 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "Bandwidth",
         "desc": "Analog anti-aliasing filter — locked to Sample Rate.",
         "hidden": True},
-    "TX_GAIN_DB":           {"type": "float", "group": "radio",
-        "label": "TX Gain",
-        "desc": "USRP transmit gain — main knob for output power. Combined "
-                "with antenna gain and cable loss it determines EIRP. Lower "
-                "this until EIRP stays under the band's regulatory limit."},
+    "TX_POWER_DBM":         {"type": "float", "group": "radio",
+        "label": "TX Power",
+        "desc": "Calibrated absolute output power at the USRP TX/RX SMA "
+                "(uses UHD's set_tx_power_reference, EEPROM-calibrated). "
+                "EIRP = TX Power − cable loss + antenna gain — keep that "
+                "under 10 dBm for the 2.4 GHz SRD band."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "RX Gain",
         "desc": "Receive gain. Too high → saturation, too low → noise."},

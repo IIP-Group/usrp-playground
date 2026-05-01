@@ -60,6 +60,7 @@ def _radio_info(db: Session) -> dict:
         "sample_rate_hz":       int(g("SAMPLE_RATE_HZ", 25_000_000)),
         "bandwidth_hz":         int(g("BANDWIDTH_HZ", 25_000_000)),
         "tx_gain_db":           float(g("TX_GAIN_DB", 30)),
+        "tx_power_dbm":         g("TX_POWER_DBM", None),
         "rx_gain_db":           float(g("RX_GAIN_DB", 30)),
         "antenna_tx":           g("ANTENNA_TX", "TX/RX0"),
         "antenna_rx":           g("ANTENNA_RX", "RX1"),
