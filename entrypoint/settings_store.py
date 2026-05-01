@@ -25,24 +25,27 @@ from models import SettingOverride
 # editable from the UI.
 EDITABLE_KEYS: dict[str, dict] = {
     # Radio
+    # Carrier is fixed by .env and used internally; no need to surface it
+    # in the UI — the SRD info card already tells the user the legal band.
     "CARRIER_FREQUENCY_HZ": {"type": "int", "group": "radio",
         "label": "Carrier Frequency",
+        "hidden": True,
         "locked": True,
-        "desc": "Carrier within the 2.4 GHz SRD band (2400-2483.5 MHz). "
-                "Locked: change via .env CARRIER_FREQUENCY_HZ, not from the UI."},
+        "desc": "Set via .env (CARRIER_FREQUENCY_HZ). Must lie inside the "
+                "SRD band, with bandwidth/2 of margin on each side."},
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
         "label": "Bandwidth",
         "locked": True,
         "desc": "Analog anti-aliasing filter at the USRP front-end. "
-                "Locked: change via .env BANDWIDTH_HZ. The actual sample "
-                "rate is derived as bandwidth × ratio (see slider below)."},
+                "Set in .env so the configured carrier ± bandwidth/2 "
+                "always fits inside the SRD band. The actual sample rate "
+                "is bandwidth × ratio (see button below)."},
     "SAMPLE_RATE_BANDWIDTH_RATIO": {"type": "int", "group": "radio",
         "label": "Sample / Bandwidth Ratio",
         "min": 1, "max": 5,
-        "desc": "Oversampling factor — sample rate = bandwidth × this ratio. "
-                "Higher ratio = more headroom against aliasing, lower noise "
-                "density in the signal band, sharper digital filters. "
-                "Costs proportionally more network throughput."},
+        "desc": "Multiplier from bandwidth to sample rate. Click the button "
+                "to cycle 1× → 2× → … → 5× → 1×. Higher ratios cost "
+                "proportionally more network throughput."},
     # SAMPLE_RATE_HZ is computed from BANDWIDTH_HZ × ratio on save.
     "SAMPLE_RATE_HZ":       {"type": "int", "group": "radio",
         "label": "Sample Rate",

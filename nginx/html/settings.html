@@ -12,11 +12,6 @@
             border-radius: var(--radius);
             padding: 14px 18px;
             margin-bottom: 18px;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
         }
         .locked-field {
             opacity: 0.55;
@@ -29,56 +24,29 @@
         .locked-field .unit-input-sel {
             cursor: not-allowed !important;
         }
-        .locked-badge {
-            font-size: 10px;
-            color: var(--text-dim);
-            margin-left: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 1px 5px;
-        }
-        .ratio-slider-row {
+        /* Clickable cycle button used for the ratio multiplier */
+        .ratio-btn-row {
             display: flex; align-items: center; gap: 12px;
-            width: 100%;
         }
-        .ratio-slider {
-            flex: 1;
-            -webkit-appearance: none;
-            appearance: none;
-            height: 4px;
-            background: var(--border);
-            border-radius: 2px;
-            outline: none;
-        }
-        .ratio-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 18px; height: 18px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            box-shadow: 0 0 0 4px rgba(91, 141, 239, 0.15);
-        }
-        .ratio-slider::-moz-range-thumb {
-            width: 18px; height: 18px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            border: none;
-        }
-        .ratio-display {
+        .ratio-btn {
+            min-width: 64px;
             font-family: var(--mono);
-            font-size: 13px;
-            color: var(--text);
-            min-width: 80px;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 8px 16px;
+            background: rgba(91, 141, 239, 0.18);
+            color: #cfdcf6;
+            border: 1px solid rgba(91, 141, 239, 0.4);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.05s;
         }
+        .ratio-btn:hover { background: rgba(91, 141, 239, 0.28); }
+        .ratio-btn:active { transform: scale(0.97); }
         .ratio-derived {
             font-family: var(--mono);
             font-size: 12px;
             color: var(--text-dim);
-            min-width: 110px;
         }
         .band-head {
             display: flex; align-items: center; gap: 12px;
@@ -291,6 +259,9 @@ function readWidgetCanon(key) {
         const v = w.getValue();
         return isFinite(v) ? String(v) : "";
     }
+    if (key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
+        return String(w.dataset.value || w.value || "");
+    }
     return w.value;
 }
 
@@ -322,13 +293,11 @@ function render() {
 
             let inputHtml;
             if (s.key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
-                const min = s.min || 1, max = s.max || 5;
-                inputHtml = `<div class="ratio-slider-row">
-                    <input type="range" id="${id}" data-key="${s.key}"
-                           min="${min}" max="${max}" step="1"
-                           value="${s.value || 2}" class="ratio-slider"
-                           oninput="onRatioChange()">
-                    <span class="ratio-display" id="ratio-display">${s.value || 2}× (over-sampling)</span>
+                const cur = Number(s.value) || 1;
+                inputHtml = `<div class="ratio-btn-row">
+                    <button type="button" id="${id}" data-key="${s.key}"
+                            class="ratio-btn" data-value="${cur}"
+                            onclick="onRatioCycle()">${cur}×</button>
                     <span class="ratio-derived" id="ratio-derived"></span>
                 </div>`;
             } else if (hasOptions) {
@@ -347,12 +316,10 @@ function render() {
             const info = s.desc
                 ? `<span class="info-icon" tabindex="0" title="${esc(s.desc)}" aria-label="${esc(s.desc)}">i</span>`
                 : "";
-            const lockedBadge = s.locked
-                ? `<span class="locked-badge">.env</span>` : "";
             const rowClass = s.locked ? "locked-field" : "";
             return `<tr class="${rowClass}">
                 <td style="width: 260px;">
-                    <strong>${esc(s.label)}</strong> ${info} ${lockedBadge}
+                    <strong>${esc(s.label)}</strong> ${info}
                     <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
                 </td>
                 <td>${inputHtml}</td>
@@ -393,20 +360,25 @@ function render() {
     refreshRatioDerived();
 }
 
-// Update the "= bandwidth × ratio" derived-sample-rate display.
+// Update the derived "fs = bandwidth × ratio" caption next to the button.
 function refreshRatioDerived() {
-    const r = document.getElementById("f-SAMPLE_RATE_BANDWIDTH_RATIO");
-    if (!r) return;
-    const ratio = Number(r.value) || 1;
+    const btn = document.getElementById("f-SAMPLE_RATE_BANDWIDTH_RATIO");
+    if (!btn) return;
+    const ratio = Number(btn.dataset.value) || 1;
     const bw = Number(current["BANDWIDTH_HZ"]?.value) || 0;
     const fs = bw * ratio;
-    const disp = document.getElementById("ratio-display");
-    const der  = document.getElementById("ratio-derived");
-    if (disp) disp.textContent = `${ratio}× over-sampling`;
-    if (der)  der.textContent  = `→ fs = ${(fs/1e6).toFixed(3)} MHz`;
+    btn.textContent = `${ratio}×`;
+    const der = document.getElementById("ratio-derived");
+    if (der) der.textContent = `→ fs = ${(fs/1e6).toFixed(3)} MHz   (bw × ratio)`;
 }
 
-window.onRatioChange = function () {
+// Click → cycle 1 → 2 → 3 → 4 → 5 → 1 → ...
+window.onRatioCycle = function () {
+    const btn = document.getElementById("f-SAMPLE_RATE_BANDWIDTH_RATIO");
+    if (!btn) return;
+    const cur = Number(btn.dataset.value) || 1;
+    const next = (cur % 5) + 1;
+    btn.dataset.value = String(next);
     refreshRatioDerived();
     onChange("SAMPLE_RATE_BANDWIDTH_RATIO");
 };
