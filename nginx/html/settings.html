@@ -312,8 +312,13 @@ function render() {
             const info = s.desc
                 ? `<span class="info-icon" tabindex="0" title="${esc(s.desc)}" aria-label="${esc(s.desc)}">i</span>`
                 : "";
-            const rowClass = s.locked ? "locked-field" : "";
-            return `<tr class="${rowClass}">
+            const rowClasses = [];
+            if (s.locked) rowClasses.push("locked-field");
+            // disabled_when: row is disabled while another bool field equals
+            // a given value. Tracked at runtime via a data-attr.
+            const dw = s.disabled_when;
+            const dwAttr = dw ? `data-disable-when-key="${esc(dw.key)}" data-disable-when-equals="${esc(dw.equals)}"` : "";
+            return `<tr class="${rowClasses.join(' ')}" data-row-key="${esc(s.key)}" ${dwAttr}>
                 <td style="width: 260px;">
                     <strong>${esc(s.label)}</strong> ${info}
                     <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
@@ -354,6 +359,21 @@ function render() {
         }
     }
     refreshRatioDerived();
+    refreshDependencyLocks();
+}
+
+// Walks every row that has data-disable-when-key, looks up the master
+// boolean value, and toggles .locked-field accordingly.
+function refreshDependencyLocks() {
+    document.querySelectorAll("tr[data-disable-when-key]").forEach(row => {
+        const masterKey = row.dataset.disableWhenKey;
+        const wantedValue = row.dataset.disableWhenEquals;        // string: "true" | "false"
+        const masterEl = document.getElementById("f-" + masterKey);
+        if (!masterEl) return;
+        const masterValue = String(masterEl.value);
+        const shouldDisable = (masterValue === wantedValue);
+        row.classList.toggle("locked-field", shouldDisable);
+    });
 }
 
 // Update the derived "fs = bandwidth × ratio" caption next to the button.
@@ -394,6 +414,8 @@ function onChange(key) {
         dirty.add(key);
         if (dot) { dot.classList.add("dirty"); dot.title = "unsaved"; }
     }
+    // Master toggles (LBT_ENABLED, DUTY_CYCLE_ENABLED, …) gate other rows.
+    refreshDependencyLocks();
     updateSaveButton();
 }
 

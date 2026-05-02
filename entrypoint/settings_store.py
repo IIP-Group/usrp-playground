@@ -87,11 +87,18 @@ EDITABLE_KEYS: dict[str, dict] = {
         "desc": "Delay between task start and the first sample."},
 
     # Duty cycle
+    "DUTY_CYCLE_ENABLED":     {"type": "bool",  "group": "safety",
+        "label": "Duty Cycle Enabled",
+        "desc": "Master switch for duty-cycle limiting. When off, the worker "
+                "transmits without a duty quota — only enable for lab "
+                "experiments where regulation does not apply."},
     "DUTY_CYCLE_MAX_PERCENT": {"type": "float", "group": "safety",
         "label": "Max Duty Cycle",
+        "disabled_when": {"key": "DUTY_CYCLE_ENABLED", "equals": False},
         "desc": "Maximum fraction of active transmit time within the window. ETSI-compliant value is typically 10%."},
     "DUTY_CYCLE_WINDOW_SEC":  {"type": "float", "group": "safety",
         "label": "Duty Cycle Window",
+        "disabled_when": {"key": "DUTY_CYCLE_ENABLED", "equals": False},
         "desc": "Time window over which duty cycle is measured (typically 60 s)."},
 
     # LBT
@@ -100,15 +107,19 @@ EDITABLE_KEYS: dict[str, dict] = {
         "desc": "Sense the channel before transmitting. Recommended for ISM-band compliance."},
     "LBT_THRESHOLD_DBFS": {"type": "float", "group": "safety",
         "label": "LBT Threshold",
+        "disabled_when": {"key": "LBT_ENABLED", "equals": False},
         "desc": "Power threshold above which the channel is considered busy."},
     "LBT_SENSE_SAMPLES":  {"type": "int",   "group": "safety",
         "label": "LBT Sense Samples",
+        "disabled_when": {"key": "LBT_ENABLED", "equals": False},
         "desc": "Number of samples used for the power average."},
     "LBT_MAX_RETRIES":    {"type": "int",   "group": "safety",
         "label": "LBT Max Retries",
+        "disabled_when": {"key": "LBT_ENABLED", "equals": False},
         "desc": "How often to retry if the channel is busy — after that, error out."},
     "LBT_BACKOFF_SEC":    {"type": "float", "group": "safety",
         "label": "LBT Backoff",
+        "disabled_when": {"key": "LBT_ENABLED", "equals": False},
         "desc": "Wait time between LBT attempts (random uniform)."},
 
     # Limits

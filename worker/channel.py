@@ -204,6 +204,8 @@ class USRPChannel:
         return str(container_path).replace(SIGNAL_DIR, SIGNAL_DIR_HOST, 1)
 
     def _check_duty_cycle(self, signal_duration):
+        if not _get("DUTY_CYCLE_ENABLED", True, bool):
+            return True, 0.0
         duty_max = _get("DUTY_CYCLE_MAX_PERCENT", 10.0, float) / 100.0
         duty_window = _get("DUTY_CYCLE_WINDOW_SEC", 60.0, float)
         now = time.time()
