@@ -154,39 +154,55 @@
             50%     { transform: translateY(-3px); }
         }
 
-        /* legs — rotate around (0,0) of their own coordinate system.
-           The wrapping <g transform="translate(x,y)"> places that origin
-           at the top of the leg, no transform-box needed. */
-        .leg       { animation: leg-swing 0.55s ease-in-out infinite; }
-        .leg.phase-b { animation-delay: -0.275s; }
+        /* CSS transform on SVG: every animated element needs
+           `transform-box: fill-box` so the transform-origin is its own
+           bounding box rather than the SVG viewport corner. Without it,
+           rotate/scale jumps the element across the canvas. */
+
+        .leg {
+            transform-box: fill-box;
+            transform-origin: 50% 0%;       /* top centre = leg pivot */
+            animation: leg-swing 0.55s ease-in-out infinite;
+        }
+        .leg.phase-b         { animation-delay: -0.275s; }
         .leg.slow            { animation-duration: 0.85s; }
         .leg.slow.phase-b    { animation-delay: -0.425s; }
         .leg.fast            { animation-duration: 0.42s; }
         .leg.fast.phase-b    { animation-delay: -0.21s; }
-        .stage.down .leg { animation: none; }
+        .stage.down .leg { animation: none; transform: none; }
         @keyframes leg-swing {
             0%,100% { transform: rotate(22deg); }
             50%     { transform: rotate(-22deg); }
         }
 
-        /* tail — rotate around (0,0) of wrapper */
-        .tail { animation: tail-wag 0.85s ease-in-out infinite; }
-        .stage.down .tail { animation: none; }
+        .tail {
+            transform-box: fill-box;
+            transform-origin: 100% 0%;      /* attach at right side */
+            animation: tail-wag 0.85s ease-in-out infinite;
+        }
+        .stage.down .tail { animation: none; transform: none; }
         @keyframes tail-wag {
             0%,100% { transform: rotate(-4deg); }
             50%     { transform: rotate(8deg); }
         }
 
-        /* ear (elephant) */
-        .ear { animation: ear-flap 0.55s ease-in-out infinite; }
-        .stage.down .ear { animation: none; }
+        .ear {
+            transform-box: fill-box;
+            transform-origin: 0% 0%;
+            animation: ear-flap 0.55s ease-in-out infinite;
+        }
+        .stage.down .ear { animation: none; transform: none; }
         @keyframes ear-flap {
             0%,100% { transform: rotate(-5deg); }
             50%     { transform: rotate(8deg); }
         }
 
-        /* breathing belly while sleeping — clearly visible scale */
-        .breath { animation: breathe 3.2s ease-in-out infinite; }
+        /* breathing belly — scale around the belly's centre */
+        .breath {
+            transform-box: fill-box;
+            transform-origin: 50% 50%;
+            animation: breathe 3.2s ease-in-out infinite;
+        }
         .breath.slow  { animation-duration: 4.2s; }
         .breath.off-1 { animation-delay: -1.1s; }
         .breath.off-2 { animation-delay: -2.0s; }
@@ -195,16 +211,17 @@
             50%     { transform: scale(1.08, 1.18); }
         }
 
-        /* closed-eye blink */
-        .blink { animation: blink 5s ease-in-out infinite; }
+        .blink {
+            transform-box: fill-box;
+            transform-origin: 50% 50%;
+            animation: blink 5s ease-in-out infinite;
+        }
         @keyframes blink {
             0%,94%,100% { transform: scaleY(1); }
             97%         { transform: scaleY(0.3); }
         }
 
-        /* sleeping Z's — drift up while swaying. Always animating; only
-           visible because .pose-sleeping itself is display:none unless
-           the stage is in `down` mode, so no opacity gating needed. */
+        /* sleeping Z's — pure translate, no transform-box gymnastics needed */
         .zzz { animation: zzz 3.2s ease-in-out infinite; }
         @keyframes zzz {
             0%   { transform: translate(0,   0)   scale(0.5);  opacity: 0; }
