@@ -1,11 +1,11 @@
 """
 Central config resolution for USRP-relevant parameters.
 
-Lookup order: DB override > .env > default.
+Lookup order: .env > DB override > default.
 
-Saving from the admin UI writes to the `setting_overrides` table. The
-worker polls this table periodically / on the next task, so "reload" is
-effectively immediate without a restart.
+.env is always authoritative — if a key is set there, the DB is ignored
+for that key. DB overrides only apply for keys absent from .env. This
+means the admin panel writes to DB, but .env always wins.
 """
 import os
 from typing import Any
@@ -158,30 +158,24 @@ def _coerce(value: str, type_: str) -> Any:
 
 
 def get(db: Session, key: str, default: Any = None) -> Any:
-    """Get value with override > env > default resolution.
+    """Get value: .env → default. DB is never consulted.
 
-    Locked keys (spec.locked=True) bypass the DB and even the raw .env in
-    some cases — they are resolved by `_locked_value()` so that /info, the
-    worker and the Settings UI all see the same number.
+    .env is the single source of truth. To change a setting, edit .env
+    and restart the containers. Locked keys are resolved by _locked_value().
     """
     spec = EDITABLE_KEYS.get(key)
     type_ = spec["type"] if spec else "str"
 
-    # 0. Locked: deterministic resolution, no DB.
+    # 0. Locked: deterministic resolution.
     if spec and spec.get("locked"):
         return _locked_value(key)
 
-    # 1. DB override
-    row = db.query(SettingOverride).filter(SettingOverride.key == key).first()
-    if row is not None:
-        return _coerce(row.value, type_)
-
-    # 2. .env
+    # 1. .env
     env_val = os.getenv(key)
     if env_val is not None:
         return _coerce(env_val, type_)
 
-    # 3. Default
+    # 2. Default
     return default
 
 
@@ -232,8 +226,6 @@ def _locked_value(key: str):
 
 
 def _source(db: Session, key: str) -> str:
-    if db.query(SettingOverride).filter(SettingOverride.key == key).first():
-        return "db"
     if os.getenv(key) is not None:
         return "env"
     return "default"

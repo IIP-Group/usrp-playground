@@ -51,6 +51,21 @@ _LOCKED_KEYS = {"CARRIER_FREQUENCY_HZ", "BANDWIDTH_HZ", "TX_POWER_DBM"}
 # 2.4 GHz SRD band centre (RIR1008-11). Carrier is always pinned here.
 _LOCKED_CARRIER_HZ = 2_441_750_000
 
+# B210 with auto MCR lands on 32 MHz; valid rates are 32/integer.
+# Use a per-device-type SAMPLE_RATE_HZ_<DTYPE> override before falling
+# back to SAMPLE_RATE_HZ (default 25 MHz suits X4xx but not B210).
+_B200_DEFAULT_SAMPLE_RATE = 16_000_000   # 32 MHz MCR ÷ 2
+
+
+def _get_sample_rate() -> float:
+    dtype = os.getenv("USRP_DEVICE_TYPE", "x4xx").lower()
+    dtype_key = dtype.upper().replace("-", "_")
+    specific = os.getenv(f"SAMPLE_RATE_HZ_{dtype_key}")
+    if specific:
+        return float(specific)
+    default = _B200_DEFAULT_SAMPLE_RATE if dtype.startswith("b2") else 25_000_000
+    return _get("SAMPLE_RATE_HZ", default, float)
+
 
 def _get(key: str, default, type_=str):
     if key in _LOCKED_KEYS:
@@ -59,9 +74,7 @@ def _get(key: str, default, type_=str):
         else:
             val = os.getenv(key)
     else:
-        val = _db_override(key)
-        if val is None:
-            val = os.getenv(key)
+        val = os.getenv(key)
     if val is None or val == "":
         return default
     if type_ is int:   return int(float(val))
@@ -150,7 +163,7 @@ class USRPChannel:
 
         self._connect()
 
-        fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
+        fs = _get_sample_rate()
         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
         # TX_POWER_DBM (calibrated absolute output) wins over TX_GAIN_DB
         # (relative). Both are forwarded so the daemon can pick power-API
@@ -254,7 +267,7 @@ class USRPChannel:
         threshold = _get("LBT_THRESHOLD_DBFS", -50.0, float)
         max_retries = _get("LBT_MAX_RETRIES", 10, int)
         backoff = _get("LBT_BACKOFF_SEC", 1.0, float)
-        fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
+        fs = _get_sample_rate()
 
         for attempt in range(max_retries):
             self._rx_req.setsockopt(zmq.RCVTIMEO, 5000)
@@ -338,7 +351,7 @@ class USRPChannel:
             self._reset_sockets()
             raise
 
-        fs = _get("SAMPLE_RATE_HZ", 25_000_000, float)
+        fs = _get_sample_rate()
         initial_delay = _get("INITIAL_DELAY", 1.0, float)
         begin_guard, end_guard = _get_guard()
         self.last_guard = (begin_guard, end_guard)
