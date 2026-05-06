@@ -123,16 +123,11 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "Sample Rate",
         "desc": "Derived: bandwidth × ratio.",
         "hidden": True},
-    "TX_POWER_DBM":         {"type": "float", "group": "radio",
-        "label": "TX Power (dBm)",
-        "desc": "Calibrated absolute output power at the USRP TX/RX SMA "
-                "(uses UHD's set_tx_power_reference if available, otherwise "
-                "falls back to TX_GAIN_DB). Leave empty to use TX Gain instead. "
-                "Stay under the SRD 10 dBm EIRP limit when transmitting on air."},
     "TX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "TX Gain (dB)",
-        "desc": "Relative transmit gain. Used when TX Power (dBm) is not set "
-                "or the device does not support calibrated power."},
+        "desc": "Sendeverstärkung. B210: Range 0–89.75 dB. "
+                "Höher = mehr Ausgangsleistung. Bei B210 ist das die einzige "
+                "Möglichkeit, die Leistung zu steuern (keine kalibrierte Power-API)."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "RX Gain (dB)",
         "desc": "Receive gain. Too high → saturation, too low → noise."},
