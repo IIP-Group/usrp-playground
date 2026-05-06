@@ -185,35 +185,33 @@
             50%     { transform: rotate(8deg); }
         }
 
-        /* breathing belly while sleeping — scale around wrapper origin */
-        .breath { animation: breathe 4.2s ease-in-out infinite; }
-        .breath.slow  { animation-duration: 5.5s; }
+        /* breathing belly while sleeping — clearly visible scale */
+        .breath { animation: breathe 3.2s ease-in-out infinite; }
+        .breath.slow  { animation-duration: 4.2s; }
         .breath.off-1 { animation-delay: -1.1s; }
-        .breath.off-2 { animation-delay: -2.5s; }
+        .breath.off-2 { animation-delay: -2.0s; }
         @keyframes breathe {
             0%,100% { transform: scale(1, 1); }
-            50%     { transform: scale(1.03, 1.08); }
+            50%     { transform: scale(1.08, 1.18); }
         }
 
-        /* closed-eye blink — scaleY around wrapper origin */
-        .blink { animation: blink 6s ease-in-out infinite; }
+        /* closed-eye blink */
+        .blink { animation: blink 5s ease-in-out infinite; }
         @keyframes blink {
-            0%,96%,100% { transform: scaleY(1); }
-            98%         { transform: scaleY(0.4); }
+            0%,94%,100% { transform: scaleY(1); }
+            97%         { transform: scaleY(0.3); }
         }
 
-        /* sleeping Z's — float up & sway */
-        .zzz {
-            opacity: 0;
-            animation: zzz 3.5s ease-in-out infinite;
-        }
-        .stage.down .zzz { opacity: 1; }
+        /* sleeping Z's — drift up while swaying. Always animating; only
+           visible because .pose-sleeping itself is display:none unless
+           the stage is in `down` mode, so no opacity gating needed. */
+        .zzz { animation: zzz 3.2s ease-in-out infinite; }
         @keyframes zzz {
-            0%   { transform: translate(0,   0)   scale(0.55); opacity: 0; }
-            12%  { opacity: 1; }
-            40%  { transform: translate(8px, -22px) scale(0.85); opacity: 1; }
-            70%  { transform: translate(-6px,-40px) scale(1.05); opacity: 0.8; }
-            100% { transform: translate(4px, -58px) scale(1.20); opacity: 0; }
+            0%   { transform: translate(0,   0)   scale(0.5);  opacity: 0; }
+            10%  {                                              opacity: 1; }
+            35%  { transform: translate(10px,-26px) scale(0.9); opacity: 1; }
+            65%  { transform: translate(-8px,-46px) scale(1.1); opacity: 0.85; }
+            100% { transform: translate(6px, -68px) scale(1.3); opacity: 0; }
         }
 
         /* Center label — pushed up into the sky */
