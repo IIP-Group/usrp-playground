@@ -1,16 +1,87 @@
 """
 Central config resolution for USRP-relevant parameters.
 
-Lookup order: .env > DB override > default.
+Lookup order: host .env file → os.environ (container startup) → default.
 
-.env is always authoritative — if a key is set there, the DB is ignored
-for that key. DB overrides only apply for keys absent from .env. This
-means the admin panel writes to DB, but .env always wins.
+The host .env file is mounted at /app/host.env (read-write). The Settings
+UI writes changes directly to that file. os.environ reflects the values
+from container startup and serves as a read-only fallback for keys not yet
+written by the UI.
 """
 import os
+import threading
+import time
 from typing import Any
 from sqlalchemy.orm import Session
 from models import SettingOverride
+
+_ENV_FILE = "/app/host.env"
+_file_cache: dict = {}
+_file_cache_ts: float = 0.0
+_file_lock = threading.Lock()
+_CACHE_TTL = 2.0  # seconds
+
+
+def _parse_env_file(path: str) -> dict:
+    result = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if "=" not in stripped:
+                    continue
+                key, _, rest = stripped.partition("=")
+                key = key.strip()
+                # strip inline comment (only when preceded by whitespace)
+                if " #" in rest:
+                    rest = rest[:rest.index(" #")]
+                result[key] = rest.strip()
+    except FileNotFoundError:
+        pass
+    return result
+
+
+def _file_get(key: str) -> str | None:
+    global _file_cache, _file_cache_ts
+    now = time.monotonic()
+    with _file_lock:
+        if now - _file_cache_ts > _CACHE_TTL:
+            _file_cache = _parse_env_file(_ENV_FILE)
+            _file_cache_ts = now
+        return _file_cache.get(key)
+
+
+def _write_env_key(key: str, value: str) -> None:
+    with _file_lock:
+        try:
+            with open(_ENV_FILE) as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        prefix = f"{key}="
+        found = False
+        new_lines = []
+        for line in lines:
+            if line.lstrip().startswith(prefix) or line.lstrip().startswith(f"{key} ="):
+                new_lines.append(f"{key}={value}\n")
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f"{key}={value}\n")
+
+        with open(_ENV_FILE, "w") as f:
+            f.writelines(new_lines)
+
+        # invalidate cache and update os.environ immediately
+        _file_cache[key] = value
+        _file_cache_ts = time.monotonic()
+        os.environ[key] = value
 
 
 # Which keys can be overridden via the admin UI? Each spec lists type and description.
@@ -158,24 +229,23 @@ def _coerce(value: str, type_: str) -> Any:
 
 
 def get(db: Session, key: str, default: Any = None) -> Any:
-    """Get value: .env → default. DB is never consulted.
-
-    .env is the single source of truth. To change a setting, edit .env
-    and restart the containers. Locked keys are resolved by _locked_value().
-    """
+    """Get value: host .env file → os.environ → default."""
     spec = EDITABLE_KEYS.get(key)
     type_ = spec["type"] if spec else "str"
 
-    # 0. Locked: deterministic resolution.
     if spec and spec.get("locked"):
         return _locked_value(key)
 
-    # 1. .env
+    # 1. host .env file (live, written by the Settings UI)
+    file_val = _file_get(key)
+    if file_val is not None:
+        return _coerce(file_val, type_)
+
+    # 2. os.environ (container startup values — read-only fallback)
     env_val = os.getenv(key)
     if env_val is not None:
         return _coerce(env_val, type_)
 
-    # 2. Default
     return default
 
 
@@ -226,29 +296,36 @@ def _locked_value(key: str):
 
 
 def _source(db: Session, key: str) -> str:
+    if _file_get(key) is not None:
+        return "env"
     if os.getenv(key) is not None:
         return "env"
     return "default"
 
 
 def set_override(db: Session, key: str, value: str) -> None:
+    """Write setting directly to the host .env file."""
     if key not in EDITABLE_KEYS:
         raise ValueError(f"Setting '{key}' is not editable")
-    # Validate coercion so we never store a broken value
     _coerce(value, EDITABLE_KEYS[key]["type"])
-
-    row = db.query(SettingOverride).filter(SettingOverride.key == key).first()
-    if row is None:
-        row = SettingOverride(key=key, value=value)
-        db.add(row)
-    else:
-        row.value = value
-    db.commit()
+    _write_env_key(key, value)
 
 
 def clear_override(db: Session, key: str) -> None:
-    db.query(SettingOverride).filter(SettingOverride.key == key).delete()
-    db.commit()
+    """Reset a setting by removing it from the host .env file."""
+    with _file_lock:
+        try:
+            with open(_ENV_FILE) as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            return
+        prefix = f"{key}="
+        new_lines = [l for l in lines
+                     if not l.lstrip().startswith(prefix)
+                     and not l.lstrip().startswith(f"{key} =")]
+        with open(_ENV_FILE, "w") as f:
+            f.writelines(new_lines)
+        _file_cache.pop(key, None)
 
 
 def purge_locked_overrides(db: Session) -> int:

@@ -24,6 +24,7 @@ services:
     env_file: .env
     volumes:
       - ./data/tasks:/data
+      - ./.env:/app/host.env
     ulimits:
       nofile:
         soft: 65535
@@ -43,6 +44,7 @@ services:
     volumes:
       - ./data/tasks:/data
       - ./data/signals:/data/signals
+      - ./.env:/app/host.env
     depends_on:
       db:
         condition: service_healthy

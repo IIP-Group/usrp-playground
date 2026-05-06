@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import random
 import logging
@@ -19,36 +20,45 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s"
 )
 
-# ---- DB-override-aware config resolution -----------------------------------
-# Falls die DB erreichbar ist und ein override existiert, überschreibt der die
-# .env. Sonst Fallback auf .env + default.
-_SessionLocal = None
-try:
-    from database import SessionLocal as _SessionLocal
-    from models import SettingOverride
-except Exception:
-    SettingOverride = None
+# ---- .env file reader (live, picks up UI changes without restart) -----------
+_ENV_FILE = "/app/host.env"
+_file_cache: dict = {}
+_file_cache_ts: float = 0.0
+_file_lock = threading.Lock()
+_CACHE_TTL = 2.0
 
 
-def _db_override(key: str):
-    if _SessionLocal is None or SettingOverride is None:
-        return None
+def _parse_env_file(path: str) -> dict:
+    result = {}
     try:
-        db = _SessionLocal()
-        try:
-            row = db.query(SettingOverride).filter(SettingOverride.key == key).first()
-            return row.value if row else None
-        finally:
-            db.close()
-    except Exception:
-        return None
+        with open(path) as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if "=" not in stripped:
+                    continue
+                key, _, rest = stripped.partition("=")
+                key = key.strip()
+                if " #" in rest:
+                    rest = rest[:rest.index(" #")]
+                result[key] = rest.strip()
+    except FileNotFoundError:
+        pass
+    return result
 
 
-# Keys that must always come from .env / built-in formula, never from the
-# DB override table. Mirrors settings_store.EDITABLE_KEYS' locked flag so
-# the worker, /info and the Settings UI all agree.
+def _file_get(key: str) -> str | None:
+    global _file_cache, _file_cache_ts
+    now = time.monotonic()
+    with _file_lock:
+        if now - _file_cache_ts > _CACHE_TTL:
+            _file_cache = _parse_env_file(_ENV_FILE)
+            _file_cache_ts = now
+        return _file_cache.get(key)
+
+
 _LOCKED_KEYS = {"CARRIER_FREQUENCY_HZ", "BANDWIDTH_HZ", "TX_POWER_DBM"}
-# 2.4 GHz SRD band centre (RIR1008-11). Carrier is always pinned here.
 _LOCKED_CARRIER_HZ = 2_441_750_000
 
 # B210 with auto MCR lands on 32 MHz; valid rates are 32/integer.
@@ -58,9 +68,9 @@ _B200_DEFAULT_SAMPLE_RATE = 16_000_000   # 32 MHz MCR ÷ 2
 
 
 def _get_sample_rate() -> float:
-    dtype = os.getenv("USRP_DEVICE_TYPE", "x4xx").lower()
+    dtype = (_file_get("USRP_DEVICE_TYPE") or os.getenv("USRP_DEVICE_TYPE", "x4xx")).lower()
     dtype_key = dtype.upper().replace("-", "_")
-    specific = os.getenv(f"SAMPLE_RATE_HZ_{dtype_key}")
+    specific = _file_get(f"SAMPLE_RATE_HZ_{dtype_key}") or os.getenv(f"SAMPLE_RATE_HZ_{dtype_key}")
     if specific:
         return float(specific)
     default = _B200_DEFAULT_SAMPLE_RATE if dtype.startswith("b2") else 25_000_000
@@ -72,9 +82,9 @@ def _get(key: str, default, type_=str):
         if key == "CARRIER_FREQUENCY_HZ":
             val = _LOCKED_CARRIER_HZ
         else:
-            val = os.getenv(key)
+            val = _file_get(key) or os.getenv(key)
     else:
-        val = os.getenv(key)
+        val = _file_get(key) or os.getenv(key)
     if val is None or val == "":
         return default
     if type_ is int:   return int(float(val))
