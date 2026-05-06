@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 
 # ---- .env file reader (live, picks up UI changes without restart) -----------
-_ENV_FILE = "/app/host.env"
+_ENV_FILE = "/app/.env"
 _file_cache: dict = {}
 _file_cache_ts: float = 0.0
 _file_lock = threading.Lock()
@@ -58,7 +58,7 @@ def _file_get(key: str) -> str | None:
         return _file_cache.get(key)
 
 
-_LOCKED_KEYS = {"CARRIER_FREQUENCY_HZ", "BANDWIDTH_HZ", "TX_POWER_DBM"}
+_LOCKED_KEYS = {"CARRIER_FREQUENCY_HZ", "BANDWIDTH_HZ"}
 _LOCKED_CARRIER_HZ = 2_441_750_000
 
 # B210 with auto MCR lands on 32 MHz; valid rates are 32/integer.

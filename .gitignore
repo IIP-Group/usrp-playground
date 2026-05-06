@@ -1,4 +1,4 @@
-# .env is tracked intentionally
+.env
 .idea/
 __pycache__/
 *.pyc

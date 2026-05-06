@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from models import SettingOverride
 
-_ENV_FILE = "/app/host.env"
+_ENV_FILE = "/app/.env"
 _file_cache: dict = {}
 _file_cache_ts: float = 0.0
 _file_lock = threading.Lock()
@@ -124,14 +124,17 @@ EDITABLE_KEYS: dict[str, dict] = {
         "desc": "Derived: bandwidth × ratio.",
         "hidden": True},
     "TX_POWER_DBM":         {"type": "float", "group": "radio",
-        "label": "TX Power",
-        "locked": True,
+        "label": "TX Power (dBm)",
         "desc": "Calibrated absolute output power at the USRP TX/RX SMA "
-                "(uses UHD's set_tx_power_reference). Locked at the .env "
-                "default to keep EIRP under the 10 dBm SRD limit. "
-                "Change via .env TX_POWER_DBM if you really need to."},
+                "(uses UHD's set_tx_power_reference if available, otherwise "
+                "falls back to TX_GAIN_DB). Leave empty to use TX Gain instead. "
+                "Stay under the SRD 10 dBm EIRP limit when transmitting on air."},
+    "TX_GAIN_DB":           {"type": "float", "group": "radio",
+        "label": "TX Gain (dB)",
+        "desc": "Relative transmit gain. Used when TX Power (dBm) is not set "
+                "or the device does not support calibrated power."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
-        "label": "RX Gain",
+        "label": "RX Gain (dB)",
         "desc": "Receive gain. Too high → saturation, too low → noise."},
     "ANTENNA_TX":           {"type": "str",   "group": "radio",
         "label": "TX Antenna",
@@ -278,15 +281,16 @@ def all_current(db: Session) -> dict:
 
 
 def _locked_value(key: str):
-    """Resolve a locked field's value without touching the DB."""
+    """Resolve a locked field's value live from .env (file → os.environ)."""
     if key == "CARRIER_FREQUENCY_HZ":
         band = srd_band_info()
         return (int(band["f_min_hz"]) + int(band["f_max_hz"])) // 2
     spec = EDITABLE_KEYS.get(key, {})
     type_ = spec.get("type", "str")
-    raw = os.getenv(key, "")
-    if raw == "":
-        # No .env override — fall back to a sensible built-in.
+    raw = _file_get(key)
+    if raw is None:
+        raw = os.getenv(key, "")
+    if raw == "" or raw is None:
         defaults = {
             "BANDWIDTH_HZ": 15_625_000,
             "TX_POWER_DBM": 7.5,
@@ -353,8 +357,16 @@ def purge_locked_overrides(db: Session) -> int:
 # no LBT. The numbers below feed the read-only info banner on the Settings
 # page; values are sourced from the .env with sensible fallbacks.
 
+def _live_get(name: str) -> str:
+    """Read a value live from the .env file, falling back to os.environ."""
+    val = _file_get(name)
+    if val is None:
+        val = os.getenv(name)
+    return (val or "").strip()
+
+
 def _env_int(name: str, default: int) -> int:
-    raw = (os.getenv(name) or "").strip()
+    raw = _live_get(name)
     try:
         return int(raw) if raw else default
     except ValueError:
@@ -362,7 +374,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = (os.getenv(name) or "").strip()
+    raw = _live_get(name)
     try:
         return float(raw) if raw else default
     except ValueError:
@@ -371,16 +383,16 @@ def _env_float(name: str, default: float) -> float:
 
 def srd_band_info() -> dict:
     return {
-        "label":      os.getenv("SRD_BAND_LABEL",
-                                "2.4 GHz SRD — RIR1008-11 (Non-specific SRD)"),
+        "label":      _live_get("SRD_BAND_LABEL")
+                      or "2.4 GHz SRD — RIR1008-11 (Non-specific SRD)",
         "f_min_hz":   _env_int("SRD_BAND_F_MIN_HZ", 2_400_000_000),
         "f_max_hz":   _env_int("SRD_BAND_F_MAX_HZ", 2_483_500_000),
         "max_eirp_dbm": _env_float("SRD_MAX_EIRP_DBM", 10.0),
         "duty_cycle_pct": None,        # not regulated on 2.4 GHz SRD
         "lbt_required":   False,
-        "note":       os.getenv("SRD_NOTE",
-                                "License-exempt, NIB/NPB. Stay within "
-                                "2400-2483.5 MHz, ≤10 mW EIRP. No duty cycle, "
-                                "no LBT. EIRP = USRP_TX_Output - cable_loss "
-                                "+ antenna_gain."),
+        "note":       _live_get("SRD_NOTE")
+                      or ("License-exempt, NIB/NPB. Stay within "
+                          "2400-2483.5 MHz, ≤10 mW EIRP. No duty cycle, "
+                          "no LBT. EIRP = USRP_TX_Output - cable_loss "
+                          "+ antenna_gain."),
     }
