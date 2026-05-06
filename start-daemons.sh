@@ -18,10 +18,20 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
     set +a
 fi
 
-USRP_TX_ADDR="${USRP_TX_ADDR:-192.168.10.2}"
-USRP_RX_ADDR="${USRP_RX_ADDR:-192.168.10.2}"
 DEVICE_TYPE="${USRP_DEVICE_TYPE:-x4xx}"
-MCR="${MASTER_CLOCK_RATE:-0}"
+
+# Per-device-type address and MCR overrides.
+# If USRP_TX_ADDR_B200 / USRP_TX_ADDR_X4XX etc. are set in .env,
+# use those; otherwise fall back to the generic USRP_TX_ADDR.
+DTYPE_KEY=$(echo "$DEVICE_TYPE" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+
+_tx_specific="USRP_TX_ADDR_${DTYPE_KEY}"
+_rx_specific="USRP_RX_ADDR_${DTYPE_KEY}"
+_mcr_specific="MASTER_CLOCK_RATE_${DTYPE_KEY}"
+
+USRP_TX_ADDR="${!_tx_specific:-${USRP_TX_ADDR:-192.168.10.2}}"
+USRP_RX_ADDR="${!_rx_specific:-${USRP_RX_ADDR:-192.168.20.2}}"
+MCR="${!_mcr_specific:-${MASTER_CLOCK_RATE:-0}}"
 BUFFER_SCALE="${DAEMON_BUFFER_SCALE:-1.0}"
 
 # Resolve SIGNAL_DIR_HOST to absolute path
