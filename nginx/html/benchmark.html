@@ -265,6 +265,16 @@ if (cached) renderRun(cached);
 // Always overwrite the Server-config card with LIVE /info so changes
 // made in Settings show up immediately, even if the cached benchmark
 // run is older.
+// Format guard "min – max" in ms with fractional precision when small,
+// so a 1 ms value isn't rounded down to "0 ms".
+function fmtGuardMs(minSec, maxSec) {
+    const mn = Number(minSec) * 1000;
+    const mx = Number(maxSec) * 1000;
+    const dec = (v) => v < 10 ? 1 : 0;
+    const d = Math.max(dec(mn), dec(mx));
+    return `${mn.toFixed(d)}–${mx.toFixed(d)} ms`;
+}
+
 async function refreshLiveServerConfig() {
     const tk = tokenEl.value.trim();
     if (!tk) return;
@@ -282,10 +292,8 @@ async function refreshLiveServerConfig() {
             ["RX gain",      inf.rx_gain_db + " dB"],
             ["Antenna TX",   inf.antenna_tx || "—"],
             ["Antenna RX",   inf.antenna_rx || "—"],
-            ["Begin guard",  (Number(inf.begin_guard_min_sec)*1000).toFixed(0) +
-                              "–" + (Number(inf.begin_guard_max_sec)*1000).toFixed(0) + " ms"],
-            ["End guard",    (Number(inf.end_guard_min_sec)*1000).toFixed(0) +
-                              "–" + (Number(inf.end_guard_max_sec)*1000).toFixed(0) + " ms"],
+            ["Begin guard",  fmtGuardMs(inf.begin_guard_min_sec, inf.begin_guard_max_sec)],
+            ["End guard",    fmtGuardMs(inf.end_guard_min_sec,   inf.end_guard_max_sec)],
         ]);
         document.getElementById("bench-results").style.display = "";
     } catch {}

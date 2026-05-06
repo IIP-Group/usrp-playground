@@ -44,10 +44,24 @@ def _db_override(key: str):
         return None
 
 
+# Keys that must always come from .env / built-in formula, never from the
+# DB override table. Mirrors settings_store.EDITABLE_KEYS' locked flag so
+# the worker, /info and the Settings UI all agree.
+_LOCKED_KEYS = {"CARRIER_FREQUENCY_HZ", "BANDWIDTH_HZ", "TX_POWER_DBM"}
+# 2.4 GHz SRD band centre (RIR1008-11). Carrier is always pinned here.
+_LOCKED_CARRIER_HZ = 2_441_750_000
+
+
 def _get(key: str, default, type_=str):
-    val = _db_override(key)
-    if val is None:
-        val = os.getenv(key)
+    if key in _LOCKED_KEYS:
+        if key == "CARRIER_FREQUENCY_HZ":
+            val = _LOCKED_CARRIER_HZ
+        else:
+            val = os.getenv(key)
+    else:
+        val = _db_override(key)
+        if val is None:
+            val = os.getenv(key)
     if val is None or val == "":
         return default
     if type_ is int:   return int(float(val))

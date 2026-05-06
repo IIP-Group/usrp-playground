@@ -158,9 +158,18 @@ def _coerce(value: str, type_: str) -> Any:
 
 
 def get(db: Session, key: str, default: Any = None) -> Any:
-    """Get value with override > env > default resolution."""
+    """Get value with override > env > default resolution.
+
+    Locked keys (spec.locked=True) bypass the DB and even the raw .env in
+    some cases — they are resolved by `_locked_value()` so that /info, the
+    worker and the Settings UI all see the same number.
+    """
     spec = EDITABLE_KEYS.get(key)
     type_ = spec["type"] if spec else "str"
+
+    # 0. Locked: deterministic resolution, no DB.
+    if spec and spec.get("locked"):
+        return _locked_value(key)
 
     # 1. DB override
     row = db.query(SettingOverride).filter(SettingOverride.key == key).first()

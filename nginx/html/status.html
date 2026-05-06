@@ -57,29 +57,29 @@
                         var(--sky-bot) 100%);
         }
 
-        /* NIGHT — sleeping savannah */
+        /* NIGHT — moonlit savannah (brighter, more visible) */
         .stage.down {
-            --sky-top:   #0a1230;
-            --sky-mid:   #15214a;
-            --sky-bot:   #0f1a3a;
-            --sun:       #e9e4cf;        /* moon */
-            --sun-glow:  #b9c0e4;
-            --mtn-far:   #1c2444;
-            --mtn-near:  #131a30;
-            --tree-far:  #0a0f1f;
-            --tree-near: #050810;
-            --ground-1:  #14213b;
-            --ground-2:  #0c1628;
-            --grass:     #1c2c4a;
-            --animal-1:  #2a3654;     /* dim everything */
-            --animal-1b: #1a2238;
-            --animal-2:  #1c2336;
-            --animal-3:  #2c3a58;
-            --animal-3b: #0c1422;
-            --animal-4:  #2a3450;
-            --animal-4b: #181f30;
-            --label-fg:  #c9d4ec;
-            --label-glow:#5e7bbb;
+            --sky-top:   #1d2c5e;
+            --sky-mid:   #2c3e75;
+            --sky-bot:   #1f2d54;
+            --sun:       #f5efd8;        /* moon */
+            --sun-glow:  #c8d2f5;
+            --mtn-far:   #354670;
+            --mtn-near:  #283557;
+            --tree-far:  #182240;
+            --tree-near: #0e1530;
+            --ground-1:  #2a3a5e;
+            --ground-2:  #1c2848;
+            --grass:     #3a4c74;
+            --animal-1:  #5b6c92;     /* moonlit colors, much brighter */
+            --animal-1b: #2c3a5c;
+            --animal-2:  #4a5570;
+            --animal-3:  #6a7898;
+            --animal-3b: #1a2240;
+            --animal-4:  #5d6788;
+            --animal-4b: #2e3a58;
+            --label-fg:  #e8eefd;
+            --label-glow:#8aa5e0;
             background: linear-gradient(180deg,
                         var(--sky-top) 0%,
                         var(--sky-mid) 60%,
@@ -449,210 +449,365 @@
         </g>
 
         <!-- ────────── ANIMALS — running on the spot ────────── -->
+        <!--  Layout: ground top is at y=430. Each animal is translated so      -->
+        <!--  its hooves/feet touch that line exactly.                          -->
 
-        <!-- GIRAFFE (left-ish) -->
-        <g class="animal animal-giraffe" transform="translate(180, 280)">
-            <!-- Running pose -->
+        <!-- GIRAFFE — feet at y=430 → translate y = 354 -->
+        <g class="animal animal-giraffe" transform="translate(180, 354)">
             <g class="pose-running">
                 <g class="body-bob slow">
-                    <!-- Neck -->
-                    <rect x="48" y="-90" width="14" height="100" rx="4"
-                          fill="var(--animal-1)"/>
-                    <!-- spots on neck -->
-                    <circle cx="55" cy="-70" r="3" fill="var(--animal-1b)"/>
-                    <circle cx="55" cy="-50" r="3" fill="var(--animal-1b)"/>
-                    <circle cx="55" cy="-30" r="2.5" fill="var(--animal-1b)"/>
-                    <!-- Head -->
-                    <ellipse cx="60" cy="-100" rx="14" ry="10"
-                             fill="var(--animal-1)"/>
-                    <!-- horns -->
-                    <line x1="55" y1="-110" x2="54" y2="-118"
-                          stroke="var(--animal-1b)" stroke-width="2"/>
-                    <line x1="65" y1="-110" x2="66" y2="-118"
-                          stroke="var(--animal-1b)" stroke-width="2"/>
-                    <circle cx="54" cy="-119" r="1.8" fill="var(--animal-1b)"/>
-                    <circle cx="66" cy="-119" r="1.8" fill="var(--animal-1b)"/>
-                    <!-- eye -->
-                    <circle cx="65" cy="-102" r="1.5" fill="#1a1410"/>
+                    <!-- back belly highlight -->
+                    <ellipse cx="20" cy="26" rx="40" ry="14"
+                             fill="var(--animal-1b)" opacity="0.18"/>
                     <!-- Body -->
-                    <ellipse cx="20" cy="20" rx="42" ry="20"
-                             fill="var(--animal-1)"/>
-                    <!-- spots on body -->
-                    <circle cx="-5" cy="15" r="4" fill="var(--animal-1b)"/>
-                    <circle cx="10" cy="25" r="3.5" fill="var(--animal-1b)"/>
-                    <circle cx="25" cy="12" r="3" fill="var(--animal-1b)"/>
-                    <circle cx="35" cy="22" r="3.5" fill="var(--animal-1b)"/>
-                    <circle cx="48" cy="14" r="2.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="20" cy="20" rx="44" ry="20" fill="var(--animal-1)"/>
+                    <!-- Belly lighter -->
+                    <ellipse cx="20" cy="32" rx="35" ry="6"
+                             fill="#fff" opacity="0.10"/>
+                    <!-- Spots on body — uneven sizes/shapes -->
+                    <ellipse cx="-15" cy="13" rx="5" ry="4" fill="var(--animal-1b)"/>
+                    <ellipse cx="-2"  cy="22" rx="4" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="8"   cy="10" rx="3.5" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="18"  cy="20" rx="5" ry="3.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="30"  cy="11" rx="4" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="40"  cy="22" rx="4.5" ry="3.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="52"  cy="14" rx="3" ry="2.5" fill="var(--animal-1b)"/>
+                    <!-- Neck (slightly tilted forward) -->
+                    <path d="M48,2 L52,-92 L66,-94 L62,4 Z" fill="var(--animal-1)"/>
+                    <!-- spots on neck -->
+                    <ellipse cx="56" cy="-15" rx="3.5" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="58" cy="-35" rx="3" ry="2.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="58" cy="-55" rx="3.5" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="60" cy="-75" rx="3" ry="2.5" fill="var(--animal-1b)"/>
+                    <!-- Mane along back of neck -->
+                    <path d="M53,-90 q1,-4 -2,-6 M55,-70 q1,-4 -2,-6 M56,-50 q1,-4 -2,-6 M57,-30 q1,-4 -2,-6"
+                          stroke="var(--animal-1b)" stroke-width="2.2" fill="none"
+                          stroke-linecap="round"/>
+                    <!-- Head: slightly elongated -->
+                    <ellipse cx="64" cy="-100" rx="13" ry="9" fill="var(--animal-1)"/>
+                    <!-- Snout tip darker -->
+                    <ellipse cx="74" cy="-99" rx="5" ry="3.5" fill="var(--animal-1b)" opacity="0.5"/>
+                    <!-- Nostril -->
+                    <circle cx="76" cy="-99" r="0.8" fill="#1a1410"/>
+                    <!-- Eye -->
+                    <ellipse cx="65" cy="-103" rx="1.6" ry="1.2" fill="#fff"/>
+                    <circle cx="65.5" cy="-103" r="0.9" fill="#1a1410"/>
+                    <!-- Eyelash -->
+                    <path d="M64,-105 l-1,-2 M66,-106 l0,-2" stroke="#1a1410" stroke-width="0.6"/>
+                    <!-- Ear -->
+                    <ellipse cx="56" cy="-104" rx="3" ry="5" fill="var(--animal-1b)"
+                             transform="rotate(-25 56 -104)"/>
+                    <ellipse cx="56" cy="-104" rx="1.8" ry="3.5" fill="var(--animal-1)"
+                             transform="rotate(-25 56 -104)"/>
+                    <!-- Ossicones (horns) -->
+                    <line x1="58" y1="-108" x2="56" y2="-117"
+                          stroke="var(--animal-1)" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="68" y1="-108" x2="70" y2="-117"
+                          stroke="var(--animal-1)" stroke-width="2.5" stroke-linecap="round"/>
+                    <circle cx="56" cy="-118" r="2.2" fill="var(--animal-1b)"/>
+                    <circle cx="70" cy="-118" r="2.2" fill="var(--animal-1b)"/>
                     <!-- Tail -->
-                    <line class="tail" x1="-22" y1="15" x2="-32" y2="22"
-                          stroke="var(--animal-1)" stroke-width="3"/>
-                    <circle cx="-33" cy="23" r="2.5" fill="var(--animal-1b)"/>
+                    <line class="tail" x1="-22" y1="14" x2="-34" y2="24"
+                          stroke="var(--animal-1)" stroke-width="2.8"/>
+                    <ellipse cx="-35" cy="25" rx="3" ry="4.5" fill="var(--animal-1b)"
+                             transform="rotate(20 -35 25)"/>
                 </g>
-                <!-- Legs (under body) -->
-                <rect class="leg slow"          x="-12" y="38" width="6" height="38" rx="2"
-                      fill="var(--animal-1)"/>
-                <rect class="leg slow phase-b"  x="6"   y="38" width="6" height="38" rx="2"
-                      fill="var(--animal-1b)"/>
-                <rect class="leg slow phase-b"  x="32"  y="38" width="6" height="38" rx="2"
-                      fill="var(--animal-1)"/>
-                <rect class="leg slow"          x="50"  y="38" width="6" height="38" rx="2"
-                      fill="var(--animal-1b)"/>
+                <!-- 4 legs with hoof markers, feet at y=76 (= ground 430) -->
+                <g>
+                    <rect class="leg slow"         x="-12" y="38" width="6" height="38" rx="2"
+                          fill="var(--animal-1)"/>
+                    <rect class="leg slow phase-b" x="6"   y="38" width="6" height="38" rx="2"
+                          fill="var(--animal-1)"/>
+                    <rect class="leg slow phase-b" x="32"  y="38" width="6" height="38" rx="2"
+                          fill="var(--animal-1)"/>
+                    <rect class="leg slow"         x="50"  y="38" width="6" height="38" rx="2"
+                          fill="var(--animal-1)"/>
+                </g>
+                <!-- knee patches & hooves don't animate (overlay on top) -->
+                <g pointer-events="none" opacity="0.55">
+                    <rect x="-12" y="55" width="6" height="3" fill="var(--animal-1b)"/>
+                    <rect x="6"   y="55" width="6" height="3" fill="var(--animal-1b)"/>
+                    <rect x="32"  y="55" width="6" height="3" fill="var(--animal-1b)"/>
+                    <rect x="50"  y="55" width="6" height="3" fill="var(--animal-1b)"/>
+                </g>
             </g>
-            <!-- Sleeping pose: lying down -->
-            <g class="pose-sleeping">
-                <ellipse cx="20" cy="65" rx="55" ry="14" fill="var(--animal-1)"/>
-                <circle cx="-5" cy="60" r="4" fill="var(--animal-1b)"/>
-                <circle cx="15" cy="68" r="3.5" fill="var(--animal-1b)"/>
-                <circle cx="35" cy="60" r="3" fill="var(--animal-1b)"/>
-                <!-- Head resting -->
-                <ellipse cx="65" cy="58" rx="12" ry="9" fill="var(--animal-1)"/>
-                <line x1="60" y1="48" x2="59" y2="42" stroke="var(--animal-1b)" stroke-width="2"/>
-                <line x1="70" y1="48" x2="71" y2="42" stroke="var(--animal-1b)" stroke-width="2"/>
-                <!-- closed eye -->
-                <path d="M68,57 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+            <!-- Sleeping pose: lying down on belly -->
+            <g class="pose-sleeping" transform="translate(0, 8)">
+                <ellipse cx="20" cy="65" rx="56" ry="13" fill="var(--animal-1)"/>
+                <ellipse cx="-5" cy="60" r="4" fill="var(--animal-1b)"/>
+                <ellipse cx="15" cy="68" r="3.5" fill="var(--animal-1b)"/>
+                <ellipse cx="35" cy="60" rx="4" ry="3" fill="var(--animal-1b)"/>
+                <!-- folded legs hint -->
+                <rect x="-15" y="68" width="60" height="6" rx="2" fill="var(--animal-1b)" opacity="0.5"/>
+                <!-- Neck folded back -->
+                <path d="M50,52 q-8,-20 8,-30 q14,-8 18,4" fill="var(--animal-1)"/>
+                <ellipse cx="68" cy="22" rx="11" ry="8" fill="var(--animal-1)"/>
+                <!-- Closed eyes -->
+                <path d="M70,21 q3,2 6,0" stroke="#1a1410" stroke-width="1.3"
                       fill="none" stroke-linecap="round"/>
-                <text class="zzz" x="80" y="35" font-size="20" font-weight="bold"
+                <!-- Horns visible while sleeping -->
+                <line x1="62" y1="14" x2="60" y2="6" stroke="var(--animal-1)" stroke-width="2"/>
+                <line x1="72" y1="14" x2="74" y2="6" stroke="var(--animal-1)" stroke-width="2"/>
+                <circle cx="60" cy="5" r="2" fill="var(--animal-1b)"/>
+                <circle cx="74" cy="5" r="2" fill="var(--animal-1b)"/>
+                <text class="zzz" x="84" y="0"  font-size="22" font-weight="bold"
                       fill="var(--label-fg)" style="animation-delay: 0s">z</text>
-                <text class="zzz" x="92" y="20" font-size="14" font-weight="bold"
+                <text class="zzz" x="98" y="-18" font-size="16" font-weight="bold"
                       fill="var(--label-fg)" style="animation-delay: 1.5s">z</text>
             </g>
         </g>
 
-        <!-- ELEPHANT -->
-        <g class="animal animal-elephant" transform="translate(820, 360)">
+        <!-- ELEPHANT — flipped to face right; feet at y=430 → translate y = 376 -->
+        <g class="animal animal-elephant" transform="translate(820, 376)">
             <g class="pose-running">
                 <g class="body-bob">
+                    <!-- Body shadow underneath -->
+                    <ellipse cx="0" cy="6" rx="58" ry="10"
+                             fill="var(--animal-2)" opacity="0.4"/>
                     <!-- Body -->
                     <ellipse cx="0" cy="0" rx="58" ry="32" fill="var(--animal-2)"/>
-                    <!-- Head -->
-                    <ellipse cx="-46" cy="-6" rx="28" ry="26" fill="var(--animal-2)"/>
-                    <!-- Ear -->
+                    <!-- Belly highlight -->
+                    <ellipse cx="0" cy="14" rx="48" ry="10"
+                             fill="#fff" opacity="0.06"/>
+                    <!-- subtle wrinkles -->
+                    <path d="M-30,-10 q15,-3 30,0 M-20,8 q12,3 24,-1 M10,-15 q10,-2 18,0"
+                          stroke="#fff" stroke-width="0.8" fill="none" opacity="0.18"/>
+                    <!-- Head (NOW on the right side, facing right) -->
+                    <ellipse cx="46" cy="-6" rx="28" ry="26" fill="var(--animal-2)"/>
+                    <!-- Big ear behind head -->
                     <path class="ear"
-                          d="M-30,-22 q-22,-10 -28,8 q4,18 22,16 z"
-                          fill="var(--animal-2)" opacity="0.85"/>
+                          d="M30,-22 q22,-12 30,8 q-4,20 -22,16 z"
+                          fill="var(--animal-2)" opacity="0.95"/>
+                    <!-- Inner ear lighter -->
+                    <path d="M34,-18 q14,-6 18,4 q-2,12 -12,12"
+                          fill="var(--animal-2)" opacity="0.55"/>
                     <!-- Eye -->
-                    <circle cx="-58" cy="-10" r="1.8" fill="#fff"/>
-                    <circle cx="-58" cy="-10" r="1" fill="#1a1410"/>
-                    <!-- Trunk -->
-                    <path d="M-70,-2 q-12,18 -4,32 q8,8 16,-2 q-4,-6 -2,-12"
+                    <circle cx="58" cy="-10" r="2" fill="#fff"/>
+                    <circle cx="58.5" cy="-9.5" r="1.1" fill="#1a1410"/>
+                    <!-- Trunk curling forward -->
+                    <path d="M70,-2 q14,18 4,32 q-10,8 -16,-2 q4,-6 2,-12"
                           stroke="var(--animal-2)" stroke-width="11"
                           fill="none" stroke-linecap="round"/>
-                    <!-- Tusk -->
-                    <path d="M-66,4 q-2,8 4,12" stroke="#f2e8d4"
+                    <!-- Trunk wrinkle ridges -->
+                    <path d="M71,4  q6,3 14,2  M72,14 q5,3 12,2  M70,22 q4,3 10,1"
+                          stroke="#fff" stroke-width="0.7" fill="none" opacity="0.25"/>
+                    <!-- Tusks (small, in front of mouth) -->
+                    <path d="M66,4 q2,8 -4,12" stroke="#f8f0d8"
                           stroke-width="3" fill="none" stroke-linecap="round"/>
-                    <!-- Tail -->
-                    <line class="tail" x1="58" y1="-6" x2="74" y2="-2"
+                    <path d="M62,6 q1,7 -3,10" stroke="#e8dcc4"
+                          stroke-width="2.2" fill="none" stroke-linecap="round"
+                          opacity="0.6"/>
+                    <!-- Tail (now on left/back side) -->
+                    <line class="tail" x1="-58" y1="-6" x2="-74" y2="-2"
                           stroke="var(--animal-2)" stroke-width="3"/>
-                    <circle cx="75" cy="-2" r="3" fill="var(--animal-2)"/>
+                    <ellipse cx="-76" cy="-2" rx="2.5" ry="4" fill="var(--animal-2)"/>
                 </g>
-                <!-- Legs -->
-                <rect class="leg"          x="-44" y="22" width="13" height="32" rx="3"
-                      fill="var(--animal-2)"/>
-                <rect class="leg phase-b"  x="-14" y="22" width="13" height="32" rx="3"
-                      fill="var(--animal-2)"/>
-                <rect class="leg phase-b"  x="14"  y="22" width="13" height="32" rx="3"
-                      fill="var(--animal-2)"/>
-                <rect class="leg"          x="40"  y="22" width="13" height="32" rx="3"
-                      fill="var(--animal-2)"/>
+                <!-- 4 legs (feet at y=54) -->
+                <g>
+                    <rect class="leg"         x="-44" y="22" width="13" height="32" rx="3"
+                          fill="var(--animal-2)"/>
+                    <rect class="leg phase-b" x="-14" y="22" width="13" height="32" rx="3"
+                          fill="var(--animal-2)"/>
+                    <rect class="leg phase-b" x="14"  y="22" width="13" height="32" rx="3"
+                          fill="var(--animal-2)"/>
+                    <rect class="leg"         x="40"  y="22" width="13" height="32" rx="3"
+                          fill="var(--animal-2)"/>
+                </g>
+                <!-- toenail markers at the bottom of each leg -->
+                <g pointer-events="none" opacity="0.45">
+                    <rect x="-44" y="49" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <rect x="-14" y="49" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <rect x="14"  y="49" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <rect x="40"  y="49" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                </g>
             </g>
-            <g class="pose-sleeping">
+            <g class="pose-sleeping" transform="translate(0, 12)">
                 <ellipse cx="0" cy="40" rx="68" ry="20" fill="var(--animal-2)"/>
-                <ellipse cx="-50" cy="32" rx="26" ry="22" fill="var(--animal-2)"/>
-                <path d="M-30,12 q-22,-10 -28,8 q4,18 22,16 z" fill="var(--animal-2)" opacity="0.7"/>
-                <path d="M-72,32 q-12,18 -4,30 q6,4 12,-4" stroke="var(--animal-2)"
+                <ellipse cx="50" cy="32" rx="26" ry="22" fill="var(--animal-2)"/>
+                <path d="M30,12 q22,-12 30,8 q-4,18 -22,16 z" fill="var(--animal-2)" opacity="0.85"/>
+                <path d="M72,32 q14,16 4,28 q-6,4 -12,-4" stroke="var(--animal-2)"
                       stroke-width="11" fill="none" stroke-linecap="round"/>
-                <path d="M-58,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                <path d="M55,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.3"
                       fill="none" stroke-linecap="round"/>
-                <text class="zzz" x="20" y="10" font-size="22" font-weight="bold"
+                <text class="zzz" x="-30" y="10" font-size="22" font-weight="bold"
                       fill="var(--label-fg)" style="animation-delay: 0.5s">z</text>
-                <text class="zzz" x="34" y="-8" font-size="16" font-weight="bold"
+                <text class="zzz" x="-44" y="-8" font-size="16" font-weight="bold"
                       fill="var(--label-fg)" style="animation-delay: 2s">z</text>
             </g>
         </g>
 
-        <!-- ZEBRA -->
-        <g class="animal animal-zebra" transform="translate(550, 380)">
+        <!-- ZEBRA — feet at y=430 → translate y = 386 -->
+        <g class="animal animal-zebra" transform="translate(550, 386)">
             <g class="pose-running">
                 <g class="body-bob fast">
+                    <!-- Body shadow -->
+                    <ellipse cx="0" cy="4" rx="40" ry="6" fill="var(--animal-3b)" opacity="0.25"/>
                     <!-- Body -->
                     <ellipse cx="0" cy="0" rx="42" ry="18" fill="var(--animal-3)"/>
-                    <!-- Stripes -->
-                    <path d="M-30,-15 v30 M-18,-17 v34 M-6,-18 v36 M6,-17 v34 M18,-15 v30 M28,-12 v24"
-                          stroke="var(--animal-3b)" stroke-width="3.5" fill="none"/>
-                    <!-- Neck -->
-                    <path d="M30,-8 q14,-12 22,-22 l8,8 q-12,16 -22,18 z"
-                          fill="var(--animal-3)"/>
-                    <!-- Head -->
-                    <ellipse cx="56" cy="-30" rx="13" ry="9" fill="var(--animal-3)"/>
-                    <!-- Mane -->
-                    <path d="M44,-22 l2,-4 l4,2 l2,-5 l4,3 l3,-4"
+                    <!-- Belly highlight -->
+                    <ellipse cx="0" cy="10" rx="32" ry="5" fill="#fff" opacity="0.08"/>
+                    <!-- Curved stripes following body shape -->
+                    <path d="M-32,-12 q3,15 0,28" stroke="var(--animal-3b)" stroke-width="3.5"
+                          fill="none" stroke-linecap="round"/>
+                    <path d="M-22,-16 q3,18 0,32" stroke="var(--animal-3b)" stroke-width="3.5"
+                          fill="none" stroke-linecap="round"/>
+                    <path d="M-10,-18 q3,18 0,34" stroke="var(--animal-3b)" stroke-width="3.5"
+                          fill="none" stroke-linecap="round"/>
+                    <path d="M2,-18 q3,18 0,34" stroke="var(--animal-3b)" stroke-width="3.5"
+                          fill="none" stroke-linecap="round"/>
+                    <path d="M14,-16 q3,16 0,30" stroke="var(--animal-3b)" stroke-width="3.5"
+                          fill="none" stroke-linecap="round"/>
+                    <path d="M26,-13 q2,13 0,24" stroke="var(--animal-3b)" stroke-width="3.5"
+                          fill="none" stroke-linecap="round"/>
+                    <!-- Neck (thicker, stripey) -->
+                    <path d="M28,-10 q14,-12 24,-22 l8,8 q-14,14 -22,18 z" fill="var(--animal-3)"/>
+                    <path d="M32,-14 q3,-3 6,-7 M40,-20 q3,-3 6,-7 M48,-26 q3,-3 6,-7"
                           stroke="var(--animal-3b)" stroke-width="3" fill="none"/>
+                    <!-- Head -->
+                    <ellipse cx="58" cy="-30" rx="14" ry="9" fill="var(--animal-3)"/>
+                    <!-- snout darker -->
+                    <ellipse cx="68" cy="-28" rx="4" ry="3" fill="var(--animal-3b)" opacity="0.4"/>
+                    <!-- Mane: spiky tufts along back of head/neck -->
+                    <path d="M44,-23 l3,-7 l3,5 l3,-9 l3,5 l3,-7 l3,5"
+                          stroke="var(--animal-3b)" stroke-width="3" fill="none"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                    <!-- Ears -->
+                    <ellipse cx="50" cy="-36" rx="2.5" ry="4.5" fill="var(--animal-3b)"
+                             transform="rotate(-15 50 -36)"/>
+                    <ellipse cx="50" cy="-36" rx="1.3" ry="3" fill="var(--animal-3)"
+                             transform="rotate(-15 50 -36)"/>
                     <!-- Eye + nostril -->
-                    <circle cx="62" cy="-30" r="1.4" fill="#1a1410"/>
-                    <circle cx="68" cy="-28" r="0.8" fill="#1a1410"/>
+                    <circle cx="62" cy="-31" r="1.5" fill="#fff"/>
+                    <circle cx="62.5" cy="-30.5" r="0.9" fill="#1a1410"/>
+                    <circle cx="70" cy="-27" r="0.9" fill="#1a1410"/>
                     <!-- Tail -->
-                    <line class="tail" x1="-40" y1="-4" x2="-50" y2="-8"
+                    <line class="tail" x1="-40" y1="-4" x2="-52" y2="-8"
                           stroke="var(--animal-3)" stroke-width="2.5"/>
-                    <path d="M-50,-8 l-3,8 l-2,-2 l-2,7" stroke="var(--animal-3b)"
-                          stroke-width="2" fill="none"/>
+                    <path d="M-52,-8 l-2,8 l-2,-2 l-2,7 l-3,-1 l-2,5"
+                          stroke="var(--animal-3b)" stroke-width="2.2" fill="none"
+                          stroke-linecap="round"/>
                 </g>
                 <!-- Legs -->
-                <rect class="leg fast"          x="-30" y="16" width="6" height="28" rx="2"
-                      fill="var(--animal-3)"/>
-                <rect class="leg fast phase-b"  x="-12" y="16" width="6" height="28" rx="2"
-                      fill="var(--animal-3b)"/>
-                <rect class="leg fast phase-b"  x="14"  y="16" width="6" height="28" rx="2"
-                      fill="var(--animal-3)"/>
-                <rect class="leg fast"          x="28"  y="16" width="6" height="28" rx="2"
-                      fill="var(--animal-3b)"/>
+                <g>
+                    <rect class="leg fast"         x="-30" y="16" width="6" height="28" rx="2"
+                          fill="var(--animal-3)"/>
+                    <rect class="leg fast phase-b" x="-12" y="16" width="6" height="28" rx="2"
+                          fill="var(--animal-3)"/>
+                    <rect class="leg fast phase-b" x="14"  y="16" width="6" height="28" rx="2"
+                          fill="var(--animal-3)"/>
+                    <rect class="leg fast"         x="28"  y="16" width="6" height="28" rx="2"
+                          fill="var(--animal-3)"/>
+                </g>
+                <!-- leg stripes & hooves -->
+                <g pointer-events="none">
+                    <rect x="-30" y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-30" y="32" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-30" y="40" width="6" height="4" fill="var(--animal-3b)" opacity="0.7"/>
+                    <rect x="-12" y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-12" y="32" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-12" y="40" width="6" height="4" fill="var(--animal-3b)" opacity="0.7"/>
+                    <rect x="14"  y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="14"  y="32" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="14"  y="40" width="6" height="4" fill="var(--animal-3b)" opacity="0.7"/>
+                    <rect x="28"  y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="28"  y="32" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="28"  y="40" width="6" height="4" fill="var(--animal-3b)" opacity="0.7"/>
+                </g>
             </g>
-            <g class="pose-sleeping">
+            <g class="pose-sleeping" transform="translate(0, 8)">
                 <ellipse cx="0" cy="32" rx="50" ry="14" fill="var(--animal-3)"/>
                 <path d="M-30,22 v14 M-18,20 v16 M-6,18 v18 M6,20 v16 M18,22 v14"
                       stroke="var(--animal-3b)" stroke-width="3"/>
-                <ellipse cx="58" cy="28" rx="11" ry="8" fill="var(--animal-3)"/>
-                <path d="M62,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                <ellipse cx="58" cy="28" rx="13" ry="9" fill="var(--animal-3)"/>
+                <path d="M62,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.3"
                       fill="none" stroke-linecap="round"/>
             </g>
         </g>
 
-        <!-- LION -->
-        <g class="animal animal-lion" transform="translate(380, 390)">
+        <!-- LION — feet at y=430 → translate y = 394 -->
+        <g class="animal animal-lion" transform="translate(380, 394)">
             <g class="pose-running">
                 <g class="body-bob fast">
+                    <!-- Body shadow -->
+                    <ellipse cx="0" cy="4" rx="34" ry="5" fill="var(--animal-4b)" opacity="0.3"/>
                     <!-- Body -->
                     <ellipse cx="0" cy="0" rx="36" ry="16" fill="var(--animal-4)"/>
-                    <!-- Mane (puffy circle) -->
-                    <circle cx="32" cy="-10" r="18" fill="var(--animal-4b)"/>
-                    <!-- Head on top of mane -->
-                    <circle cx="34" cy="-10" r="11" fill="var(--animal-4)"/>
-                    <!-- Ears -->
-                    <circle cx="28" cy="-20" r="3" fill="var(--animal-4b)"/>
-                    <circle cx="40" cy="-20" r="3" fill="var(--animal-4b)"/>
-                    <!-- Eye + nose -->
-                    <circle cx="38" cy="-12" r="1.4" fill="#1a1410"/>
-                    <circle cx="42" cy="-8" r="1.6" fill="#1a1410"/>
-                    <!-- Tail -->
-                    <path class="tail" d="M-32,-2 q-12,-8 -18,2"
+                    <!-- Belly highlight -->
+                    <ellipse cx="0" cy="9" rx="28" ry="4" fill="#fff" opacity="0.10"/>
+                    <!-- Spine line -->
+                    <path d="M-25,-10 q12,-3 30,-1" stroke="var(--animal-4b)" stroke-width="1.2"
+                          fill="none" opacity="0.3"/>
+                    <!-- Mane: layered tufts (darker base, lighter front) -->
+                    <ellipse cx="32" cy="-10" rx="20" ry="18" fill="var(--animal-4b)"/>
+                    <!-- Mane spikes around head -->
+                    <g fill="var(--animal-4b)">
+                        <ellipse cx="14" cy="-18" rx="4" ry="3" transform="rotate(-30 14 -18)"/>
+                        <ellipse cx="14" cy="0"   rx="4" ry="3" transform="rotate(30 14 0)"/>
+                        <ellipse cx="50" cy="-20" rx="4" ry="3" transform="rotate(20 50 -20)"/>
+                        <ellipse cx="52" cy="0"   rx="4" ry="3" transform="rotate(-20 52 0)"/>
+                        <ellipse cx="32" cy="-30" rx="4" ry="5"/>
+                    </g>
+                    <!-- Inner mane lighter -->
+                    <circle cx="32" cy="-10" r="14" fill="var(--animal-4)" opacity="0.5"/>
+                    <!-- Head -->
+                    <circle cx="34" cy="-9" r="11" fill="var(--animal-4)"/>
+                    <!-- Snout -->
+                    <ellipse cx="42" cy="-6" rx="5" ry="4" fill="var(--animal-4)"/>
+                    <ellipse cx="44" cy="-5" rx="2" ry="1.5" fill="var(--animal-4b)" opacity="0.4"/>
+                    <!-- Nose -->
+                    <ellipse cx="44" cy="-6" rx="1.5" ry="1.2" fill="#1a1410"/>
+                    <!-- Ears (rounded) -->
+                    <circle cx="27" cy="-19" r="3.5" fill="var(--animal-4b)"/>
+                    <circle cx="27" cy="-19" r="2"   fill="var(--animal-4)"/>
+                    <circle cx="40" cy="-20" r="3.5" fill="var(--animal-4b)"/>
+                    <circle cx="40" cy="-20" r="2"   fill="var(--animal-4)"/>
+                    <!-- Eyes -->
+                    <circle cx="32" cy="-11" r="1.5" fill="#fff"/>
+                    <circle cx="32.3" cy="-10.7" r="0.9" fill="#1a1410"/>
+                    <circle cx="40" cy="-11" r="1.5" fill="#fff"/>
+                    <circle cx="40.3" cy="-10.7" r="0.9" fill="#1a1410"/>
+                    <!-- Whiskers -->
+                    <path d="M44,-4 l8,-1 M44,-2 l8,1 M44,0 l8,3"
+                          stroke="#fff" stroke-width="0.6" opacity="0.6"/>
+                    <!-- Mouth -->
+                    <path d="M40,-2 q3,2 6,0" stroke="#1a1410" stroke-width="0.8"
+                          fill="none" stroke-linecap="round"/>
+                    <!-- Tail (curving) -->
+                    <path class="tail" d="M-32,-2 q-14,-10 -22,2"
                           stroke="var(--animal-4)" stroke-width="3" fill="none"/>
-                    <circle cx="-50" cy="0" r="3.5" fill="var(--animal-4b)"/>
+                    <!-- Tail tuft -->
+                    <ellipse cx="-54" cy="0" rx="3" ry="5" fill="var(--animal-4b)"
+                             transform="rotate(20 -54 0)"/>
                 </g>
                 <!-- Legs -->
-                <rect class="leg fast"          x="-26" y="14" width="6" height="22" rx="2"
-                      fill="var(--animal-4)"/>
-                <rect class="leg fast phase-b"  x="-10" y="14" width="6" height="22" rx="2"
-                      fill="var(--animal-4)"/>
-                <rect class="leg fast phase-b"  x="10"  y="14" width="6" height="22" rx="2"
-                      fill="var(--animal-4)"/>
-                <rect class="leg fast"          x="22"  y="14" width="6" height="22" rx="2"
-                      fill="var(--animal-4)"/>
+                <g>
+                    <rect class="leg fast"         x="-26" y="14" width="6" height="22" rx="2"
+                          fill="var(--animal-4)"/>
+                    <rect class="leg fast phase-b" x="-10" y="14" width="6" height="22" rx="2"
+                          fill="var(--animal-4)"/>
+                    <rect class="leg fast phase-b" x="10"  y="14" width="6" height="22" rx="2"
+                          fill="var(--animal-4)"/>
+                    <rect class="leg fast"         x="22"  y="14" width="6" height="22" rx="2"
+                          fill="var(--animal-4)"/>
+                </g>
+                <!-- paw shading at bottom -->
+                <g pointer-events="none" opacity="0.5">
+                    <rect x="-26" y="32" width="6" height="4" fill="var(--animal-4b)"/>
+                    <rect x="-10" y="32" width="6" height="4" fill="var(--animal-4b)"/>
+                    <rect x="10"  y="32" width="6" height="4" fill="var(--animal-4b)"/>
+                    <rect x="22"  y="32" width="6" height="4" fill="var(--animal-4b)"/>
+                </g>
             </g>
-            <g class="pose-sleeping">
+            <g class="pose-sleeping" transform="translate(0, 6)">
                 <ellipse cx="0" cy="28" rx="44" ry="13" fill="var(--animal-4)"/>
                 <circle cx="36" cy="22" r="14" fill="var(--animal-4b)"/>
-                <circle cx="36" cy="22" r="9" fill="var(--animal-4)"/>
-                <path d="M40,24 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                <circle cx="36" cy="22" r="9"  fill="var(--animal-4)"/>
+                <ellipse cx="44" cy="24" rx="4" ry="3" fill="var(--animal-4)"/>
+                <ellipse cx="46" cy="24" rx="1.2" ry="0.9" fill="#1a1410"/>
+                <path d="M40,24 q3,2 6,0" stroke="#1a1410" stroke-width="1.3"
                       fill="none" stroke-linecap="round"/>
+                <text class="zzz" x="56" y="0" font-size="20" font-weight="bold"
+                      fill="var(--label-fg)" style="animation-delay: 0.8s">z</text>
             </g>
         </g>
 
