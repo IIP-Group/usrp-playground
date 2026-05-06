@@ -20,7 +20,8 @@ fi
 
 USRP_TX_ADDR="${USRP_TX_ADDR:-192.168.10.2}"
 USRP_RX_ADDR="${USRP_RX_ADDR:-192.168.10.2}"
-MCR="${MASTER_CLOCK_RATE:-250000000}"
+DEVICE_TYPE="${USRP_DEVICE_TYPE:-x4xx}"
+MCR="${MASTER_CLOCK_RATE:-0}"
 BUFFER_SCALE="${DAEMON_BUFFER_SCALE:-1.0}"
 
 # Resolve SIGNAL_DIR_HOST to absolute path
@@ -43,7 +44,8 @@ echo "  Starting USRP Daemons"
 echo "=========================================="
 echo "  TX USRP:  ${USRP_TX_ADDR}"
 echo "  RX USRP:  ${USRP_RX_ADDR}"
-echo "  MCR:      ${MCR} Hz"
+echo "  Type:     ${DEVICE_TYPE}"
+echo "  MCR:      ${MCR} Hz (0 = UHD auto)"
 echo "  Buffer:   ${BUFFER_SCALE}x"
 echo "  Signals:  ${SIGNAL_DIR_HOST}"
 echo "=========================================="
@@ -56,6 +58,7 @@ else
         taskset -c 2 chrt -f 80 \
         "$PYTHON" "${DAEMON_DIR}/tx_daemon.py" \
         --usrp-addr "$USRP_TX_ADDR" \
+        --device-type "$DEVICE_TYPE" \
         --mcr "$MCR" \
         --buffer-scale "$BUFFER_SCALE" \
         >> "${LOG_DIR}/tx_daemon.log" 2>&1 &
@@ -72,6 +75,7 @@ else
         taskset -c 3 chrt -f 80 \
         "$PYTHON" "${DAEMON_DIR}/rx_daemon.py" \
         --usrp-addr "$USRP_RX_ADDR" \
+        --device-type "$DEVICE_TYPE" \
         --mcr "$MCR" \
         --buffer-scale "$BUFFER_SCALE" \
         >> "${LOG_DIR}/rx_daemon.log" 2>&1 &
