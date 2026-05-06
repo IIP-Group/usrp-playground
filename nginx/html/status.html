@@ -2,20 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0c2f1a">
     <title>USRP Sandbox — Status</title>
     <style>
-        :root {
-            --ok-1:   #0c2f1a;
-            --ok-2:   #1f6e3a;
-            --ok-3:   #4ade80;
-            --ok-4:   #86efac;
-            --err-1:  #2f0c0c;
-            --err-2:  #6e1f1f;
-            --err-3:  #f87171;
-            --err-4:  #fca5a5;
-        }
-
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; overflow: hidden; }
         body {
@@ -23,178 +13,685 @@
                          Roboto, sans-serif;
             background: #000;
             color: #fff;
+            -webkit-font-smoothing: antialiased;
         }
 
+        /* ====================================================== */
+        /*  Stage palettes — DAY (running) and NIGHT (sleeping)   */
+        /* ====================================================== */
         .stage {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
+            position: fixed;
+            inset: 0;
             overflow: hidden;
-            background: radial-gradient(ellipse at center,
-                        var(--bg-2) 0%, var(--bg-1) 100%);
-            transition: background 1s ease;
+            transition:
+                background 1.2s ease,
+                color 1.2s ease;
         }
 
-        /* state-driven palette */
+        /* DAY — savannah at golden hour */
         .stage.running {
-            --bg-1: var(--ok-1);
-            --bg-2: var(--ok-2);
-            --blob-a: var(--ok-3);
-            --blob-b: var(--ok-4);
-            --label: var(--ok-4);
+            --sky-top:   #ffb55a;
+            --sky-mid:   #f57f3a;
+            --sky-bot:   #c95a2c;
+            --sun:       #fff0c1;
+            --sun-glow:  #ffd97a;
+            --mtn-far:   #6b3a4e;
+            --mtn-near:  #4a2438;
+            --tree-far:  #2c1322;
+            --tree-near: #1a0c14;
+            --ground-1:  #8c5a2c;
+            --ground-2:  #5d3a1c;
+            --grass:     #7a4a22;
+            --animal-1:  #b88a4a;     /* giraffe sand */
+            --animal-1b: #6e4a1c;     /* giraffe spots */
+            --animal-2:  #4a4a52;     /* elephant grey */
+            --animal-3:  #d8b878;     /* zebra body */
+            --animal-3b: #1c1410;     /* zebra stripes */
+            --animal-4:  #c46438;     /* lion */
+            --animal-4b: #6e3010;     /* mane */
+            --label-fg:  #fff8e6;
+            --label-glow:#ffd97a;
+            background: linear-gradient(180deg,
+                        var(--sky-top) 0%,
+                        var(--sky-mid) 45%,
+                        var(--sky-bot) 100%);
         }
+
+        /* NIGHT — sleeping savannah */
         .stage.down {
-            --bg-1: var(--err-1);
-            --bg-2: var(--err-2);
-            --blob-a: var(--err-3);
-            --blob-b: var(--err-4);
-            --label: var(--err-4);
+            --sky-top:   #0a1230;
+            --sky-mid:   #15214a;
+            --sky-bot:   #0f1a3a;
+            --sun:       #e9e4cf;        /* moon */
+            --sun-glow:  #b9c0e4;
+            --mtn-far:   #1c2444;
+            --mtn-near:  #131a30;
+            --tree-far:  #0a0f1f;
+            --tree-near: #050810;
+            --ground-1:  #14213b;
+            --ground-2:  #0c1628;
+            --grass:     #1c2c4a;
+            --animal-1:  #2a3654;     /* dim everything */
+            --animal-1b: #1a2238;
+            --animal-2:  #1c2336;
+            --animal-3:  #2c3a58;
+            --animal-3b: #0c1422;
+            --animal-4:  #2a3450;
+            --animal-4b: #181f30;
+            --label-fg:  #c9d4ec;
+            --label-glow:#5e7bbb;
+            background: linear-gradient(180deg,
+                        var(--sky-top) 0%,
+                        var(--sky-mid) 60%,
+                        var(--sky-bot) 100%);
         }
 
-        /* the bubbles */
-        .blob {
+        /* loading */
+        .stage.unknown {
+            --sky-top: #1a1d28; --sky-mid: #2a3340; --sky-bot: #181b24;
+            --sun: #b6cbf5;     --sun-glow: #5b8def;
+            --mtn-far: #2a2f3d; --mtn-near: #1f232e;
+            --tree-far: #181b24; --tree-near: #0f1117;
+            --ground-1: #1a1d28; --ground-2: #0f1117;
+            --grass: #2a3340;
+            --animal-1: #3a4252; --animal-1b: #2a3340;
+            --animal-2: #2c3340; --animal-3: #3a4252; --animal-3b: #1a1d28;
+            --animal-4: #3a4252; --animal-4b: #2a3340;
+            --label-fg: #c9d4ec; --label-glow: #5b8def;
+            background: linear-gradient(180deg, #181b24 0%, #0f1117 100%);
+        }
+
+        /* ============================== */
+        /*  Layered scene SVG container   */
+        /* ============================== */
+        .scene {
             position: absolute;
-            bottom: -20vh;
-            left: 50%;
-            border-radius: 50%;
-            filter: blur(28px);
-            opacity: 0.55;
-            mix-blend-mode: screen;
-            background: radial-gradient(circle at 30% 30%,
-                        var(--blob-b), var(--blob-a) 65%, transparent 75%);
-            animation: rise var(--dur, 14s) ease-in-out infinite;
-            animation-delay: var(--delay, 0s);
-            transform: translate(-50%, 0);
-            will-change: transform, opacity;
-        }
-        @keyframes rise {
-            0%   { transform: translate(calc(-50% + var(--x0, 0px)), 0)
-                              scale(0.8) rotate(0deg);
-                   opacity: 0; }
-            10%  { opacity: 0.55; }
-            50%  { transform: translate(calc(-50% + var(--x1, 60px)), -55vh)
-                              scale(1.15) rotate(180deg); }
-            90%  { opacity: 0.55; }
-            100% { transform: translate(calc(-50% + var(--x2, -40px)), -120vh)
-                              scale(0.85) rotate(360deg);
-                   opacity: 0; }
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
         }
 
-        /* glass top sheen — barely visible vignette */
-        .stage::before {
-            content: "";
-            position: absolute; inset: 0;
-            background: radial-gradient(circle at 50% 30%,
-                        transparent 0%, rgba(0,0,0,0.45) 100%);
-            pointer-events: none;
-            z-index: 5;
+        /* sun/moon glow */
+        .celestial {
+            transform-origin: center;
+            animation: float 9s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-8px); }
         }
 
-        /* center label */
+        /* stars — only visible at night */
+        .star {
+            opacity: 0;
+            animation: twinkle 3s ease-in-out infinite;
+        }
+        .stage.down .star { opacity: 0.9; }
+        @keyframes twinkle {
+            0%,100% { opacity: 0.3; }
+            50%     { opacity: 1; }
+        }
+
+        /* parallax: each layer scrolls at its own speed (running mode only) */
+        .layer { transform: translateX(0); }
+        .stage.running .layer-mtn  { animation: scroll-x 90s linear infinite; }
+        .stage.running .layer-tree { animation: scroll-x 50s linear infinite; }
+        .stage.running .layer-grass{ animation: scroll-x 22s linear infinite; }
+        .stage.running .layer-fg   { animation: scroll-x 12s linear infinite; }
+        @keyframes scroll-x {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-50%); }     /* SVG patterns are tiled 2× */
+        }
+
+        /* clouds drifting */
+        .cloud {
+            opacity: 0.65;
+        }
+        .stage.running .cloud {
+            animation: cloud-drift 80s linear infinite;
+        }
+        .stage.down .cloud { opacity: 0; }
+        @keyframes cloud-drift {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-1200px); }
+        }
+
+        /* =================== */
+        /*    ANIMAL PARTS     */
+        /* =================== */
+
+        /* swap day/night animal poses */
+        .pose-running { display: inline; }
+        .pose-sleeping { display: none; }
+        .stage.down .pose-running   { display: none; }
+        .stage.down .pose-sleeping  { display: inline; }
+        .stage.unknown .pose-running { opacity: 0.4; }
+
+        /* body bobs gently */
+        .body-bob {
+            transform-origin: center;
+            animation: bob 0.55s ease-in-out infinite;
+        }
+        .body-bob.slow   { animation-duration: 0.85s; }
+        .body-bob.fast   { animation-duration: 0.42s; }
+        .stage.down .body-bob { animation: none; }
+        @keyframes bob {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-3px); }
+        }
+
+        /* legs cycle — generic pendulum */
+        .leg {
+            transform-box: fill-box;
+            transform-origin: top center;
+            animation: leg-swing 0.55s ease-in-out infinite;
+        }
+        .leg.phase-b { animation-delay: -0.275s; }      /* opposite phase */
+        .leg.slow   { animation-duration: 0.85s; }
+        .leg.slow.phase-b { animation-delay: -0.425s; }
+        .leg.fast   { animation-duration: 0.42s; }
+        .leg.fast.phase-b { animation-delay: -0.21s; }
+        .stage.down .leg { animation: none; transform: rotate(0); }
+        @keyframes leg-swing {
+            0%,100% { transform: rotate(22deg); }
+            50%     { transform: rotate(-22deg); }
+        }
+
+        /* tail wag */
+        .tail {
+            transform-box: fill-box;
+            transform-origin: left center;
+            animation: tail-wag 0.85s ease-in-out infinite;
+        }
+        .stage.down .tail { animation: none; }
+        @keyframes tail-wag {
+            0%,100% { transform: rotate(-4deg); }
+            50%     { transform: rotate(8deg); }
+        }
+
+        /* ear flap (elephant) */
+        .ear {
+            transform-box: fill-box;
+            transform-origin: right top;
+            animation: ear-flap 0.55s ease-in-out infinite;
+        }
+        .stage.down .ear { animation: none; }
+        @keyframes ear-flap {
+            0%,100% { transform: rotate(-5deg); }
+            50%     { transform: rotate(8deg); }
+        }
+
+        /* sleeping Z's float up */
+        .zzz {
+            opacity: 0;
+            animation: zzz 4s ease-in-out infinite;
+        }
+        .stage.down .zzz { opacity: 1; }
+        @keyframes zzz {
+            0%   { transform: translateY(0)   scale(0.6); opacity: 0; }
+            20%  { opacity: 1; }
+            100% { transform: translateY(-40px) scale(1.0); opacity: 0; }
+        }
+
+        /* ============================= */
+        /*    Center label & overlays    */
+        /* ============================= */
         .label {
             position: absolute;
             top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
+            transform: translate(-50%, -55%);
             text-align: center;
             z-index: 10;
             user-select: none;
+            pointer-events: none;
         }
         .label .small {
-            font-size: clamp(14px, 1.6vw, 18px);
-            color: rgba(255,255,255,0.6);
-            letter-spacing: 0.4em;
+            font-size: clamp(11px, 1.4vw, 16px);
+            color: rgba(255,255,255,0.7);
+            letter-spacing: 0.45em;
             text-transform: uppercase;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.5);
         }
         .label .big {
-            font-size: clamp(64px, 14vw, 200px);
+            font-size: clamp(48px, 11vw, 160px);
             font-weight: 800;
-            letter-spacing: 0.05em;
-            color: var(--label);
-            text-shadow: 0 0 60px rgba(0,0,0,0.4),
-                         0 0 120px var(--label);
+            letter-spacing: 0.04em;
+            color: var(--label-fg);
+            text-shadow:
+                0 4px 16px rgba(0,0,0,0.45),
+                0 0 80px var(--label-glow);
+            line-height: 1;
         }
         .label .sub {
-            margin-top: 24px;
+            margin-top: 18px;
             font-family: "SF Mono", Menlo, Consolas, monospace;
-            font-size: clamp(12px, 1.2vw, 15px);
-            color: rgba(255,255,255,0.45);
-            letter-spacing: 0.2em;
+            font-size: clamp(11px, 1.05vw, 13px);
+            color: rgba(255,255,255,0.55);
+            letter-spacing: 0.18em;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.5);
         }
 
-        /* unknown / loading state */
-        .stage.unknown {
-            --bg-1: #181b24;
-            --bg-2: #2a2f3d;
-            --blob-a: #5b8def;
-            --blob-b: #8b5bef;
-            --label: #b6cbf5;
-        }
-
-        /* pulsating dot in the corner */
         .corner {
             position: absolute;
-            top: 24px; left: 24px;
+            top: env(safe-area-inset-top, 18px);
+            left: env(safe-area-inset-left, 18px);
             display: flex; align-items: center; gap: 10px;
-            font-size: 13px;
-            color: rgba(255,255,255,0.5);
-            letter-spacing: 0.1em;
+            font-size: 12px;
+            color: rgba(255,255,255,0.65);
+            letter-spacing: 0.12em;
             z-index: 20;
+            padding-top: 6px; padding-left: 6px;
         }
         .corner .dot {
-            width: 10px; height: 10px;
+            width: 9px; height: 9px;
             border-radius: 50%;
-            background: var(--label);
-            box-shadow: 0 0 12px var(--label);
+            background: var(--label-fg);
+            box-shadow: 0 0 12px var(--label-glow);
             animation: pulse 1.6s ease-in-out infinite;
         }
         @keyframes pulse {
-            0%,100% { opacity: 0.6; transform: scale(0.9); }
-            50%     { opacity: 1.0; transform: scale(1.1); }
+            0%,100% { opacity: 0.55; transform: scale(0.85); }
+            50%     { opacity: 1.0;  transform: scale(1.1); }
         }
 
         .footer {
             position: absolute;
-            bottom: 18px; left: 0; right: 0;
+            bottom: env(safe-area-inset-bottom, 16px);
+            left: 0; right: 0;
             text-align: center;
-            font-size: 12px;
-            color: rgba(255,255,255,0.35);
+            font-size: 11px;
+            color: rgba(255,255,255,0.45);
             z-index: 10;
             letter-spacing: 0.15em;
+            padding-bottom: 6px;
         }
         .footer a { color: inherit; text-decoration: none; }
-        .footer a:hover { color: rgba(255,255,255,0.7); }
+        .footer a:hover { color: rgba(255,255,255,0.85); }
+
+        /* hide some animals on small screens to keep things tidy */
+        @media (max-width: 700px) {
+            .animal-zebra, .animal-lion, .cloud-2 { display: none; }
+        }
+        @media (max-width: 460px) {
+            .animal-elephant { display: none; }
+        }
     </style>
 </head>
 <body>
 
 <div id="stage" class="stage unknown">
-    <!-- 9 lava blobs with varied size, position, timing -->
-    <div class="blob" style="width: 30vw; height: 30vw; --dur: 13s; --delay:  0s;  --x0:-40vw;  --x1:-20vw; --x2: 10vw;"></div>
-    <div class="blob" style="width: 22vw; height: 22vw; --dur: 17s; --delay: -3s;  --x0: 30vw;  --x1: 40vw; --x2: 20vw;"></div>
-    <div class="blob" style="width: 26vw; height: 26vw; --dur: 19s; --delay: -7s;  --x0:-10vw;  --x1: 5vw;  --x2:-10vw;"></div>
-    <div class="blob" style="width: 18vw; height: 18vw; --dur: 11s; --delay: -2s;  --x0: 15vw;  --x1:-10vw; --x2: 0vw;"></div>
-    <div class="blob" style="width: 34vw; height: 34vw; --dur: 21s; --delay: -10s; --x0:-25vw;  --x1:-30vw; --x2:-10vw;"></div>
-    <div class="blob" style="width: 20vw; height: 20vw; --dur: 15s; --delay: -5s;  --x0: 25vw;  --x1: 15vw; --x2: 35vw;"></div>
-    <div class="blob" style="width: 16vw; height: 16vw; --dur:  9s; --delay: -1s;  --x0:-15vw;  --x1: 10vw; --x2: 25vw;"></div>
-    <div class="blob" style="width: 28vw; height: 28vw; --dur: 23s; --delay: -12s; --x0: 5vw;   --x1:-20vw; --x2: 0vw;"></div>
-    <div class="blob" style="width: 14vw; height: 14vw; --dur:  8s; --delay: -4s;  --x0:-30vw;  --x1:-10vw; --x2:-25vw;"></div>
 
+    <!-- ────────── SCENE: layered SVG ────────── -->
+    <svg class="scene" viewBox="0 0 1200 600"
+         preserveAspectRatio="xMidYMid slice"
+         aria-hidden="true">
+
+        <!-- Sun / Moon -->
+        <g class="celestial">
+            <circle cx="990" cy="135" r="78" fill="var(--sun-glow)" opacity="0.35"/>
+            <circle cx="990" cy="135" r="58" fill="var(--sun-glow)" opacity="0.55"/>
+            <circle cx="990" cy="135" r="42" fill="var(--sun)"/>
+            <!-- moon craters (only visible at night against the moon) -->
+            <circle class="moon-crater" cx="980" cy="125" r="6" fill="#a4a89c" opacity="0.4"/>
+            <circle class="moon-crater" cx="1000" cy="148" r="4" fill="#a4a89c" opacity="0.4"/>
+            <circle class="moon-crater" cx="996" cy="118" r="3" fill="#a4a89c" opacity="0.4"/>
+        </g>
+
+        <!-- Stars (visible at night) -->
+        <g class="stars">
+            <circle class="star" cx="120"  cy="60"  r="1.5" fill="#fff" style="animation-delay: 0s"/>
+            <circle class="star" cx="220"  cy="110" r="1.0" fill="#fff" style="animation-delay: 0.5s"/>
+            <circle class="star" cx="350"  cy="40"  r="1.2" fill="#fff" style="animation-delay: 1s"/>
+            <circle class="star" cx="450"  cy="130" r="1.5" fill="#fff" style="animation-delay: 1.5s"/>
+            <circle class="star" cx="560"  cy="70"  r="1.0" fill="#fff" style="animation-delay: 2s"/>
+            <circle class="star" cx="680"  cy="100" r="1.5" fill="#fff" style="animation-delay: 0.3s"/>
+            <circle class="star" cx="820"  cy="55"  r="1.2" fill="#fff" style="animation-delay: 0.8s"/>
+            <circle class="star" cx="180"  cy="180" r="1.0" fill="#fff" style="animation-delay: 1.3s"/>
+            <circle class="star" cx="1100" cy="80"  r="1.3" fill="#fff" style="animation-delay: 1.7s"/>
+            <circle class="star" cx="60"   cy="160" r="1.0" fill="#fff" style="animation-delay: 2.2s"/>
+            <circle class="star" cx="290"  cy="200" r="0.8" fill="#fff" style="animation-delay: 0.6s"/>
+            <circle class="star" cx="730"  cy="190" r="1.0" fill="#fff" style="animation-delay: 1.2s"/>
+        </g>
+
+        <!-- Clouds (day only, drift slowly) -->
+        <g class="cloud cloud-1" transform="translate(0,0)">
+            <ellipse cx="200" cy="170" rx="60" ry="14" fill="#fff5dc" opacity="0.45"/>
+            <ellipse cx="240" cy="160" rx="40" ry="10" fill="#fff5dc" opacity="0.45"/>
+        </g>
+        <g class="cloud cloud-2" transform="translate(0,0)" style="animation-delay: -30s">
+            <ellipse cx="700" cy="120" rx="80" ry="16" fill="#fff5dc" opacity="0.40"/>
+            <ellipse cx="760" cy="110" rx="50" ry="12" fill="#fff5dc" opacity="0.40"/>
+        </g>
+
+        <!-- Distant mountains (slow parallax) -->
+        <g class="layer layer-mtn">
+            <path d="M0,400 L120,300 L220,360 L340,260 L460,340 L580,290 L700,370 L820,310 L940,360 L1080,300 L1200,360 L1200,500 L0,500 Z
+                     M1200,400 L1320,300 L1420,360 L1540,260 L1660,340 L1780,290 L1900,370 L2020,310 L2140,360 L2280,300 L2400,360 L2400,500 L1200,500 Z"
+                  fill="var(--mtn-far)" opacity="0.85"/>
+        </g>
+
+        <!-- Trees / acacia silhouettes (medium parallax) -->
+        <g class="layer layer-tree">
+            <!-- Tile 1 -->
+            <g transform="translate(80,400)">
+                <line x1="0" y1="0" x2="0" y2="-50" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-55" rx="35" ry="10" fill="var(--tree-far)"/>
+                <ellipse cx="-15" cy="-62" rx="22" ry="6" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(380,400)">
+                <line x1="0" y1="0" x2="0" y2="-65" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-72" rx="48" ry="14" fill="var(--tree-near)"/>
+                <ellipse cx="20" cy="-82" rx="26" ry="8" fill="var(--tree-near)"/>
+            </g>
+            <g transform="translate(720,400)">
+                <line x1="0" y1="0" x2="0" y2="-55" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-60" rx="40" ry="11" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(1020,400)">
+                <line x1="0" y1="0" x2="0" y2="-70" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-78" rx="52" ry="15" fill="var(--tree-near)"/>
+                <ellipse cx="-22" cy="-88" rx="28" ry="9" fill="var(--tree-near)"/>
+            </g>
+            <!-- Tile 2 (mirrored copy at +1200 for seamless loop) -->
+            <g transform="translate(1280,400)">
+                <line x1="0" y1="0" x2="0" y2="-50" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-55" rx="35" ry="10" fill="var(--tree-far)"/>
+                <ellipse cx="-15" cy="-62" rx="22" ry="6" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(1580,400)">
+                <line x1="0" y1="0" x2="0" y2="-65" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-72" rx="48" ry="14" fill="var(--tree-near)"/>
+                <ellipse cx="20" cy="-82" rx="26" ry="8" fill="var(--tree-near)"/>
+            </g>
+            <g transform="translate(1920,400)">
+                <line x1="0" y1="0" x2="0" y2="-55" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-60" rx="40" ry="11" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(2220,400)">
+                <line x1="0" y1="0" x2="0" y2="-70" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-78" rx="52" ry="15" fill="var(--tree-near)"/>
+                <ellipse cx="-22" cy="-88" rx="28" ry="9" fill="var(--tree-near)"/>
+            </g>
+        </g>
+
+        <!-- Ground (the "savannah floor") -->
+        <rect x="0" y="430" width="2400" height="200" fill="var(--ground-1)"/>
+        <rect x="0" y="490" width="2400" height="120" fill="var(--ground-2)"/>
+
+        <!-- Grass tufts on the ground (faster parallax) -->
+        <g class="layer layer-grass">
+            <!-- Tile 1 -->
+            <g fill="var(--grass)" opacity="0.85">
+                <path d="M30,440 l5,-12 l3,12 l4,-10 l3,10 z"/>
+                <path d="M150,445 l5,-15 l3,15 l4,-12 l3,12 z"/>
+                <path d="M270,442 l5,-10 l3,10 l4,-8 l3,8 z"/>
+                <path d="M400,448 l4,-13 l3,13 l3,-9 l3,9 z"/>
+                <path d="M540,440 l5,-15 l4,15 l4,-12 l3,12 z"/>
+                <path d="M680,445 l4,-10 l3,10 l3,-8 l3,8 z"/>
+                <path d="M820,440 l5,-14 l3,14 l4,-10 l3,10 z"/>
+                <path d="M970,447 l4,-12 l3,12 l3,-9 l3,9 z"/>
+                <path d="M1100,440 l5,-12 l3,12 l4,-10 l3,10 z"/>
+            </g>
+            <!-- Tile 2 -->
+            <g fill="var(--grass)" opacity="0.85" transform="translate(1200,0)">
+                <path d="M30,440 l5,-12 l3,12 l4,-10 l3,10 z"/>
+                <path d="M150,445 l5,-15 l3,15 l4,-12 l3,12 z"/>
+                <path d="M270,442 l5,-10 l3,10 l4,-8 l3,8 z"/>
+                <path d="M400,448 l4,-13 l3,13 l3,-9 l3,9 z"/>
+                <path d="M540,440 l5,-15 l4,15 l4,-12 l3,12 z"/>
+                <path d="M680,445 l4,-10 l3,10 l3,-8 l3,8 z"/>
+                <path d="M820,440 l5,-14 l3,14 l4,-10 l3,10 z"/>
+                <path d="M970,447 l4,-12 l3,12 l3,-9 l3,9 z"/>
+                <path d="M1100,440 l5,-12 l3,12 l4,-10 l3,10 z"/>
+            </g>
+        </g>
+
+        <!-- ────────── ANIMALS — running on the spot ────────── -->
+
+        <!-- GIRAFFE (left-ish) -->
+        <g class="animal animal-giraffe" transform="translate(180, 280)">
+            <!-- Running pose -->
+            <g class="pose-running">
+                <g class="body-bob slow">
+                    <!-- Neck -->
+                    <rect x="48" y="-90" width="14" height="100" rx="4"
+                          fill="var(--animal-1)"/>
+                    <!-- spots on neck -->
+                    <circle cx="55" cy="-70" r="3" fill="var(--animal-1b)"/>
+                    <circle cx="55" cy="-50" r="3" fill="var(--animal-1b)"/>
+                    <circle cx="55" cy="-30" r="2.5" fill="var(--animal-1b)"/>
+                    <!-- Head -->
+                    <ellipse cx="60" cy="-100" rx="14" ry="10"
+                             fill="var(--animal-1)"/>
+                    <!-- horns -->
+                    <line x1="55" y1="-110" x2="54" y2="-118"
+                          stroke="var(--animal-1b)" stroke-width="2"/>
+                    <line x1="65" y1="-110" x2="66" y2="-118"
+                          stroke="var(--animal-1b)" stroke-width="2"/>
+                    <circle cx="54" cy="-119" r="1.8" fill="var(--animal-1b)"/>
+                    <circle cx="66" cy="-119" r="1.8" fill="var(--animal-1b)"/>
+                    <!-- eye -->
+                    <circle cx="65" cy="-102" r="1.5" fill="#1a1410"/>
+                    <!-- Body -->
+                    <ellipse cx="20" cy="20" rx="42" ry="20"
+                             fill="var(--animal-1)"/>
+                    <!-- spots on body -->
+                    <circle cx="-5" cy="15" r="4" fill="var(--animal-1b)"/>
+                    <circle cx="10" cy="25" r="3.5" fill="var(--animal-1b)"/>
+                    <circle cx="25" cy="12" r="3" fill="var(--animal-1b)"/>
+                    <circle cx="35" cy="22" r="3.5" fill="var(--animal-1b)"/>
+                    <circle cx="48" cy="14" r="2.5" fill="var(--animal-1b)"/>
+                    <!-- Tail -->
+                    <line class="tail" x1="-22" y1="15" x2="-32" y2="22"
+                          stroke="var(--animal-1)" stroke-width="3"/>
+                    <circle cx="-33" cy="23" r="2.5" fill="var(--animal-1b)"/>
+                </g>
+                <!-- Legs (under body) -->
+                <rect class="leg slow"          x="-12" y="38" width="6" height="38" rx="2"
+                      fill="var(--animal-1)"/>
+                <rect class="leg slow phase-b"  x="6"   y="38" width="6" height="38" rx="2"
+                      fill="var(--animal-1b)"/>
+                <rect class="leg slow phase-b"  x="32"  y="38" width="6" height="38" rx="2"
+                      fill="var(--animal-1)"/>
+                <rect class="leg slow"          x="50"  y="38" width="6" height="38" rx="2"
+                      fill="var(--animal-1b)"/>
+            </g>
+            <!-- Sleeping pose: lying down -->
+            <g class="pose-sleeping">
+                <ellipse cx="20" cy="65" rx="55" ry="14" fill="var(--animal-1)"/>
+                <circle cx="-5" cy="60" r="4" fill="var(--animal-1b)"/>
+                <circle cx="15" cy="68" r="3.5" fill="var(--animal-1b)"/>
+                <circle cx="35" cy="60" r="3" fill="var(--animal-1b)"/>
+                <!-- Head resting -->
+                <ellipse cx="65" cy="58" rx="12" ry="9" fill="var(--animal-1)"/>
+                <line x1="60" y1="48" x2="59" y2="42" stroke="var(--animal-1b)" stroke-width="2"/>
+                <line x1="70" y1="48" x2="71" y2="42" stroke="var(--animal-1b)" stroke-width="2"/>
+                <!-- closed eye -->
+                <path d="M68,57 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                      fill="none" stroke-linecap="round"/>
+                <text class="zzz" x="80" y="35" font-size="20" font-weight="bold"
+                      fill="var(--label-fg)" style="animation-delay: 0s">z</text>
+                <text class="zzz" x="92" y="20" font-size="14" font-weight="bold"
+                      fill="var(--label-fg)" style="animation-delay: 1.5s">z</text>
+            </g>
+        </g>
+
+        <!-- ELEPHANT -->
+        <g class="animal animal-elephant" transform="translate(820, 360)">
+            <g class="pose-running">
+                <g class="body-bob">
+                    <!-- Body -->
+                    <ellipse cx="0" cy="0" rx="58" ry="32" fill="var(--animal-2)"/>
+                    <!-- Head -->
+                    <ellipse cx="-46" cy="-6" rx="28" ry="26" fill="var(--animal-2)"/>
+                    <!-- Ear -->
+                    <path class="ear"
+                          d="M-30,-22 q-22,-10 -28,8 q4,18 22,16 z"
+                          fill="var(--animal-2)" opacity="0.85"/>
+                    <!-- Eye -->
+                    <circle cx="-58" cy="-10" r="1.8" fill="#fff"/>
+                    <circle cx="-58" cy="-10" r="1" fill="#1a1410"/>
+                    <!-- Trunk -->
+                    <path d="M-70,-2 q-12,18 -4,32 q8,8 16,-2 q-4,-6 -2,-12"
+                          stroke="var(--animal-2)" stroke-width="11"
+                          fill="none" stroke-linecap="round"/>
+                    <!-- Tusk -->
+                    <path d="M-66,4 q-2,8 4,12" stroke="#f2e8d4"
+                          stroke-width="3" fill="none" stroke-linecap="round"/>
+                    <!-- Tail -->
+                    <line class="tail" x1="58" y1="-6" x2="74" y2="-2"
+                          stroke="var(--animal-2)" stroke-width="3"/>
+                    <circle cx="75" cy="-2" r="3" fill="var(--animal-2)"/>
+                </g>
+                <!-- Legs -->
+                <rect class="leg"          x="-44" y="22" width="13" height="32" rx="3"
+                      fill="var(--animal-2)"/>
+                <rect class="leg phase-b"  x="-14" y="22" width="13" height="32" rx="3"
+                      fill="var(--animal-2)"/>
+                <rect class="leg phase-b"  x="14"  y="22" width="13" height="32" rx="3"
+                      fill="var(--animal-2)"/>
+                <rect class="leg"          x="40"  y="22" width="13" height="32" rx="3"
+                      fill="var(--animal-2)"/>
+            </g>
+            <g class="pose-sleeping">
+                <ellipse cx="0" cy="40" rx="68" ry="20" fill="var(--animal-2)"/>
+                <ellipse cx="-50" cy="32" rx="26" ry="22" fill="var(--animal-2)"/>
+                <path d="M-30,12 q-22,-10 -28,8 q4,18 22,16 z" fill="var(--animal-2)" opacity="0.7"/>
+                <path d="M-72,32 q-12,18 -4,30 q6,4 12,-4" stroke="var(--animal-2)"
+                      stroke-width="11" fill="none" stroke-linecap="round"/>
+                <path d="M-58,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                      fill="none" stroke-linecap="round"/>
+                <text class="zzz" x="20" y="10" font-size="22" font-weight="bold"
+                      fill="var(--label-fg)" style="animation-delay: 0.5s">z</text>
+                <text class="zzz" x="34" y="-8" font-size="16" font-weight="bold"
+                      fill="var(--label-fg)" style="animation-delay: 2s">z</text>
+            </g>
+        </g>
+
+        <!-- ZEBRA -->
+        <g class="animal animal-zebra" transform="translate(550, 380)">
+            <g class="pose-running">
+                <g class="body-bob fast">
+                    <!-- Body -->
+                    <ellipse cx="0" cy="0" rx="42" ry="18" fill="var(--animal-3)"/>
+                    <!-- Stripes -->
+                    <path d="M-30,-15 v30 M-18,-17 v34 M-6,-18 v36 M6,-17 v34 M18,-15 v30 M28,-12 v24"
+                          stroke="var(--animal-3b)" stroke-width="3.5" fill="none"/>
+                    <!-- Neck -->
+                    <path d="M30,-8 q14,-12 22,-22 l8,8 q-12,16 -22,18 z"
+                          fill="var(--animal-3)"/>
+                    <!-- Head -->
+                    <ellipse cx="56" cy="-30" rx="13" ry="9" fill="var(--animal-3)"/>
+                    <!-- Mane -->
+                    <path d="M44,-22 l2,-4 l4,2 l2,-5 l4,3 l3,-4"
+                          stroke="var(--animal-3b)" stroke-width="3" fill="none"/>
+                    <!-- Eye + nostril -->
+                    <circle cx="62" cy="-30" r="1.4" fill="#1a1410"/>
+                    <circle cx="68" cy="-28" r="0.8" fill="#1a1410"/>
+                    <!-- Tail -->
+                    <line class="tail" x1="-40" y1="-4" x2="-50" y2="-8"
+                          stroke="var(--animal-3)" stroke-width="2.5"/>
+                    <path d="M-50,-8 l-3,8 l-2,-2 l-2,7" stroke="var(--animal-3b)"
+                          stroke-width="2" fill="none"/>
+                </g>
+                <!-- Legs -->
+                <rect class="leg fast"          x="-30" y="16" width="6" height="28" rx="2"
+                      fill="var(--animal-3)"/>
+                <rect class="leg fast phase-b"  x="-12" y="16" width="6" height="28" rx="2"
+                      fill="var(--animal-3b)"/>
+                <rect class="leg fast phase-b"  x="14"  y="16" width="6" height="28" rx="2"
+                      fill="var(--animal-3)"/>
+                <rect class="leg fast"          x="28"  y="16" width="6" height="28" rx="2"
+                      fill="var(--animal-3b)"/>
+            </g>
+            <g class="pose-sleeping">
+                <ellipse cx="0" cy="32" rx="50" ry="14" fill="var(--animal-3)"/>
+                <path d="M-30,22 v14 M-18,20 v16 M-6,18 v18 M6,20 v16 M18,22 v14"
+                      stroke="var(--animal-3b)" stroke-width="3"/>
+                <ellipse cx="58" cy="28" rx="11" ry="8" fill="var(--animal-3)"/>
+                <path d="M62,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                      fill="none" stroke-linecap="round"/>
+            </g>
+        </g>
+
+        <!-- LION -->
+        <g class="animal animal-lion" transform="translate(380, 390)">
+            <g class="pose-running">
+                <g class="body-bob fast">
+                    <!-- Body -->
+                    <ellipse cx="0" cy="0" rx="36" ry="16" fill="var(--animal-4)"/>
+                    <!-- Mane (puffy circle) -->
+                    <circle cx="32" cy="-10" r="18" fill="var(--animal-4b)"/>
+                    <!-- Head on top of mane -->
+                    <circle cx="34" cy="-10" r="11" fill="var(--animal-4)"/>
+                    <!-- Ears -->
+                    <circle cx="28" cy="-20" r="3" fill="var(--animal-4b)"/>
+                    <circle cx="40" cy="-20" r="3" fill="var(--animal-4b)"/>
+                    <!-- Eye + nose -->
+                    <circle cx="38" cy="-12" r="1.4" fill="#1a1410"/>
+                    <circle cx="42" cy="-8" r="1.6" fill="#1a1410"/>
+                    <!-- Tail -->
+                    <path class="tail" d="M-32,-2 q-12,-8 -18,2"
+                          stroke="var(--animal-4)" stroke-width="3" fill="none"/>
+                    <circle cx="-50" cy="0" r="3.5" fill="var(--animal-4b)"/>
+                </g>
+                <!-- Legs -->
+                <rect class="leg fast"          x="-26" y="14" width="6" height="22" rx="2"
+                      fill="var(--animal-4)"/>
+                <rect class="leg fast phase-b"  x="-10" y="14" width="6" height="22" rx="2"
+                      fill="var(--animal-4)"/>
+                <rect class="leg fast phase-b"  x="10"  y="14" width="6" height="22" rx="2"
+                      fill="var(--animal-4)"/>
+                <rect class="leg fast"          x="22"  y="14" width="6" height="22" rx="2"
+                      fill="var(--animal-4)"/>
+            </g>
+            <g class="pose-sleeping">
+                <ellipse cx="0" cy="28" rx="44" ry="13" fill="var(--animal-4)"/>
+                <circle cx="36" cy="22" r="14" fill="var(--animal-4b)"/>
+                <circle cx="36" cy="22" r="9" fill="var(--animal-4)"/>
+                <path d="M40,24 q3,2 6,0" stroke="#1a1410" stroke-width="1.2"
+                      fill="none" stroke-linecap="round"/>
+            </g>
+        </g>
+
+        <!-- foreground grass blades (very fast parallax) -->
+        <g class="layer layer-fg" opacity="0.7">
+            <g fill="var(--grass)">
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(60,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(220,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(420,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(640,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(880,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(1080,0)"/>
+                <!-- Tile 2 -->
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(1260,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(1420,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(1620,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(1840,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(2080,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(2280,0)"/>
+            </g>
+        </g>
+    </svg>
+
+    <!-- Status overlays -->
     <div class="corner">
         <span class="dot"></span>
         <span id="cornerText">checking…</span>
     </div>
 
     <div class="label">
-        <div class="small" id="labelSmall">USRP Sandbox</div>
-        <div class="big"   id="labelBig">…</div>
-        <div class="sub"   id="labelSub">connecting to server</div>
+        <div class="small">USRP Sandbox</div>
+        <div class="big" id="labelBig">…</div>
+        <div class="sub" id="labelSub">connecting to server</div>
     </div>
 
     <div class="footer">
         <span id="lastUpdate">—</span>
         &nbsp;·&nbsp;
-        <a href="/">go to admin panel ↗</a>
+        <a href="/">admin panel ↗</a>
     </div>
 </div>
 
@@ -225,8 +722,6 @@ async function poll() {
 function apply(state) {
     if (state === lastState) return;
     lastState = state;
-
-    // map state → CSS class + label text
     stage.classList.remove("running", "down", "unknown");
     if (state === "running") {
         stage.classList.add("running");
@@ -245,11 +740,17 @@ function apply(state) {
         cornerText.textContent = "offline";
     } else {
         stage.classList.add("unknown");
-        labelBig.textContent   = state.toUpperCase();
+        labelBig.textContent   = (state || "?").toUpperCase();
         labelSub.textContent   = "unknown server state";
         cornerText.textContent = "unknown";
     }
 }
+
+// Pause animations when the tab is hidden — saves battery on phones.
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stage.style.animationPlayState = "paused";
+    else                 stage.style.animationPlayState = "running";
+});
 
 poll();
 setInterval(poll, 5000);

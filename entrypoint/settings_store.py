@@ -250,6 +250,26 @@ def clear_override(db: Session, key: str) -> None:
     db.commit()
 
 
+def purge_locked_overrides(db: Session) -> int:
+    """Drop every DB override for fields that are flagged `locked: True`.
+
+    Locked fields must come from .env / built-ins (or the band-centre
+    formula for the carrier). Stale DB overrides from before the lock
+    was added would otherwise still leak through `get()` and cause a
+    mismatch between the Settings UI and the live /info / worker.
+
+    Called once on entrypoint startup.
+    """
+    locked = [k for k, spec in EDITABLE_KEYS.items() if spec.get("locked")]
+    if not locked:
+        return 0
+    n = (db.query(SettingOverride)
+           .filter(SettingOverride.key.in_(locked))
+           .delete(synchronize_session=False))
+    db.commit()
+    return int(n)
+
+
 # ---------------- 2.4 GHz SRD band info (RIR1008-11 / EN 300 440) -----------
 # License-exempt non-specific SRD: 2400–2483.5 MHz, 10 mW EIRP, no duty cycle,
 # no LBT. The numbers below feed the read-only info banner on the Settings

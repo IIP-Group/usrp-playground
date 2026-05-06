@@ -106,6 +106,12 @@ def startup():
             db.commit()
         # Make sure server_state row exists
         server_state.get_state(db)
+        # Locked fields (CARRIER, BANDWIDTH, TX_POWER, …) must always come
+        # from .env / built-ins. Drop any lingering DB overrides from
+        # earlier runs so /info, the worker and the Settings UI all agree.
+        n = settings_store.purge_locked_overrides(db)
+        if n:
+            print(f"[startup] purged {n} stale DB override(s) for locked fields")
     refresh_limits()
 
 
