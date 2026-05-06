@@ -364,69 +364,118 @@ def change_time_and_clock_source(usrp, mboard=0, source="internal",
             )
 
 
+# ---------------------------------------------------------------------------
+#  Device-type helpers
+# ---------------------------------------------------------------------------
+
+# Device type prefixes that use the network (Ethernet / 100GigE) transport.
+# Everything else is assumed to be USB (B2xx family).
+_NETWORK_PREFIXES = ("x3", "x4", "n2", "n3")
+
+
+def _is_network_device(device_type: str) -> bool:
+    """Return True for X3xx/X4xx/N2xx/N3xx (network); False for B2xx (USB)."""
+    return device_type.strip().lower().startswith(_NETWORK_PREFIXES)
+
+
+def _build_usrp_args(usrp_addr: str,
+                     device_type: str,
+                     mcr: float,
+                     buffer_scale: float,
+                     mgmt_addr: str = None,
+                     use_dpdk: bool = False) -> str:
+    """Build a UHD device-args string that works for both USB and network USRPs.
+
+    Address auto-prefixing:
+      - If *usrp_addr* already contains a key (``serial=``, ``addr=``,
+        ``name=``, ``resource=``), it is passed through unchanged.
+      - Otherwise, network devices get ``addr=<value>`` and USB devices get
+        ``serial=<value>`` (an empty string means "first available device").
+
+    Buffer/frame-size tuning is applied only for network devices.  USB devices
+    (B210, B200mini, …) work best with UHD defaults and have no concept of
+    Ethernet frame sizing or DPDK.
+    """
+    dtype = device_type.strip().lower()
+    network = _is_network_device(dtype)
+
+    # --- address prefix ----------------------------------------------------
+    addr = (usrp_addr or "").strip()
+    _known_keys = ("serial=", "addr=", "name=", "resource=")
+    if addr and not any(addr.startswith(k) for k in _known_keys):
+        addr = f"addr={addr}" if network else f"serial={addr}"
+
+    parts: list[str] = []
+    if addr:
+        parts.append(addr)
+    parts.append(f"type={dtype}")
+
+    # --- network-specific tuning -------------------------------------------
+    if network:
+        scaled_buff = min(int(268_435_456 * buffer_scale), MAX_NET_BUFF_SIZE)
+        scaled_frames = int(512 * buffer_scale)
+        scaled_mbufs  = int(8_192 * buffer_scale)
+
+        # Network kernels can reject oversized buffers without DPDK
+        if not use_dpdk and scaled_buff > MAX_NET_BUFF_SIZE:
+            logging.warning(
+                f"Buffer size {scaled_buff} exceeds kernel limit "
+                f"{MAX_NET_BUFF_SIZE}; clamping. Use DPDK for higher scaling."
+            )
+            scaled_buff = MAX_NET_BUFF_SIZE
+
+        parts += [
+            "clock_source=internal",
+            "time_source=internal",
+        ]
+        if mcr:
+            parts.append(f"master_clock_rate={int(mcr)}")
+        parts += [
+            f"send_buff_size={scaled_buff}",
+            f"recv_buff_size={scaled_buff}",
+            "send_frame_size=8958",      # max for 100GigE
+            "recv_frame_size=8958",
+            f"num_recv_frames={scaled_frames}",
+            f"num_send_frames={scaled_frames}",
+        ]
+        if mgmt_addr:
+            parts.append(f"mgmt_addr={mgmt_addr}")
+        if use_dpdk:
+            parts.append("use_dpdk=1")
+            parts.append(f"dpdk_num_mbufs={scaled_mbufs}")
+    else:
+        # USB device (B210, B200, B200mini, …)
+        # No Ethernet frame/buffer tuning, no DPDK.  Pass MCR only if the
+        # caller explicitly set one (0 / None → let UHD choose).
+        if mcr:
+            parts.append(f"master_clock_rate={int(mcr)}")
+
+    return ",".join(parts)
+
+
 class BaseUSRPDaemon:
     """Base class for USRP daemons with common functionality."""
 
-    def __init__(self, usrp_addr, mgmt_addr=None, mcr=250e6, use_dpdk=False, buffer_scale=1.0):
+    def __init__(self, usrp_addr, mgmt_addr=None, mcr=None,
+                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0):
 
-        # Base buffer settings (can be scaled via buffer_scale parameter)
-        base_buff_size = 268435456         # 256 MB base (maintains original size)
-        base_frames = 512                  # 512 frames base
-        base_mbufs = 8192                  # 8192 mbufs base
-
-        # Scale buffer settings
-        scaled_buff_size = int(base_buff_size * buffer_scale)
-        scaled_frames = int(base_frames * buffer_scale)
-        scaled_mbufs = int(base_mbufs * buffer_scale)
-
-        # Network interface kernel limit validation (without DPDK)
-        if not use_dpdk and scaled_buff_size > MAX_NET_BUFF_SIZE:
-            # Allow exactly at the kernel limit by clamping overruns and let user know
-            logging.warning(
-                f"Buffer size {scaled_buff_size} exceeds kernel limit of {MAX_NET_BUFF_SIZE}, clamping to limit. "
-                f"Use DPDK for high buffer scaling."
-            )
-            scaled_buff_size = MAX_NET_BUFF_SIZE
-
-        # X410 100GigE optimized buffer configuration
-        usrp_args = (
-            f"addr={usrp_addr},"
-            f"type=x4xx,"                    # Explicitly specify X410/X440 series
-            f"clock_source=internal,"
-            f"time_source=internal,"
-            f"master_clock_rate={mcr},"
-            f"send_buff_size={scaled_buff_size},"
-            f"recv_buff_size={scaled_buff_size},"
-            f"send_frame_size=8958,"          # Max frame size for 100GigE
-            f"recv_frame_size=8958,"          # Max frame size for 100GigE
-            f"num_recv_frames={scaled_frames},"
-            f"num_send_frames={scaled_frames}"
+        usrp_args = _build_usrp_args(
+            usrp_addr=usrp_addr,
+            device_type=device_type,
+            mcr=mcr or 0,
+            buffer_scale=buffer_scale,
+            mgmt_addr=mgmt_addr,
+            use_dpdk=use_dpdk,
         )
 
-        if mgmt_addr:
-            usrp_args += f",mgmt_addr={mgmt_addr}"
+        logging.info(f"Opening USRP with args: {usrp_args}")
 
-        # Try DPDK first if requested, fall back to standard UDP
-        if use_dpdk:
-            try:
-                usrp_args_dpdk = usrp_args + f",use_dpdk=1,dpdk_num_mbufs={scaled_mbufs}"
-                self.usrp = uhd.usrp.MultiUSRP(usrp_args_dpdk)
-                logging.info("USRP device created successfully with DPDK enabled")
-            except Exception as e:
-                logging.warning("Failed to create USRP device with DPDK enabled, falling back to standard UDP connection. Error: %s", e)
-                try:
-                    self.usrp = uhd.usrp.MultiUSRP(usrp_args)
-                    logging.info("USRP device created successfully with standard UDP connection")
-                except Exception as fallback_error:
-                    logging.error("Failed to create USRP device with standard UDP connection after DPDK failure. Error: %s", fallback_error)
-                    raise
-        else:
-            try:
-                self.usrp = uhd.usrp.MultiUSRP(usrp_args)
-                logging.info("USRP device created successfully with standard UDP connection")
-            except Exception as e:
-                logging.error("Failed to create USRP device. Error: %s", e)
-                raise
+        try:
+            self.usrp = uhd.usrp.MultiUSRP(usrp_args)
+            logging.info("USRP device opened successfully")
+        except Exception as e:
+            logging.error("Failed to open USRP device. Error: %s", e)
+            raise
 
         self._op_lock = threading.Lock()
         self._stop = threading.Event()

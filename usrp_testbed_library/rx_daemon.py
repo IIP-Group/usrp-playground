@@ -33,8 +33,9 @@ RX_STREAM_TIMEOUT = DEFAULT_RX_STREAM_TIMEOUT
 
 
 class RXDaemon(BaseUSRPDaemon):
-    def __init__(self, usrp_addr, mgmt_addr=None, mcr=250e6, use_dpdk=False, buffer_scale=1.0):
-        super().__init__(usrp_addr, mgmt_addr, mcr, use_dpdk, buffer_scale)
+    def __init__(self, usrp_addr, mgmt_addr=None, mcr=None,
+                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0):
+        super().__init__(usrp_addr, mgmt_addr, mcr, device_type, use_dpdk, buffer_scale)
 
         self.channels = None
         self.rx_streamer = None
@@ -288,42 +289,75 @@ class RXDaemon(BaseUSRPDaemon):
 
 
 def parse_arguments():
-    """Parse command line arguments for RX daemon."""
+    """Parse command line arguments for RX daemon.
+
+    All options can also be supplied via environment variables:
+      USRP_RX_ADDR    → --usrp-addr   (IP, serial number, or full key=value)
+      USRP_DEVICE_TYPE→ --device-type (b200 | x4xx | x3xx | …)
+      MASTER_CLOCK_RATE→ --mcr        (Hz; 0 = let UHD choose)
+    """
+    import os as _os
     parser = argparse.ArgumentParser(description="RX Daemon for USRP-based SDR reception")
-    parser.add_argument('--usrp-addr', '-a', type=valid_ip, default=DEFAULT_USRP_IP_ADDR,
-                       help="USRP device IP address (default: %(default)s)")
+    parser.add_argument(
+        '--usrp-addr', '-a',
+        default=_os.environ.get("USRP_RX_ADDR", DEFAULT_USRP_IP_ADDR),
+        help=(
+            "USRP device address. Can be:\n"
+            "  • IP address          → addr=<ip>   (X3xx/X4xx network)\n"
+            "  • Serial number       → serial=<sn> (B2xx USB)\n"
+            "  • Full UHD key=value  e.g. 'serial=12345678' or 'name=mydev'\n"
+            "  Env: USRP_RX_ADDR (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        '--device-type', '-t',
+        default=_os.environ.get("USRP_DEVICE_TYPE", "x4xx"),
+        help=(
+            "UHD device type string: 'b200' for B200/B210 USB, 'x4xx' for X410/X440,\n"
+            "'x3xx' for X310/X300, etc.\n"
+            "Env: USRP_DEVICE_TYPE (default: %(default)s)"
+        ),
+    )
     parser.add_argument('--mgmt-addr', '-m', type=valid_ip,
-                       help="Management interface IP address for USRP (required when using --use-dpdk)")
+                       help="Management interface IP (X4xx only, required with --use-dpdk)")
     parser.add_argument('--use-dpdk', action='store_true',
-                       help="Enable DPDK for high-performance networking (requires --mgmt-addr)")
-    parser.add_argument('--mcr', type=float, default=250e6,
-                       help="Master clock rate in Hz (default: %(default).0f)")
+                       help="Enable DPDK (network devices only; requires --mgmt-addr)")
+    parser.add_argument(
+        '--mcr', type=float,
+        default=float(_os.environ.get("MASTER_CLOCK_RATE", 0) or 0),
+        help=(
+            "Master clock rate in Hz. 0 = let UHD choose (good default for B2xx).\n"
+            "X4xx typically needs 250000000. Env: MASTER_CLOCK_RATE (default: %(default).0f)"
+        ),
+    )
     parser.add_argument('--buffer-scale', type=buffer_scale_float, default=1.0,
-                       help="Buffer size scaling factor (default: %(default)s, range: 0.5-8.0)")
+                       help="Buffer size scaling factor (0.5–8.0, network devices only)")
     return parser.parse_args()
 
 
 def main():
-    # Parse command line arguments
     args = parse_arguments()
 
-    # Validate DPDK configuration
     if args.use_dpdk and args.mgmt_addr is None:
-        raise ValueError("Management address (--mgmt-addr) is required when DPDK is enabled (--use-dpdk)")
+        raise ValueError("--mgmt-addr is required when --use-dpdk is set")
 
-    # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler()  # Console output
-        ]
+        handlers=[logging.StreamHandler()],
     )
 
     context = zmq.Context.instance()
     reply = context.socket(zmq.REP)
     reply.bind(REP_ADDR)
-    rx_daemon = RXDaemon(args.usrp_addr, args.mgmt_addr, args.mcr, args.use_dpdk, args.buffer_scale)
+    rx_daemon = RXDaemon(
+        usrp_addr=args.usrp_addr,
+        mgmt_addr=args.mgmt_addr,
+        mcr=args.mcr or None,
+        device_type=args.device_type,
+        use_dpdk=args.use_dpdk,
+        buffer_scale=args.buffer_scale,
+    )
 
     logging.info(f"RX Daemon is running. Publishing events on {PUB_ADDR} and listening for commands on {REP_ADDR}")
 
