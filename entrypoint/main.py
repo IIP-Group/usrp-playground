@@ -294,6 +294,14 @@ async def ws_run(ws: WebSocket):
             ws_per_ip[ip] = c
 
 
+@app.get("/api/status")
+def public_status(db: Session = Depends(get_db)):
+    """Anonymous, public health probe used by the /status landing page.
+    Reports only whether the server is running — no queue / IP details."""
+    state = server_state.get_state(db)
+    return {"state": state, "ok": state == "running"}
+
+
 @app.get("/health")
 def health(auth_token: str = Query(...), db: Session = Depends(get_db)):
     token = db.query(Token).filter(Token.token == auth_token).first()

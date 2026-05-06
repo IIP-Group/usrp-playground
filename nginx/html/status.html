@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>USRP Sandbox — Status</title>
+    <style>
+        :root {
+            --ok-1:   #0c2f1a;
+            --ok-2:   #1f6e3a;
+            --ok-3:   #4ade80;
+            --ok-4:   #86efac;
+            --err-1:  #2f0c0c;
+            --err-2:  #6e1f1f;
+            --err-3:  #f87171;
+            --err-4:  #fca5a5;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                         Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+        }
+
+        .stage {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: radial-gradient(ellipse at center,
+                        var(--bg-2) 0%, var(--bg-1) 100%);
+            transition: background 1s ease;
+        }
+
+        /* state-driven palette */
+        .stage.running {
+            --bg-1: var(--ok-1);
+            --bg-2: var(--ok-2);
+            --blob-a: var(--ok-3);
+            --blob-b: var(--ok-4);
+            --label: var(--ok-4);
+        }
+        .stage.down {
+            --bg-1: var(--err-1);
+            --bg-2: var(--err-2);
+            --blob-a: var(--err-3);
+            --blob-b: var(--err-4);
+            --label: var(--err-4);
+        }
+
+        /* the bubbles */
+        .blob {
+            position: absolute;
+            bottom: -20vh;
+            left: 50%;
+            border-radius: 50%;
+            filter: blur(28px);
+            opacity: 0.55;
+            mix-blend-mode: screen;
+            background: radial-gradient(circle at 30% 30%,
+                        var(--blob-b), var(--blob-a) 65%, transparent 75%);
+            animation: rise var(--dur, 14s) ease-in-out infinite;
+            animation-delay: var(--delay, 0s);
+            transform: translate(-50%, 0);
+            will-change: transform, opacity;
+        }
+        @keyframes rise {
+            0%   { transform: translate(calc(-50% + var(--x0, 0px)), 0)
+                              scale(0.8) rotate(0deg);
+                   opacity: 0; }
+            10%  { opacity: 0.55; }
+            50%  { transform: translate(calc(-50% + var(--x1, 60px)), -55vh)
+                              scale(1.15) rotate(180deg); }
+            90%  { opacity: 0.55; }
+            100% { transform: translate(calc(-50% + var(--x2, -40px)), -120vh)
+                              scale(0.85) rotate(360deg);
+                   opacity: 0; }
+        }
+
+        /* glass top sheen — barely visible vignette */
+        .stage::before {
+            content: "";
+            position: absolute; inset: 0;
+            background: radial-gradient(circle at 50% 30%,
+                        transparent 0%, rgba(0,0,0,0.45) 100%);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* center label */
+        .label {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+            user-select: none;
+        }
+        .label .small {
+            font-size: clamp(14px, 1.6vw, 18px);
+            color: rgba(255,255,255,0.6);
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+        .label .big {
+            font-size: clamp(64px, 14vw, 200px);
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            color: var(--label);
+            text-shadow: 0 0 60px rgba(0,0,0,0.4),
+                         0 0 120px var(--label);
+        }
+        .label .sub {
+            margin-top: 24px;
+            font-family: "SF Mono", Menlo, Consolas, monospace;
+            font-size: clamp(12px, 1.2vw, 15px);
+            color: rgba(255,255,255,0.45);
+            letter-spacing: 0.2em;
+        }
+
+        /* unknown / loading state */
+        .stage.unknown {
+            --bg-1: #181b24;
+            --bg-2: #2a2f3d;
+            --blob-a: #5b8def;
+            --blob-b: #8b5bef;
+            --label: #b6cbf5;
+        }
+
+        /* pulsating dot in the corner */
+        .corner {
+            position: absolute;
+            top: 24px; left: 24px;
+            display: flex; align-items: center; gap: 10px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.5);
+            letter-spacing: 0.1em;
+            z-index: 20;
+        }
+        .corner .dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--label);
+            box-shadow: 0 0 12px var(--label);
+            animation: pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%,100% { opacity: 0.6; transform: scale(0.9); }
+            50%     { opacity: 1.0; transform: scale(1.1); }
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 18px; left: 0; right: 0;
+            text-align: center;
+            font-size: 12px;
+            color: rgba(255,255,255,0.35);
+            z-index: 10;
+            letter-spacing: 0.15em;
+        }
+        .footer a { color: inherit; text-decoration: none; }
+        .footer a:hover { color: rgba(255,255,255,0.7); }
+    </style>
+</head>
+<body>
+
+<div id="stage" class="stage unknown">
+    <!-- 9 lava blobs with varied size, position, timing -->
+    <div class="blob" style="width: 30vw; height: 30vw; --dur: 13s; --delay:  0s;  --x0:-40vw;  --x1:-20vw; --x2: 10vw;"></div>
+    <div class="blob" style="width: 22vw; height: 22vw; --dur: 17s; --delay: -3s;  --x0: 30vw;  --x1: 40vw; --x2: 20vw;"></div>
+    <div class="blob" style="width: 26vw; height: 26vw; --dur: 19s; --delay: -7s;  --x0:-10vw;  --x1: 5vw;  --x2:-10vw;"></div>
+    <div class="blob" style="width: 18vw; height: 18vw; --dur: 11s; --delay: -2s;  --x0: 15vw;  --x1:-10vw; --x2: 0vw;"></div>
+    <div class="blob" style="width: 34vw; height: 34vw; --dur: 21s; --delay: -10s; --x0:-25vw;  --x1:-30vw; --x2:-10vw;"></div>
+    <div class="blob" style="width: 20vw; height: 20vw; --dur: 15s; --delay: -5s;  --x0: 25vw;  --x1: 15vw; --x2: 35vw;"></div>
+    <div class="blob" style="width: 16vw; height: 16vw; --dur:  9s; --delay: -1s;  --x0:-15vw;  --x1: 10vw; --x2: 25vw;"></div>
+    <div class="blob" style="width: 28vw; height: 28vw; --dur: 23s; --delay: -12s; --x0: 5vw;   --x1:-20vw; --x2: 0vw;"></div>
+    <div class="blob" style="width: 14vw; height: 14vw; --dur:  8s; --delay: -4s;  --x0:-30vw;  --x1:-10vw; --x2:-25vw;"></div>
+
+    <div class="corner">
+        <span class="dot"></span>
+        <span id="cornerText">checking…</span>
+    </div>
+
+    <div class="label">
+        <div class="small" id="labelSmall">USRP Sandbox</div>
+        <div class="big"   id="labelBig">…</div>
+        <div class="sub"   id="labelSub">connecting to server</div>
+    </div>
+
+    <div class="footer">
+        <span id="lastUpdate">—</span>
+        &nbsp;·&nbsp;
+        <a href="/">go to admin panel ↗</a>
+    </div>
+</div>
+
+<script>
+const stage      = document.getElementById("stage");
+const labelBig   = document.getElementById("labelBig");
+const labelSub   = document.getElementById("labelSub");
+const cornerText = document.getElementById("cornerText");
+const lastUpdate = document.getElementById("lastUpdate");
+
+let lastState = null;
+
+async function poll() {
+    let state = "unreachable";
+    try {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        if (r.ok) {
+            const j = await r.json();
+            state = j.state || (j.ok ? "running" : "down");
+        }
+    } catch {
+        state = "unreachable";
+    }
+    apply(state);
+    lastUpdate.textContent = "last check " + new Date().toLocaleTimeString();
+}
+
+function apply(state) {
+    if (state === lastState) return;
+    lastState = state;
+
+    // map state → CSS class + label text
+    stage.classList.remove("running", "down", "unknown");
+    if (state === "running") {
+        stage.classList.add("running");
+        labelBig.textContent   = "RUNNING";
+        labelSub.textContent   = "system online · accepting tasks";
+        cornerText.textContent = "online";
+    } else if (state === "sleeping") {
+        stage.classList.add("down");
+        labelBig.textContent   = "SLEEPING";
+        labelSub.textContent   = "queue paused by admin";
+        cornerText.textContent = "paused";
+    } else if (state === "unreachable") {
+        stage.classList.add("down");
+        labelBig.textContent   = "DOWN";
+        labelSub.textContent   = "server is unreachable";
+        cornerText.textContent = "offline";
+    } else {
+        stage.classList.add("unknown");
+        labelBig.textContent   = state.toUpperCase();
+        labelSub.textContent   = "unknown server state";
+        cornerText.textContent = "unknown";
+    }
+}
+
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>
