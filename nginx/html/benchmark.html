@@ -204,7 +204,18 @@ function renderRun(run) {
     const offsetCls = Math.abs(offset) > 10000 ? "warn" : "ok";
     const clipCls = run.rx_stats.max_abs > 0.95 ? "err"
                   : run.rx_stats.max_abs > 0.7  ? "warn" : "ok";
-    const balCls = Math.abs(run.balance.ratio - 1) > 0.001 ? "warn" : "ok";
+    const bal = run.balance;
+    // Backward-compat: old cached runs may still carry .ratio shape.
+    const balOk = (bal.in_range !== undefined)
+        ? bal.in_range
+        : Math.abs((bal.ratio || 1) - 1) <= 0.001;
+    const balCls = balOk ? "ok" : "warn";
+    const guardMs    = ((bal.actual_guard_sec ?? 0) * 1000).toFixed(1);
+    const guardMinMs = ((bal.guard_min_sec    ?? 0) * 1000).toFixed(0);
+    const guardMaxMs = ((bal.guard_max_sec    ?? 0) * 1000).toFixed(0);
+    const balText = (bal.in_range !== undefined)
+        ? `${guardMs} ms guard  (in [${guardMinMs}, ${guardMaxMs}] ms)`
+        : `${(bal.ratio||1).toFixed(4)} (${f.n(bal.actual||0)}/${f.n(bal.expected||0)})`;
     setKV(document.getElementById("meas-stats"), [
         ["Tone target",   f.freq(run.peak.target_hz)],
         ["Tone measured", f.freq(run.peak.measured_hz)],
@@ -215,8 +226,7 @@ function renderRun(run) {
         ["RX max |z|",    run.rx_stats.max_abs.toFixed(3) +
                           (run.rx_stats.max_abs > 0.95 ? " — CLIPPING" : ""), clipCls],
         ["RX clipped",    f.n(run.rx_stats.clips) + " samples", run.rx_stats.clips > 0 ? "warn" : ""],
-        ["Sample balance", run.balance.ratio.toFixed(4) +
-                          ` (${f.n(run.balance.actual)}/${f.n(run.balance.expected)})`, balCls],
+        ["Sample balance", balText, balCls],
         ["Round-trip",    (run.elapsed_ms/1000).toFixed(2) + " s"],
     ]);
 

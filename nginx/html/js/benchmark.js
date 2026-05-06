@@ -326,10 +326,17 @@ async function runBenchmark({ token, toneFreqHz, nSamples, onStatus }) {
 
     // 4) split RX
     const totalSamples = rx.length / 2;
-    const expectedSamples = Math.round(
-        (Number(info.begin_guard_min_sec || 0.1) +
-         nSamples / fs +
-         Number(info.end_guard_min_sec   || 0.1)) * fs);
+    // Guards may be randomised between min and max — derive the actual
+    // total guard from the recorded sample count and just check it falls
+    // inside the legal [min, max] window.
+    const begin_min = Number(info.begin_guard_min_sec ?? 0.1);
+    const begin_max = Number(info.begin_guard_max_sec ?? begin_min);
+    const end_min   = Number(info.end_guard_min_sec   ?? 0.1);
+    const end_max   = Number(info.end_guard_max_sec   ?? end_min);
+    const total_guard_min_s = begin_min + end_min;
+    const total_guard_max_s = begin_max + end_max;
+    const total_recorded_s  = totalSamples / fs;
+    const total_guard_s     = total_recorded_s - nSamples / fs;
 
     // rx_core = rx[guard : guard + nSamples]
     const coreRe = new Float32Array(nSamples);
@@ -389,9 +396,14 @@ async function runBenchmark({ token, toneFreqHz, nSamples, onStatus }) {
         info,
         params: { toneFreqHz, nSamples, guard_samples },
         balance: {
-            actual: totalSamples,
-            expected: expectedSamples,
-            ratio: totalSamples / expectedSamples,
+            actual_samples: totalSamples,
+            actual_total_sec: total_recorded_s,
+            actual_guard_sec: total_guard_s,
+            guard_min_sec:    total_guard_min_s,
+            guard_max_sec:    total_guard_max_s,
+            // Tolerate ±2 samples of rounding on each side.
+            in_range: total_guard_s >= total_guard_min_s - 2/fs
+                   && total_guard_s <= total_guard_max_s + 2/fs,
         },
         tx: { f: txSampDown.f, mag_db: txSampDown.y },
         rx: { f: rxSampDown.f, mag_db: rxSampDown.y },
