@@ -18,7 +18,14 @@ class UnitInput {
     constructor(host, opts = {}) {
         this.host          = host;
         this.units         = opts.units || [{ key: "u", label: "", mul: 1 }];
-        this.displayUnit   = opts.defaultUnit || this.units[0].key;
+        // `persistKey` lets us remember the user's last chosen unit per
+        // setting key in localStorage so it survives page reloads.
+        this.persistKey    = opts.persistKey || null;
+        const stored       = this.persistKey
+            ? localStorage.getItem(`usrp.unit.${this.persistKey}`)
+            : null;
+        const valid        = stored && this.units.some(u => u.key === stored);
+        this.displayUnit   = valid ? stored : (opts.defaultUnit || this.units[0].key);
         this.value         = 0;                         // canonical numeric
         this.onChange      = opts.onChange || (() => {});
         this.multiplierFn  = opts.multiplierFn || null; // for "samples"
@@ -51,6 +58,9 @@ class UnitInput {
         this.input.addEventListener("input",  () => this.onChange(this.getValue()));
         this.select.addEventListener("change", () => {
             this.displayUnit = this.select.value;
+            if (this.persistKey) {
+                try { localStorage.setItem(`usrp.unit.${this.persistKey}`, this.displayUnit); } catch {}
+            }
             this._renderInput();
             this.onChange(this.getValue());
         });

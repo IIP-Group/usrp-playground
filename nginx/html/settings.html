@@ -349,6 +349,7 @@ function render() {
             const w = new UnitInput(el, {
                 units: fu.units,
                 defaultUnit: fu.defaultUnit,
+                persistKey: `settings.${key}`,
                 multiplierFn: sampleRateHz,
                 onChange: () => onChange(key),
             });
