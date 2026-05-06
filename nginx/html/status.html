@@ -133,11 +133,12 @@
             line-height: 1;
         }
 
-        @media (max-width: 700px) {
-            .animal-zebra, .animal-lion, .cloud-2 { display: none; }
-        }
-        @media (max-width: 460px) {
-            .animal-elephant { display: none; }
+        /* Portrait / narrow viewports: SVG is anchored to the bottom via
+           xMidYMax meet, so the animals never get cropped. The empty top
+           is filled by the .stage CSS gradient (same sky colours). */
+        @media (max-aspect-ratio: 4/5) {
+            .label { top: 8%; }
+            .label .big { font-size: clamp(40px, 14vw, 110px); }
         }
     </style>
 </head>
@@ -146,7 +147,7 @@
 <div id="stage" class="stage unknown">
 
     <svg class="scene" viewBox="0 0 1200 600"
-         preserveAspectRatio="xMidYMid slice"
+         preserveAspectRatio="xMidYMax meet"
          aria-hidden="true">
 
         <g class="celestial">
@@ -494,10 +495,10 @@
                       stroke="var(--animal-2)" stroke-width="11" fill="none" stroke-linecap="round"/>
                 <path d="M53,28 q4,2 8,0" stroke="#1a1410" stroke-width="1.4" fill="none" stroke-linecap="round"/>
                 <path d="M64,42 q2,6 -4,8" stroke="#f8f0d8" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                <g transform="translate(-26,14)"><g>
+                <g transform="translate(78,14)"><g>
                     <text x="0" y="0" font-size="22" font-weight="bold" fill="var(--label-fg)">z</text>
                     <animateTransform attributeName="transform" type="translate"
-                                      values="0 0; -8 -28; 6 -50; -4 -70"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
                                       keyTimes="0; 0.35; 0.65; 1"
                                       dur="3.5s" begin="-0.5s" repeatCount="indefinite"/>
                     <animate attributeName="opacity"
@@ -505,10 +506,10 @@
                              keyTimes="0; 0.1; 0.4; 0.7; 1"
                              dur="3.5s" begin="-0.5s" repeatCount="indefinite"/>
                 </g></g>
-                <g transform="translate(-40,-4)"><g>
+                <g transform="translate(86,-4)"><g>
                     <text x="0" y="0" font-size="16" font-weight="bold" fill="var(--label-fg)">z</text>
                     <animateTransform attributeName="transform" type="translate"
-                                      values="0 0; -8 -28; 6 -50; -4 -70"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
                                       keyTimes="0; 0.35; 0.65; 1"
                                       dur="3.5s" begin="-1.8s" repeatCount="indefinite"/>
                     <animate attributeName="opacity"
