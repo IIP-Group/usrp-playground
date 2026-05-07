@@ -198,7 +198,7 @@
                 <span class="sp"></span>
                 <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-template" title="Reload template">↺ Load template</button>
             </div>
-            <textarea id="mail-body" rows="10" style="width: 100%; font-family: var(--mono);"></textarea>
+            <textarea id="mail-body" rows="6" style="width: 100%; font-family: var(--mono);"></textarea>
         </div>
 
         <div class="actions">
@@ -567,8 +567,10 @@ document.getElementById("btn-send-mails").addEventListener("click", async () => 
             parts.push("</tbody></table>");
         }
         resEl.innerHTML = parts.join("");
+        resEl.scrollIntoView({ behavior: "smooth", block: "end" });
     } catch (e) {
         resEl.innerHTML = `<div class="notice err">${esc(e.message)}</div>`;
+        resEl.scrollIntoView({ behavior: "smooth", block: "end" });
     }
 });
 
