@@ -392,8 +392,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .modal {
     width: 560px;
     max-width: 90vw;
-    max-height: 85vh;
-    overflow-y: auto;
+    max-height: 90vh;
+    overflow: hidden;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -405,6 +405,19 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     display: flex; justify-content: flex-end; gap: 8px;
     margin-top: 20px;
 }
+
+/* Email send result — single big check / cross, no list */
+.send-mark {
+    display: flex; align-items: center; justify-content: center;
+    margin: 14px auto 0;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    font-size: 32px; font-weight: 800;
+    line-height: 1;
+}
+.send-mark-ok      { background: #1a3d28; color: #6fdc8c; }
+.send-mark-err     { background: #3d1a1a; color: #ff6b6b; }
+.send-mark-pending { background: var(--bg-elev); color: var(--text-dim); }
 
 /* ---------- Misc ---------- */
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

@@ -553,24 +553,15 @@ document.getElementById("btn-send-mails").addEventListener("click", async () => 
         body: document.getElementById("mail-body").value,
     };
     const resEl = document.getElementById("send-results");
-    resEl.innerHTML = '<div class="notice">Sending…</div>';
+    resEl.innerHTML = '<div class="send-mark send-mark-pending">…</div>';
     try {
         const r = await apiFetch("/email/send", {method: "POST", body: JSON.stringify(payload)});
-        const ok = r.results.filter(x => x.ok).length;
-        const fail = r.results.length - ok;
-        const parts = [`<div class="notice ${fail ? 'warn' : 'ok'}"><strong>${ok}</strong> sent, <strong>${fail}</strong> failed</div>`];
-        if (fail > 0) {
-            parts.push('<table><thead><tr><th>User</th><th>Status</th></tr></thead><tbody>');
-            for (const x of r.results.filter(x => !x.ok)) {
-                parts.push(`<tr><td>${esc(x.eth_id)}</td><td class="text-err">${esc(x.message)}</td></tr>`);
-            }
-            parts.push("</tbody></table>");
-        }
-        resEl.innerHTML = parts.join("");
-        resEl.scrollIntoView({ behavior: "smooth", block: "end" });
-    } catch (e) {
-        resEl.innerHTML = `<div class="notice err">${esc(e.message)}</div>`;
-        resEl.scrollIntoView({ behavior: "smooth", block: "end" });
+        const fail = r.results.filter(x => !x.ok).length;
+        resEl.innerHTML = fail === 0
+            ? '<div class="send-mark send-mark-ok">✓</div>'
+            : '<div class="send-mark send-mark-err">✗</div>';
+    } catch {
+        resEl.innerHTML = '<div class="send-mark send-mark-err">✗</div>';
     }
 });
 
