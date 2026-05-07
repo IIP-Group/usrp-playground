@@ -554,15 +554,18 @@ document.getElementById("btn-send-mails").addEventListener("click", async () => 
     };
     const resEl = document.getElementById("send-results");
     resEl.innerHTML = '<div class="send-mark send-mark-pending">…</div>';
+    const close = () => closeModal("modal-email");
     try {
         const r = await apiFetch("/email/send", {method: "POST", body: JSON.stringify(payload)});
         const fail = r.results.filter(x => !x.ok).length;
         resEl.innerHTML = fail === 0
-            ? '<div class="send-mark send-mark-ok">✓</div>'
-            : '<div class="send-mark send-mark-err">✗</div>';
+            ? '<div class="send-mark send-mark-ok" title="Click to close">✓</div>'
+            : '<div class="send-mark send-mark-err" title="Click to close">✗</div>';
     } catch {
-        resEl.innerHTML = '<div class="send-mark send-mark-err">✗</div>';
+        resEl.innerHTML = '<div class="send-mark send-mark-err" title="Click to close">✗</div>';
     }
+    const mark = resEl.querySelector(".send-mark");
+    if (mark) mark.addEventListener("click", close);
 });
 
 function readSmtp() {

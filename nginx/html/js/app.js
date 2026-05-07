@@ -98,10 +98,18 @@ async function requireAuth() {
 
 // ---- Modal helpers ----
 function openModal(id) {
-    document.getElementById(id).classList.add("open");
+    const el = document.getElementById(id);
+    el.classList.remove("closing");
+    el.classList.add("open");
 }
 function closeModal(id) {
-    document.getElementById(id).classList.remove("open");
+    const el = document.getElementById(id);
+    if (!el.classList.contains("open")) return;
+    el.classList.add("closing");
+    // Wait for the CSS transition (260ms) before fully hiding the modal.
+    setTimeout(() => {
+        el.classList.remove("open", "closing");
+    }, 260);
 }
 
 // ---- Password confirmation modal ----

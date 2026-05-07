@@ -387,8 +387,11 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     display: none;
     align-items: center;
     justify-content: center;
+    opacity: 0;
+    transition: opacity 220ms ease;
 }
-.modal-backdrop.open { display: flex; }
+.modal-backdrop.open    { display: flex; opacity: 1; }
+.modal-backdrop.closing { opacity: 0; }
 .modal {
     width: 560px;
     max-width: 90vw;
@@ -399,6 +402,18 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     border-radius: var(--radius);
     padding: 24px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    transform: scale(0.92) translateY(8px);
+    opacity: 0;
+    transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                opacity   220ms ease;
+}
+.modal-backdrop.open .modal {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+}
+.modal-backdrop.closing .modal {
+    transform: scale(0.88) translateY(12px);
+    opacity: 0;
 }
 .modal h3 { margin-bottom: 16px; font-size: 16px; }
 .modal .actions {
@@ -406,7 +421,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     margin-top: 20px;
 }
 
-/* Email send result — single big check / cross, no list */
+/* Email send result — single big check / cross, click to close */
 .send-mark {
     display: flex; align-items: center; justify-content: center;
     margin: 14px auto 0;
@@ -414,7 +429,12 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     border-radius: 50%;
     font-size: 32px; font-weight: 800;
     line-height: 1;
+    transition: transform 150ms ease;
 }
+.send-mark-ok,
+.send-mark-err  { cursor: pointer; }
+.send-mark-ok:hover,
+.send-mark-err:hover { transform: scale(1.08); }
 .send-mark-ok      { background: #1a3d28; color: #6fdc8c; }
 .send-mark-err     { background: #3d1a1a; color: #ff6b6b; }
 .send-mark-pending { background: var(--bg-elev); color: var(--text-dim); }
