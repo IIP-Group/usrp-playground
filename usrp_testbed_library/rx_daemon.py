@@ -234,6 +234,30 @@ class RXDaemon(BaseUSRPDaemon):
             n_ch = len(self.channels)
             rx_signal = np.zeros((n_ch, n_requested_samples), dtype=np.complex64)
 
+            # B210 in multi-channel mode needs a streamer "warm-up": the very
+            # first stream_cmd issued after creating a new RX streamer is
+            # frequently lost, so the next recv() times out without ever
+            # producing samples. Kicking off a tiny start_cont / stop_cont
+            # cycle first makes the AD9361 path reliably honour the timed
+            # num_done request that follows.
+            if n_ch > 1:
+                warmup_cmd = StreamCMD(StreamMode.start_cont)
+                warmup_cmd.stream_now = True
+                self.rx_streamer.issue_stream_cmd(warmup_cmd)
+                warmup_md = RXMetadata()
+                warmup_buf = np.zeros(
+                    (n_ch, self.rx_streamer.get_max_num_samps()),
+                    dtype=np.complex64,
+                )
+                for _ in range(4):
+                    self.rx_streamer.recv(warmup_buf, warmup_md, 0.1)
+                self.rx_streamer.issue_stream_cmd(StreamCMD(StreamMode.stop_cont))
+                # drain whatever is still in flight
+                for _ in range(4):
+                    self.rx_streamer.recv(warmup_buf, warmup_md, 0.05)
+                    if warmup_md.error_code == RXMetadataErrorCode.timeout:
+                        break
+
             rx_start_time = TimeSpec(self.usrp.get_time_now().get_real_secs() + delay)
 
             stream_cmd = StreamCMD(StreamMode.num_done)
@@ -244,7 +268,7 @@ class RXDaemon(BaseUSRPDaemon):
 
             metadata = RXMetadata()
             chunk_size = self.rx_streamer.get_max_num_samps()
-            
+
             rx_buffer = np.zeros((n_ch, chunk_size), dtype=np.complex64)
 
             samples_received = 0
