@@ -23,23 +23,32 @@ MAX_SAMPLES = int(os.getenv("MAX_SAMPLES", "2500000"))
 
 
 def process_f32(task_uid):
+    from usrp_testbed_library.mimo_format import (
+        is_mimo_blob, decode_mimo, decode_siso, encode_siso, encode_mimo,
+    )
+
     out_dir = OUTPUT_DIR / task_uid
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    raw = np.fromfile(str(INPUT_DIR / task_uid / "input.f32"), dtype=np.float32)
-    if len(raw) % 2 != 0:
-        raw = raw[:-1]
-    signal = raw[0::2] + 1j * raw[1::2]
+    blob = (INPUT_DIR / task_uid / "input.f32").read_bytes()
 
-    if len(signal) > MAX_SAMPLES:
-        raise ValueError(f"Signal too large: {len(signal)} samples (max {MAX_SAMPLES})")
+    if is_mimo_blob(blob):
+        signal = decode_mimo(blob)           # shape (n_samples, n_channels)
+        n_samples = signal.shape[0]
+    else:
+        signal = decode_siso(blob)           # shape (n_samples,)
+        n_samples = signal.shape[0]
+
+    if n_samples > MAX_SAMPLES:
+        raise ValueError(f"Signal too large: {n_samples} samples (max {MAX_SAMPLES})")
 
     received = send_and_receive(signal)
 
-    out = np.empty(len(received) * 2, dtype=np.float32)
-    out[0::2] = received.real.astype(np.float32)
-    out[1::2] = received.imag.astype(np.float32)
-    out.tofile(str(out_dir / "output.f32"))
+    out_path = out_dir / "output.f32"
+    if received.ndim == 2:
+        out_path.write_bytes(encode_mimo(received))
+    else:
+        out_path.write_bytes(encode_siso(received))
 
 
 def _server_running(db):

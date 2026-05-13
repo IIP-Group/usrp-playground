@@ -79,6 +79,8 @@ def _radio_info(db: Session) -> dict:
         "begin_guard_max_sec":  float(g("BEGIN_GUARD_MAX_SEC", 0.1)),
         "end_guard_min_sec":    float(g("END_GUARD_MIN_SEC", 0.1)),
         "end_guard_max_sec":    float(g("END_GUARD_MAX_SEC", 0.1)),
+        "mimo_enabled":         bool(g("MIMO_ENABLED", False)),
+        "mimo_max_channels":    int(g("MIMO_MAX_CHANNELS", 2)),
     }
 
 
@@ -177,14 +179,78 @@ async def ws_run(ws: WebSocket):
 
         await _ws_send(ws, message="info", **radio_info)
 
-        # -------- Receive bytes (with timeout against slow-loris) --------
+        # -------- Receive payload (with optional mode-handshake) -----------
+        # Protocol:
+        #   * Client MAY send a TEXT frame first:
+        #       {"mode": "siso"}                       (same as no handshake)
+        #       {"mode": "mimo", "channels": <int>}    (multi-channel upload)
+        #   * Then exactly ONE BINARY frame containing the payload.
+        #     SISO  payload  = raw float32 interleaved I/Q
+        #     MIMO  payload  = mimo_format header + channel-sequential IQ
+        # Backward compat: if the first frame is already binary, it's SISO.
+        mimo_enabled = bool(radio_info.get("mimo_enabled", False))
+        mimo_max_ch = int(radio_info.get("mimo_max_channels", 2))
+        mode = "siso"
+        announced_channels = 1
         try:
-            data = await asyncio.wait_for(ws.receive_bytes(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"])
+            first = await asyncio.wait_for(
+                ws.receive(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"]
+            )
         except asyncio.TimeoutError:
             with SessionLocal() as db:
                 _log(db, "upload_timeout", token_id=token_id, eth_id=eth_id, ip=ip)
             await _ws_send(ws, error="upload_timeout",
-                           message=f"No upload within {_LIMITS["UPLOAD_TIMEOUT_SEC"]:.0f}s")
+                           message=f"No upload within {_LIMITS['UPLOAD_TIMEOUT_SEC']:.0f}s")
+            await ws.close()
+            return
+
+        if first.get("type") == "websocket.disconnect":
+            raise WebSocketDisconnect(first.get("code", 1006))
+
+        data = None
+        if "text" in first and first["text"] is not None:
+            try:
+                handshake = json.loads(first["text"])
+            except Exception:
+                await _ws_send(ws, error="bad_handshake",
+                               message="First text frame must be JSON")
+                await ws.close()
+                return
+            mode = str(handshake.get("mode", "siso")).lower()
+            if mode not in ("siso", "mimo"):
+                await _ws_send(ws, error="bad_handshake",
+                               message=f"Unknown mode '{mode}'")
+                await ws.close()
+                return
+            if mode == "mimo":
+                if not mimo_enabled:
+                    await _ws_send(ws, error="mimo_disabled",
+                                   message="MIMO is disabled on the server")
+                    await ws.close()
+                    return
+                announced_channels = int(handshake.get("channels", 1))
+                if announced_channels < 1 or announced_channels > mimo_max_ch:
+                    await _ws_send(ws, error="bad_handshake",
+                                   message=f"channels must be 1..{mimo_max_ch}")
+                    await ws.close()
+                    return
+            await _ws_send(ws, message="ack", mode=mode, channels=announced_channels)
+            try:
+                data = await asyncio.wait_for(
+                    ws.receive_bytes(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"]
+                )
+            except asyncio.TimeoutError:
+                with SessionLocal() as db:
+                    _log(db, "upload_timeout", token_id=token_id, eth_id=eth_id, ip=ip)
+                await _ws_send(ws, error="upload_timeout",
+                               message=f"No payload within {_LIMITS['UPLOAD_TIMEOUT_SEC']:.0f}s")
+                await ws.close()
+                return
+        elif "bytes" in first and first["bytes"] is not None:
+            data = first["bytes"]
+        else:
+            await _ws_send(ws, error="bad_frame",
+                           message="Expected text handshake or binary payload")
             await ws.close()
             return
 
@@ -197,12 +263,35 @@ async def ws_run(ws: WebSocket):
             await ws.close()
             return
 
+        # Quick payload sanity-check against the announced mode. Catches
+        # the obvious foot-gun where someone says mode=mimo but forgets the
+        # 16-byte header.
+        is_mimo_blob = len(data) >= 8 and data[:8] == b"MIMO\x00\x00\x00\x00"
+        if mode == "mimo" and not is_mimo_blob:
+            await _ws_send(ws, error="bad_payload",
+                           message="mode=mimo but payload has no MIMO header")
+            await ws.close()
+            return
+        if mode == "siso" and is_mimo_blob:
+            # MIMO blob without handshake — reject so we never silently
+            # accept multi-channel data while MIMO is off.
+            if not mimo_enabled:
+                await _ws_send(ws, error="mimo_disabled",
+                               message="MIMO is disabled on the server")
+                await ws.close()
+                return
+            mode = "mimo"
+
         # -------- Create task --------
         task_uid = uuid.uuid4()
         task_dir = INPUT_DIR / str(task_uid)
         task_dir.mkdir(parents=True)
         (task_dir / "input.f32").write_bytes(data)
-        n_samples = len(data) // 8
+        if mode == "mimo":
+            # 16-byte header + channels * samples * 8 bytes IQ
+            n_samples = max(0, (len(data) - 16) // (announced_channels * 8))
+        else:
+            n_samples = len(data) // 8
 
         with SessionLocal() as db:
             task = Task(uid=task_uid, token_id=token_id, n_samples=n_samples)
@@ -254,8 +343,11 @@ async def ws_run(ws: WebSocket):
                 with SessionLocal() as db:
                     _log(db, "download", token_id=token_id, eth_id=eth_id, ip=ip,
                          detail=f"uid={task_uid}")
-                await _ws_send(ws, message="done", uid=str(task_uid))
-                await ws.send_bytes(f32_path.read_bytes())
+                out_bytes = f32_path.read_bytes()
+                out_is_mimo = len(out_bytes) >= 8 and out_bytes[:8] == b"MIMO\x00\x00\x00\x00"
+                await _ws_send(ws, message="done", uid=str(task_uid),
+                               mode="mimo" if out_is_mimo else "siso")
+                await ws.send_bytes(out_bytes)
             else:
                 await _ws_send(ws, error="no_output", message="Output file not found")
 

@@ -138,6 +138,19 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "RX Antenna",
         "desc": "USRP antenna port used for receive (e.g. RX1)."},
 
+    # MIMO
+    "MIMO_ENABLED":         {"type": "bool",  "group": "radio",
+        "label": "MIMO Enabled",
+        "desc": "Allow students to send multi-channel (MIMO) signals. When "
+                "off, the server rejects any upload that announces mode=mimo "
+                "and only accepts single-channel SISO."},
+    "MIMO_MAX_CHANNELS":    {"type": "int",   "group": "radio",
+        "label": "MIMO Max Channels",
+        "min": 1, "max": 4,
+        "disabled_when": {"key": "MIMO_ENABLED", "equals": False},
+        "desc": "Maximum number of channels accepted in a MIMO upload. "
+                "B210 has 2 TX/RX paths, so 2 is the natural cap."},
+
     # Guard (random uniform)
     "BEGIN_GUARD_MIN_SEC":  {"type": "float", "group": "guard",
         "label": "Begin Guard Min",

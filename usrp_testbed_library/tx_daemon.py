@@ -366,6 +366,24 @@ class TXDaemon(BaseUSRPDaemon):
 
                 signal_data = f['tx_signal'][:]
 
+                # Multichannel mode: dataset is (n_channels, n_samples). Each
+                # row is one channel's signal. _assemble_tx_signal will place
+                # row i on sync_channels[i] / intf_channels[i] (in order).
+                multichannel = bool(f['/tx_signal'].attrs.get('multichannel', False))
+                if multichannel:
+                    if signal_data.ndim != 2:
+                        raise ValueError(
+                            f"multichannel=True but signal is {signal_data.ndim}D, "
+                            f"expected (n_channels, n_samples)"
+                        )
+                    if signal_data.dtype != np.complex64:
+                        signal_data = signal_data.astype(np.complex64)
+                    if signal_data.size == 0:
+                        raise ValueError(f"Empty {signal_type} signal in file: {file_path}")
+                    if np.all(signal_data == 0):
+                        raise ValueError(f"All-zero {signal_type} signal in file: {file_path}")
+                    return signal_data  # 2D
+
                 # Check if data is in interleaved real/imag format (MATLAB compatibility)
                 if 'complex_format' in f['/tx_signal'].attrs:
                     complex_format = f['/tx_signal'].attrs['complex_format']
@@ -420,40 +438,55 @@ class TXDaemon(BaseUSRPDaemon):
                 raise ValueError(f"Error reading {signal_type} signal file {file_path}: {str(e)}")
 
     def _assemble_tx_signal(self):
-        """Assemble the final multi-channel transmission signal matrix."""
-        # Determine signal lengths
-        sync_length = len(self.sync_signal_data) if self.sync_signal_data is not None else 0
-        intf_length = len(self.intf_signal_data) if self.intf_signal_data is not None else 0
+        """Assemble the final multi-channel transmission signal matrix.
 
-        # Total samples is the maximum of the two signals
+        Each of `sync_signal_data` / `intf_signal_data` may be either:
+          * 1-D — the same signal is replicated onto every channel in the
+            corresponding list (legacy / SISO behaviour).
+          * 2-D (n_channels, n_samples) — row i goes to the i-th channel
+            of the list, enabling true per-channel MIMO transmission.
+        """
+        def _len(arr):
+            if arr is None:
+                return 0
+            return arr.shape[-1] if arr.ndim >= 1 else 0
+
+        sync_length = _len(self.sync_signal_data)
+        intf_length = _len(self.intf_signal_data)
+
         self.signal_samples = max(sync_length, intf_length)
-
-        # Validate that we have at least one signal with data
         if self.signal_samples == 0:
             raise RuntimeError("No signal data loaded for transmission")
 
-        # Determine max channel for matrix sizing
         all_channels = []
         if self.sync_channels:
             all_channels.extend(self.sync_channels)
         if self.intf_channels:
             all_channels.extend(self.intf_channels)
-
         if not all_channels:
             raise RuntimeError("No channels configured for signal assembly")
 
         max_channel = max(all_channels)
         self.tx_signal = np.zeros((max_channel + 1, self.signal_samples), dtype=np.complex64)
 
-        # Place synchronization signal (if present)
-        if self.sync_signal_data is not None and self.sync_channels:
-            for ch in self.sync_channels:
-                self.tx_signal[ch, :sync_length] = self.sync_signal_data
+        def _place(signal_data, channel_list, length):
+            if signal_data is None or not channel_list:
+                return
+            if signal_data.ndim == 2:
+                n_rows = signal_data.shape[0]
+                if n_rows != len(channel_list):
+                    raise ValueError(
+                        f"multichannel signal has {n_rows} rows but channel list "
+                        f"has {len(channel_list)} entries"
+                    )
+                for i, ch in enumerate(channel_list):
+                    self.tx_signal[ch, :length] = signal_data[i]
+            else:
+                for ch in channel_list:
+                    self.tx_signal[ch, :length] = signal_data
 
-        # Place interference signal on designated channels (if provided)
-        if self.intf_signal_data is not None and self.intf_channels:
-            for ch in self.intf_channels:
-                self.tx_signal[ch, :intf_length] = self.intf_signal_data
+        _place(self.sync_signal_data, self.sync_channels, sync_length)
+        _place(self.intf_signal_data, self.intf_channels, intf_length)
     
     
     def get_device_time(self):

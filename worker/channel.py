@@ -166,9 +166,13 @@ class USRPChannel:
 
         os.makedirs(SIGNAL_DIR, exist_ok=True)
 
-    def _configure(self):
+    def _configure(self, n_channels: int = 1):
         """(Re-)configure both USRPs with current settings. Always runs so that
-        changes made in the admin panel propagate to the hardware."""
+        changes made in the admin panel propagate to the hardware.
+
+        For MIMO, `n_channels` > 1: configure both daemons for channels
+        [0 .. n_channels-1]. Per-channel gain/antenna stay uniform.
+        """
         import zmq
 
         self._connect()
@@ -184,16 +188,24 @@ class USRPChannel:
         antenna_tx = _get("ANTENNA_TX", "TX/RX0")
         antenna_rx = _get("ANTENNA_RX", "RX1")
 
+        if n_channels <= 1:
+            tx_channels = [TX_CHANNEL]
+            rx_channels = [RX_CHANNEL]
+        else:
+            # MIMO: use the first n_channels physical paths
+            tx_channels = list(range(n_channels))
+            rx_channels = list(range(n_channels))
+
         tx_cmd = {
             "op": "CONFIGURE_USRP",
             "fs": fs, "fc": fc,
-            "sync_channels": [TX_CHANNEL],
+            "sync_channels": tx_channels,
             "intf_channels": [],
-            "G_TX": {str(TX_CHANNEL): tx_gain},
+            "G_TX": {str(ch): tx_gain for ch in tx_channels},
             "antenna": antenna_tx,
         }
         if tx_power_dbm is not None:
-            tx_cmd["P_TX_DBM"] = {str(TX_CHANNEL): float(tx_power_dbm)}
+            tx_cmd["P_TX_DBM"] = {str(ch): float(tx_power_dbm) for ch in tx_channels}
         self._tx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._tx_req.send_json(tx_cmd)
         resp = self._tx_req.recv_json()
@@ -214,7 +226,7 @@ class USRPChannel:
         rx_cmd = {
             "op": "CONFIGURE_USRP",
             "fs": fs, "fc": fc,
-            "channels": [RX_CHANNEL],
+            "channels": rx_channels,
             "G_RX": rx_gain,
             "antenna": antenna_rx,
         }
@@ -352,11 +364,29 @@ class USRPChannel:
         self._configured = False
 
     def send_and_receive(self, signal):
+        """Send `signal` and return what was received.
+
+        `signal` may be:
+          * 1-D complex ndarray  → SISO, returns 1-D
+          * 2-D shape (n_samples, n_channels) → MIMO, returns same shape
+        """
         import zmq
         import h5py
 
+        signal = np.asarray(signal)
+        if signal.ndim == 1:
+            n_channels = 1
+            n_samples = signal.shape[0]
+            tx_matrix = None     # will write 1-D dataset (legacy path)
+        elif signal.ndim == 2:
+            n_samples, n_channels = signal.shape
+            # daemon expects (n_channels, n_samples)
+            tx_matrix = signal.T.astype(np.complex64)
+        else:
+            raise ValueError(f"signal must be 1-D or 2-D, got {signal.ndim}-D")
+
         try:
-            self._configure()
+            self._configure(n_channels=n_channels)
         except Exception:
             self._reset_sockets()
             raise
@@ -366,7 +396,6 @@ class USRPChannel:
         begin_guard, end_guard = _get_guard()
         self.last_guard = (begin_guard, end_guard)
 
-        n_samples = len(signal)
         signal_duration = n_samples / fs
 
         while True:
@@ -391,7 +420,11 @@ class USRPChannel:
         rx_cmd_sent = False
         try:
             with h5py.File(tx_file, "w") as f:
-                f.create_dataset("tx_signal", data=signal.astype(np.complex64))
+                if tx_matrix is not None:
+                    ds = f.create_dataset("tx_signal", data=tx_matrix)
+                    ds.attrs["multichannel"] = True
+                else:
+                    f.create_dataset("tx_signal", data=signal.astype(np.complex64))
 
             self._tx_req.setsockopt(zmq.RCVTIMEO, SIGNAL_LOAD_TIMEOUT_MS)
             self._tx_req.send_json({
@@ -464,19 +497,24 @@ class USRPChannel:
 
             with h5py.File(rx_file, "r") as f:
                 rx_data = f["rx_signal"][:]
-                if rx_data.ndim == 2:
-                    rx_data = rx_data[0]
-                # >>> DIAGNOSTIC (3x-frequency-bug) — REMOVE WHEN DONE
+                if n_channels == 1:
+                    if rx_data.ndim == 2:
+                        rx_data = rx_data[0]
+                    out = rx_data.astype(np.complex64)   # 1-D
+                else:
+                    if rx_data.ndim != 2 or rx_data.shape[0] < n_channels:
+                        raise RuntimeError(
+                            f"RX expected {n_channels}-channel data, got shape {rx_data.shape}"
+                        )
+                    # daemon stores (n_channels, n_samples); transpose back
+                    out = rx_data[:n_channels].T.astype(np.complex64)   # (n_samples, n_channels)
                 attrs = dict(f["rx_signal"].attrs)
                 logger.info(
-                    "[DIAG] RX file: %d samples, actual fs=%s, fc=%s "
-                    "(configured fs=%s, requested rx_samples=%s, rx_duration=%.4fs)",
-                    len(rx_data), attrs.get("fs"), attrs.get("fc"),
-                    fs, rx_samples_needed, rx_duration,
+                    "RX file: shape=%s, actual fs=%s, fc=%s (configured fs=%s)",
+                    out.shape, attrs.get("fs"), attrs.get("fc"), fs,
                 )
-                # <<< DIAGNOSTIC
 
-            return rx_data.astype(np.complex64)
+            return out
 
         except Exception:
             # A command was sent but no reply consumed → REQ socket is in

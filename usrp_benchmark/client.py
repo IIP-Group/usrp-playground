@@ -1,4 +1,5 @@
 import json
+import struct
 import sys
 import asyncio
 import threading
@@ -6,6 +7,41 @@ import numpy as np
 import websockets
 import urllib.request
 import urllib.error
+
+
+# ---- MIMO wire format ------------------------------------------------------
+# Must match usrp_testbed_library.mimo_format on the server.
+_MIMO_MAGIC = b"MIMO\x00\x00\x00\x00"
+_MIMO_HEADER_LEN = 16
+
+
+def _is_mimo_blob(data: bytes) -> bool:
+    return len(data) >= _MIMO_HEADER_LEN and data[:8] == _MIMO_MAGIC
+
+
+def _encode_mimo(signal_2d: np.ndarray) -> bytes:
+    arr = np.asarray(signal_2d, dtype=np.complex64)
+    n_samples, n_channels = arr.shape
+    header = _MIMO_MAGIC + struct.pack("<II", n_channels, n_samples)
+    out = np.empty(n_channels * n_samples * 2, dtype=np.float32)
+    for ch in range(n_channels):
+        base = ch * n_samples * 2
+        out[base + 0::2][:n_samples] = arr[:, ch].real
+        out[base + 1::2][:n_samples] = arr[:, ch].imag
+    return header + out.tobytes()
+
+
+def _decode_mimo(data: bytes) -> np.ndarray:
+    n_channels, n_samples = struct.unpack("<II", data[8:16])
+    payload = data[_MIMO_HEADER_LEN:_MIMO_HEADER_LEN + n_channels * n_samples * 8]
+    raw = np.frombuffer(payload, dtype=np.float32)
+    out = np.empty((n_samples, n_channels), dtype=np.complex64)
+    for ch in range(n_channels):
+        base = ch * n_samples * 2
+        I = raw[base + 0:base + n_samples * 2:2]
+        Q = raw[base + 1:base + n_samples * 2:2]
+        out[:, ch] = I + 1j * Q
+    return out
 
 
 def _run_async(coro):
@@ -108,21 +144,49 @@ class USRPClient:
 
     @classmethod
     def send(cls, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
-        signal = np.asarray(signal, dtype=np.complex64)
-        raw = np.empty(len(signal) * 2, dtype=np.float32)
-        raw[0::2] = signal.real
-        raw[1::2] = signal.imag
-        result_bytes = _run_async(cls._ws_send(raw.tobytes(), verbose=verbose))
+        """Send `signal` to the server and return what came back.
+
+        * 1-D complex array → SISO. Returns 1-D complex64.
+        * 2-D array of shape (n_samples, n_channels) → MIMO. Each column
+          is one channel's IQ stream; the returned array has the same
+          shape. The server must have MIMO enabled.
+        """
+        arr = np.asarray(signal)
+        if arr.ndim == 1:
+            arr = arr.astype(np.complex64)
+            raw = np.empty(arr.size * 2, dtype=np.float32)
+            raw[0::2] = arr.real
+            raw[1::2] = arr.imag
+            payload = raw.tobytes()
+            handshake = None
+        elif arr.ndim == 2:
+            n_samples, n_channels = arr.shape
+            payload = _encode_mimo(arr)
+            handshake = {"mode": "mimo", "channels": int(n_channels)}
+        else:
+            raise ValueError(f"signal must be 1-D or 2-D, got {arr.ndim}-D")
+
+        result_bytes = _run_async(
+            cls._ws_send(payload, handshake=handshake, verbose=verbose)
+        )
+
+        if _is_mimo_blob(result_bytes):
+            return _decode_mimo(result_bytes)
         raw_out = np.frombuffer(result_bytes, dtype=np.float32)
         return raw_out[0::2] + 1j * raw_out[1::2]
 
     @classmethod
-    async def _ws_send(cls, data: bytes, verbose: bool = False) -> bytes:
+    async def _ws_send(cls, data: bytes, handshake: dict | None = None,
+                       verbose: bool = False) -> bytes:
         url = f"ws://{cls._base_url()}/ws/run?auth_token={cls._token}"
         async with websockets.connect(url, max_size=200 * 1024 * 1024) as ws:
+            if handshake is not None:
+                await ws.send(json.dumps(handshake))
+                if verbose:
+                    print(f"[handshake] {handshake}")
             await ws.send(data)
             if verbose:
-                print(f"[upload] Sent {len(data):,} bytes ({len(data) // 8:,} samples)")
+                print(f"[upload] Sent {len(data):,} bytes")
 
             result_size = None
 
