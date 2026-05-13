@@ -124,6 +124,15 @@ class TXDaemon(BaseUSRPDaemon):
     def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0", channel_powers=None):
 
         with self._op_guard("configure_usrp"):
+            # `antenna` may be a single string (applied to every channel) or
+            # a dict {ch: name} for per-channel antennas (B210 MIMO needs
+            # TX/RX for ch 0 and TX/RX2 for ch 1). Normalise to a dict so
+            # the rest of the body can index by channel uniformly.
+            def _antenna_for(ch):
+                if isinstance(antenna, dict):
+                    return antenna.get(ch, antenna.get(str(ch)))
+                return antenna
+
             # Validate that at least one type of channel is specified
             if not sync_channels and not intf_channels:
                 raise ValueError("Must specify either sync_channels or intf_channels (or both)")
@@ -178,7 +187,7 @@ class TXDaemon(BaseUSRPDaemon):
                 validate_carrier_frequency(self.usrp, fc, ch, is_tx=True)
                 g = channel_gains.get(ch, None)
                 validate_gain(self.usrp, g, ch, is_tx=True)
-                validate_antenna(self.usrp, antenna, ch, is_tx=True)
+                validate_antenna(self.usrp, _antenna_for(ch), ch, is_tx=True)
 
             # Update channel assignments
             self.sync_channels = sync_channels
@@ -211,7 +220,7 @@ class TXDaemon(BaseUSRPDaemon):
                 prev_gain = prev_ch_config.get('gain')
                 ch_fc_changed = prev_fc is None or not np.isclose(prev_fc, fc, atol=FC_ATOL, rtol=0)
                 ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, expected_gain, atol=G_ATOL, rtol=0)
-                ch_antenna_changed = prev_ch_config.get('antenna') != antenna
+                ch_antenna_changed = prev_ch_config.get('antenna') != _antenna_for(ch)
 
                 # Only set frequency if it changed for this channel
                 if ch_fc_changed:
@@ -244,7 +253,7 @@ class TXDaemon(BaseUSRPDaemon):
 
                 # Only set antenna if it changed for this channel
                 if ch_antenna_changed:
-                    self.usrp.set_tx_antenna(antenna, ch)
+                    self.usrp.set_tx_antenna(_antenna_for(ch), ch)
                 actual_antenna = self.usrp.get_tx_antenna(ch)
 
 
@@ -253,7 +262,7 @@ class TXDaemon(BaseUSRPDaemon):
                     'fc': fc,
                     'gain': expected_gain,
                     'power_dbm': expected_power_dbm,
-                    'antenna': antenna,
+                    'antenna': _antenna_for(ch),
                     'role': role
                 }
 

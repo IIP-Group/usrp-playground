@@ -185,16 +185,37 @@ class USRPChannel:
         tx_power_dbm = _get("TX_POWER_DBM", None, float)
         tx_gain = _get("TX_GAIN_DB", 30.0, float)
         rx_gain = _get("RX_GAIN_DB", 30.0, float)
-        antenna_tx = _get("ANTENNA_TX", "TX/RX0")
-        antenna_rx = _get("ANTENNA_RX", "RX1")
+        antenna_tx_raw = _get("ANTENNA_TX", "TX/RX0")
+        antenna_rx_raw = _get("ANTENNA_RX", "RX1")
+
+        # Allow per-channel antenna names via comma-separated list in .env,
+        # e.g. ANTENNA_TX=TX/RX,TX/RX2 for B210 channels 0 and 1. Falls back
+        # to the SISO default (the first or only value) for legacy configs.
+        def _split_antenna(raw):
+            return [s.strip() for s in str(raw).split(",") if s.strip()]
+        tx_ant_list = _split_antenna(antenna_tx_raw)
+        rx_ant_list = _split_antenna(antenna_rx_raw)
 
         if n_channels <= 1:
             tx_channels = [TX_CHANNEL]
             rx_channels = [RX_CHANNEL]
+            antenna_tx_field = tx_ant_list[0] if tx_ant_list else "TX/RX0"
+            antenna_rx_field = rx_ant_list[0] if rx_ant_list else "RX1"
         else:
             # MIMO: use the first n_channels physical paths
             tx_channels = list(range(n_channels))
             rx_channels = list(range(n_channels))
+            # Build per-channel antenna dict; if .env only specified one name
+            # broadcast it to all channels (B210 needs different names so the
+            # user typically sets a list, e.g. "TX/RX,TX/RX2").
+            antenna_tx_field = {
+                str(ch): (tx_ant_list[ch] if ch < len(tx_ant_list) else tx_ant_list[-1])
+                for ch in tx_channels
+            }
+            antenna_rx_field = {
+                str(ch): (rx_ant_list[ch] if ch < len(rx_ant_list) else rx_ant_list[-1])
+                for ch in rx_channels
+            }
 
         tx_cmd = {
             "op": "CONFIGURE_USRP",
@@ -202,7 +223,7 @@ class USRPChannel:
             "sync_channels": tx_channels,
             "intf_channels": [],
             "G_TX": {str(ch): tx_gain for ch in tx_channels},
-            "antenna": antenna_tx,
+            "antenna": antenna_tx_field,
         }
         if tx_power_dbm is not None:
             tx_cmd["P_TX_DBM"] = {str(ch): float(tx_power_dbm) for ch in tx_channels}
@@ -228,7 +249,7 @@ class USRPChannel:
             "fs": fs, "fc": fc,
             "channels": rx_channels,
             "G_RX": rx_gain,
-            "antenna": antenna_rx,
+            "antenna": antenna_rx_field,
         }
         self._rx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._rx_req.send_json(rx_cmd)

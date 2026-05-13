@@ -94,6 +94,11 @@ class RXDaemon(BaseUSRPDaemon):
     def configure_usrp(self, fs, fc, requested_channels, G_RX, antenna="RX1"):
 
         with self._op_guard("configure_usrp"):
+            def _antenna_for(ch):
+                if isinstance(antenna, dict):
+                    return antenna.get(ch, antenna.get(str(ch)))
+                return antenna
+
             n_channels = self.usrp.get_rx_num_channels()
             available_channels = list(range(n_channels))
 
@@ -124,7 +129,7 @@ class RXDaemon(BaseUSRPDaemon):
             for ch in requested_channels:
                 validate_carrier_frequency(self.usrp, fc, ch, is_tx=False)
                 validate_gain(self.usrp, G_RX, ch, is_tx=False)
-                validate_antenna(self.usrp, antenna, ch, is_tx=False)
+                validate_antenna(self.usrp, _antenna_for(ch), ch, is_tx=False)
 
             # Update channel assignments
             self.channels = requested_channels
@@ -147,7 +152,7 @@ class RXDaemon(BaseUSRPDaemon):
                 prev_gain = prev_ch_config.get('gain')
                 ch_fc_changed = prev_fc is None or not np.isclose(prev_fc, fc, atol=FC_ATOL, rtol=0)
                 ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, G_RX, atol=G_ATOL, rtol=0)
-                ch_antenna_changed = prev_ch_config.get('antenna') != antenna
+                ch_antenna_changed = prev_ch_config.get('antenna') != _antenna_for(ch)
 
                 # Only set frequency if it changed for this channel
                 if ch_fc_changed:
@@ -162,14 +167,14 @@ class RXDaemon(BaseUSRPDaemon):
 
                 # Only set antenna if it changed for this channel
                 if ch_antenna_changed:
-                    self.usrp.set_rx_antenna(antenna, ch)
+                    self.usrp.set_rx_antenna(_antenna_for(ch), ch)
                 actual_antenna = self.usrp.get_rx_antenna(ch)
 
                 # Update per-channel config state
                 self.channel_configs[ch] = {
                     'fc': fc,
                     'gain': G_RX,
-                    'antenna': antenna
+                    'antenna': _antenna_for(ch)
                 }
 
                 actual_settings[ch] = {
