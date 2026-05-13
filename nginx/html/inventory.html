@@ -60,15 +60,18 @@
                 </div>
                 <div class="text-dim" style="font-size: 12px; margin-bottom: 8px;">
                     Each row is one physical USRP. <em>ID</em> is a short handle used
-                    by channel mappings. <em>Ports</em> are comma-separated antenna names
-                    available on that device (e.g. <code>TX/RX, RX2</code> for a B210).
+                    by channel mappings. <em>Identifier</em> is the raw UHD device-args
+                    string — e.g. <code>serial=3485538</code>, <code>addr=192.168.10.2</code>,
+                    <code>name=myusrp</code>, or any combination. <em>Ports</em> are
+                    comma-separated antenna names available on that device
+                    (e.g. <code>TX/RX, RX2</code> for a B210).
                 </div>
                 <table class="inv" id="tbl-usrps">
                     <thead>
                         <tr>
-                            <th style="width: 110px;">ID</th>
+                            <th style="width: 100px;">ID</th>
                             <th>Label</th>
-                            <th style="width: 130px;">Serial</th>
+                            <th style="width: 240px;">Identifier</th>
                             <th style="width: 90px;">Type</th>
                             <th style="width: 80px;">Role</th>
                             <th>Ports</th>
@@ -141,15 +144,19 @@ function renderUsrps() {
     DATA.usrps.forEach((u, idx) => {
         const tr = document.createElement("tr");
         const portsValue = (u.ports || []).join(", ");
+        const idValue = u.identifier || u.args || u.serial || "";
         tr.innerHTML = `
-            <td><input value="${esc(u.id)}"     data-field="id"></td>
-            <td><input value="${esc(u.label)}"  data-field="label"></td>
-            <td><input value="${esc(u.serial)}" data-field="serial"></td>
+            <td><input value="${esc(u.id)}"        data-field="id"></td>
+            <td><input value="${esc(u.label)}"     data-field="label"></td>
+            <td><input value="${esc(idValue)}"     data-field="identifier"
+                        placeholder="serial=… or addr=…"
+                        style="font-family: var(--mono); font-size: 12px;"></td>
             <td>
                 <select data-field="type">
-                    <option ${u.type==='b200'?'selected':''}>b200</option>
-                    <option ${u.type==='x4xx'?'selected':''}>x4xx</option>
-                    <option ${u.type==='x3xx'?'selected':''}>x3xx</option>
+                    <option value=""     ${!u.type        ?'selected':''}>—</option>
+                    <option value="b200" ${u.type==='b200'?'selected':''}>b200</option>
+                    <option value="x4xx" ${u.type==='x4xx'?'selected':''}>x4xx</option>
+                    <option value="x3xx" ${u.type==='x3xx'?'selected':''}>x3xx</option>
                 </select>
             </td>
             <td>
@@ -266,12 +273,18 @@ function renderDiscovery() {
         return;
     }
     const rows = DISCOVERY.devices.map((d, i) => {
-        const known = DATA.usrps.some(u => u.serial === (d.serial || ""));
+        const identifier = d.args
+            || (d.serial ? "serial=" + d.serial : "")
+            || (d.addr   ? "addr="   + d.addr   : "")
+            || (d.name   ? "name="   + d.name   : "");
+        const known = DATA.usrps.some(u =>
+            (u.identifier || u.args || u.serial || "") === identifier
+        );
         return `<tr>
             <td><strong>${esc(d.serial || d.addr || '?')}</strong></td>
             <td>${esc(d.product || d.type || '?')}</td>
             <td>${esc(d.name || '')}</td>
-            <td><code style="font-size:11px;">${esc(d.args || '')}</code></td>
+            <td><code style="font-size:11px;">${esc(identifier)}</code></td>
             <td style="text-align:right;">
                 ${known
                     ? `<span class="text-dim" style="font-size:12px;">already added</span>`
@@ -292,14 +305,19 @@ function renderDiscovery() {
             const defaultPorts = (d.type === "b200") ? ["TX/RX", "RX2"]
                               : (d.type && d.type.startsWith("x4")) ? ["TX/RX0", "RX0", "TX/RX1", "RX1"]
                               : [];
+            // Prefer the daemon-provided args string; fall back to a sensible
+            // identifier built from whatever the discovery returned.
+            const identifier = d.args
+                || (d.serial ? "serial=" + d.serial : "")
+                || (d.addr   ? "addr="   + d.addr   : "")
+                || (d.name   ? "name="   + d.name   : "");
             DATA.usrps.push({
                 id,
                 label: d.product || d.name || id,
-                serial: d.serial || "",
-                type: d.type || "b200",
+                identifier,
+                type: d.type || "",
                 role: "",
                 ports: defaultPorts,
-                args: d.args || "",
             });
             setDirty(); renderAll();
         });
@@ -338,8 +356,8 @@ document.getElementById("btn-refresh").addEventListener("click", async () => {
 document.getElementById("btn-add-usrp").addEventListener("click", () => {
     DATA.usrps.push({
         id: "usrp" + (DATA.usrps.length + 1),
-        label: "", serial: "", type: "b200", role: "",
-        ports: ["TX/RX", "RX2"], args: "",
+        label: "", identifier: "", type: "", role: "",
+        ports: ["TX/RX", "RX2"],
     });
     setDirty(); renderUsrps(); renderChannels();
 });

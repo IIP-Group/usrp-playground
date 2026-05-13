@@ -47,9 +47,12 @@ def write_inventory(data: dict) -> dict:
     usrps = list(data.get("usrps") or [])
     channels = list(data.get("channels") or [])
 
-    # Validate USRPs (id + serial unique, mandatory).
+    # Validate USRPs (id + identifier unique, both mandatory).
+    # `identifier` is whatever UHD needs to find the device — a free-form
+    # string that may contain `serial=…`, `addr=…`, `name=…`, or any
+    # combination separated by commas. We don't try to parse it.
     seen_ids: set[str] = set()
-    seen_serials: set[str] = set()
+    seen_ident: set[str] = set()
     cleaned_usrps = []
     for u in usrps:
         uid = str(u.get("id", "")).strip()
@@ -57,21 +60,27 @@ def write_inventory(data: dict) -> dict:
             raise ValueError("Each USRP needs a non-empty 'id'.")
         if uid in seen_ids:
             raise ValueError(f"Duplicate USRP id: {uid!r}.")
-        serial = str(u.get("serial", "")).strip()
-        if not serial:
-            raise ValueError(f"USRP {uid!r}: serial is required.")
-        if serial in seen_serials:
-            raise ValueError(f"Duplicate serial across USRPs: {serial!r}.")
-        seen_ids.add(uid); seen_serials.add(serial)
+        # Backward compat: older inventories had separate `serial` / `args`.
+        identifier = str(u.get("identifier")
+                         or u.get("args")
+                         or u.get("serial")
+                         or "").strip()
+        if not identifier:
+            raise ValueError(
+                f"USRP {uid!r}: 'identifier' is required "
+                f"(e.g. 'serial=3485538', 'addr=192.168.10.2', 'name=myusrp')."
+            )
+        if identifier in seen_ident:
+            raise ValueError(f"Duplicate identifier across USRPs: {identifier!r}.")
+        seen_ids.add(uid); seen_ident.add(identifier)
         ports = [str(p).strip() for p in (u.get("ports") or []) if str(p).strip()]
         cleaned_usrps.append({
-            "id":      uid,
-            "label":   str(u.get("label", uid)).strip(),
-            "serial":  serial,
-            "type":    str(u.get("type", "b200")).strip(),
-            "role":    str(u.get("role", "")).strip(),    # "tx" / "rx" / ""
-            "ports":   ports,
-            "args":    str(u.get("args", "")).strip(),
+            "id":         uid,
+            "label":      str(u.get("label", uid)).strip(),
+            "identifier": identifier,
+            "type":       str(u.get("type", "")).strip(),
+            "role":       str(u.get("role", "")).strip(),    # "tx" / "rx" / "txrx" / ""
+            "ports":      ports,
         })
 
     # Validate channels (TX-USRP/port → RX-USRP/port, refs must exist).
