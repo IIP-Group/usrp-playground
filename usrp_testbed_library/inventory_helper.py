@@ -135,6 +135,10 @@ def _merged_discovery(known: dict[str, dict]) -> dict:
         if key not in known:
             merged.append(dev)
     live["devices"] = merged
+    # "No UHD Devices Found" is expected when every device is claimed — don't
+    # surface it as a UI error if we still have known devices to show.
+    if merged and live.get("error") and "No UHD Devices Found" in (live.get("raw", "") + (live.get("error") or "")):
+        live["error"] = None
     return live
 
 
