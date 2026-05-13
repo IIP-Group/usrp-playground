@@ -94,5 +94,22 @@ else
     echo "RX daemon started (PID ${RX_PID}), log: ${LOG_DIR}/rx_daemon.log"
 fi
 
+# ---- Inventory helper -----------------------------------------------------
+# Watches the shared /data/inventory volume for discovery triggers from the
+# entrypoint container and responds with uhd_find_devices output.
+INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
+mkdir -p "$INVENTORY_DIR"
+if [ -f "${PID_DIR}/inventory.pid" ] && kill -0 "$(cat ${PID_DIR}/inventory.pid)" 2>/dev/null; then
+    echo "Inventory helper already running (PID $(cat ${PID_DIR}/inventory.pid))"
+else
+    echo "Starting inventory helper ..."
+    INVENTORY_WATCH_DIR="$INVENTORY_DIR" PYTHONPATH="$DAEMON_PYTHONPATH" \
+        "$PYTHON" "${DAEMON_DIR}/inventory_helper.py" \
+        >> "${LOG_DIR}/inventory.log" 2>&1 &
+    INV_PID=$!
+    echo "$INV_PID" > "${PID_DIR}/inventory.pid"
+    echo "Inventory helper started (PID ${INV_PID}), log: ${LOG_DIR}/inventory.log"
+fi
+
 echo ""
 echo "Stop with: ./stop-daemons.sh"

@@ -24,6 +24,7 @@ services:
     env_file: .env
     volumes:
       - ./data/tasks:/data
+      - ./data/inventory:/data/inventory
       - ./.env:/app/.env
     ulimits:
       nofile:

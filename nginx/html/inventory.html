@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hardware — USRP Sandbox</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .inv-tables { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        .inv-section h3 { margin: 0 0 10px; font-size: 15px; }
+        .inv-section .toolbar { gap: 8px; margin-bottom: 10px; }
+        table.inv  { width: 100%; border-collapse: collapse; }
+        table.inv th, table.inv td {
+            padding: 8px 10px; border-bottom: 1px solid var(--border);
+            text-align: left; vertical-align: middle; font-size: 13px;
+        }
+        table.inv th { color: var(--text-dim); font-weight: 600; }
+        table.inv input { width: 100%; box-sizing: border-box; }
+        table.inv td.actions { width: 1%; white-space: nowrap; }
+        .inv-discovered {
+            background: var(--bg-elev); border-radius: 8px; padding: 12px 14px;
+            margin-bottom: 18px; font-size: 13px;
+        }
+        .inv-discovered table { width: 100%; }
+        .inv-discovered td { padding: 4px 8px; }
+        .inv-discovered .add-btn { font-size: 12px; padding: 2px 8px; }
+        .ch-pill {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 8px; border-radius: 10px;
+            background: var(--bg-elev); font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Hardware Inventory</h2>
+            <span class="sp"></span>
+            <button id="btn-refresh"  class="btn">Discover (uhd_find_devices)</button>
+            <button id="btn-save"     class="btn btn-primary" disabled>Save</button>
+        </div>
+
+        <div id="status" class="notice" style="display: none; margin-bottom: 14px;"></div>
+
+        <div class="inv-section" style="margin-bottom: 24px;">
+            <h3>Detected on the host</h3>
+            <div class="inv-discovered" id="discovered">
+                <div class="text-dim">Click <strong>Discover</strong> to scan.</div>
+            </div>
+        </div>
+
+        <div class="inv-tables">
+            <div class="inv-section">
+                <div class="row" style="margin-bottom: 6px;">
+                    <h3 style="margin: 0;">USRPs</h3>
+                    <span class="sp"></span>
+                    <button id="btn-add-usrp" class="btn btn-sm">+ Add USRP</button>
+                </div>
+                <div class="text-dim" style="font-size: 12px; margin-bottom: 8px;">
+                    Each row is one physical USRP. <em>ID</em> is a short handle used
+                    by channel mappings. <em>Ports</em> are comma-separated antenna names
+                    available on that device (e.g. <code>TX/RX, RX2</code> for a B210).
+                </div>
+                <table class="inv" id="tbl-usrps">
+                    <thead>
+                        <tr>
+                            <th style="width: 110px;">ID</th>
+                            <th>Label</th>
+                            <th style="width: 130px;">Serial</th>
+                            <th style="width: 90px;">Type</th>
+                            <th style="width: 80px;">Role</th>
+                            <th>Ports</th>
+                            <th class="actions"></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div class="inv-section">
+                <div class="row" style="margin-bottom: 6px;">
+                    <h3 style="margin: 0;">Channels (TX port → RX port)</h3>
+                    <span class="sp"></span>
+                    <button id="btn-add-channel" class="btn btn-sm">+ Add Channel</button>
+                </div>
+                <div class="text-dim" style="font-size: 12px; margin-bottom: 8px;">
+                    A channel is a physical wire from one USRP's TX port to another USRP's
+                    RX port. The worker uses this list when routing MIMO transmissions.
+                </div>
+                <table class="inv" id="tbl-channels">
+                    <thead>
+                        <tr>
+                            <th style="width: 110px;">ID</th>
+                            <th>Label</th>
+                            <th>TX (USRP / port)</th>
+                            <th>RX (USRP / port)</th>
+                            <th class="actions"></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+initShell("inventory");
+
+let DATA = { usrps: [], channels: [] };
+let DISCOVERY = { devices: [], timestamp: null, error: null };
+let dirty = false;
+
+const status = (msg, kind = "") => {
+    const el = document.getElementById("status");
+    el.style.display = msg ? "" : "none";
+    el.className = "notice " + kind;
+    el.textContent = msg;
+};
+
+const setDirty = (v = true) => {
+    dirty = v;
+    document.getElementById("btn-save").disabled = !v;
+};
+
+function fmtTime(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleTimeString();
+}
+
+function renderUsrps() {
+    const tbody = document.querySelector("#tbl-usrps tbody");
+    tbody.innerHTML = "";
+    if (!DATA.usrps.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-dim" style="text-align:center;padding:18px;">No USRPs added yet. Use “+ Add USRP” or pull one from the discovery list above.</td></tr>`;
+        return;
+    }
+    DATA.usrps.forEach((u, idx) => {
+        const tr = document.createElement("tr");
+        const portsValue = (u.ports || []).join(", ");
+        tr.innerHTML = `
+            <td><input value="${esc(u.id)}"     data-field="id"></td>
+            <td><input value="${esc(u.label)}"  data-field="label"></td>
+            <td><input value="${esc(u.serial)}" data-field="serial"></td>
+            <td>
+                <select data-field="type">
+                    <option ${u.type==='b200'?'selected':''}>b200</option>
+                    <option ${u.type==='x4xx'?'selected':''}>x4xx</option>
+                    <option ${u.type==='x3xx'?'selected':''}>x3xx</option>
+                </select>
+            </td>
+            <td>
+                <select data-field="role">
+                    <option value=""    ${!u.role        ?'selected':''}>—</option>
+                    <option value="tx"  ${u.role==='tx'  ?'selected':''}>tx</option>
+                    <option value="rx"  ${u.role==='rx'  ?'selected':''}>rx</option>
+                    <option value="txrx"${u.role==='txrx'?'selected':''}>txrx</option>
+                </select>
+            </td>
+            <td><input value="${esc(portsValue)}" data-field="ports" placeholder="TX/RX, RX2"></td>
+            <td class="actions">
+                <button class="btn btn-sm btn-ghost" data-action="del-usrp">✕</button>
+            </td>
+        `;
+        tr.querySelectorAll("input, select").forEach(el => {
+            el.addEventListener("input",  () => updateUsrp(idx, el));
+            el.addEventListener("change", () => updateUsrp(idx, el));
+        });
+        tr.querySelector("[data-action=del-usrp]").addEventListener("click", () => {
+            DATA.usrps.splice(idx, 1);
+            // also cull any channel that referenced this USRP
+            DATA.channels = DATA.channels.filter(c => c.tx.usrp !== u.id && c.rx.usrp !== u.id);
+            setDirty(); renderAll();
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+function updateUsrp(idx, el) {
+    const f = el.dataset.field;
+    const u = DATA.usrps[idx];
+    if (f === "ports") {
+        u.ports = el.value.split(",").map(s => s.trim()).filter(Boolean);
+    } else {
+        u[f] = el.value;
+    }
+    setDirty();
+    if (f === "id" || f === "ports") renderChannels();
+}
+
+function renderChannels() {
+    const tbody = document.querySelector("#tbl-channels tbody");
+    tbody.innerHTML = "";
+    if (!DATA.channels.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-dim" style="text-align:center;padding:18px;">No channels defined. Add one to map a TX port of one USRP to an RX port of another.</td></tr>`;
+        return;
+    }
+    const usrpOpt = (selId) => DATA.usrps.map(u =>
+        `<option value="${esc(u.id)}" ${u.id===selId?'selected':''}>${esc(u.id)} (${esc(u.label||u.serial)})</option>`
+    ).join("");
+    const portOpt = (uid, selPort) => {
+        const u = DATA.usrps.find(x => x.id === uid);
+        if (!u) return `<option value="${esc(selPort||'')}">${esc(selPort||'?')}</option>`;
+        return `<option value="">—</option>` + (u.ports || []).map(p =>
+            `<option ${p===selPort?'selected':''}>${esc(p)}</option>`
+        ).join("");
+    };
+    DATA.channels.forEach((c, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><input value="${esc(c.id)}"    data-field="id"></td>
+            <td><input value="${esc(c.label)}" data-field="label"></td>
+            <td>
+                <div class="row" style="gap:6px;">
+                    <select data-field="tx.usrp" style="flex:1;">${usrpOpt(c.tx.usrp)}</select>
+                    <select data-field="tx.port" style="flex:1;">${portOpt(c.tx.usrp, c.tx.port)}</select>
+                </div>
+            </td>
+            <td>
+                <div class="row" style="gap:6px;">
+                    <select data-field="rx.usrp" style="flex:1;">${usrpOpt(c.rx.usrp)}</select>
+                    <select data-field="rx.port" style="flex:1;">${portOpt(c.rx.usrp, c.rx.port)}</select>
+                </div>
+            </td>
+            <td class="actions">
+                <button class="btn btn-sm btn-ghost" data-action="del-ch">✕</button>
+            </td>
+        `;
+        tr.querySelectorAll("input, select").forEach(el => {
+            el.addEventListener("input",  () => updateChannel(idx, el));
+            el.addEventListener("change", () => updateChannel(idx, el));
+        });
+        tr.querySelector("[data-action=del-ch]").addEventListener("click", () => {
+            DATA.channels.splice(idx, 1);
+            setDirty(); renderChannels();
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+function updateChannel(idx, el) {
+    const f = el.dataset.field;
+    const c = DATA.channels[idx];
+    if (f.startsWith("tx.") || f.startsWith("rx.")) {
+        const [side, key] = f.split(".");
+        c[side][key] = el.value;
+        if (key === "usrp") c[side].port = "";   // reset port when usrp changes
+        renderChannels();
+    } else {
+        c[f] = el.value;
+    }
+    setDirty();
+}
+
+function renderDiscovery() {
+    const host = document.getElementById("discovered");
+    if (DISCOVERY.error) {
+        host.innerHTML = `<div class="text-err">${esc(DISCOVERY.error)}</div>`;
+        return;
+    }
+    if (!DISCOVERY.devices.length) {
+        host.innerHTML = `<div class="text-dim">No USRPs detected. Connect a device and click Discover.</div>`;
+        return;
+    }
+    const rows = DISCOVERY.devices.map((d, i) => {
+        const known = DATA.usrps.some(u => u.serial === (d.serial || ""));
+        return `<tr>
+            <td><strong>${esc(d.serial || d.addr || '?')}</strong></td>
+            <td>${esc(d.product || d.type || '?')}</td>
+            <td>${esc(d.name || '')}</td>
+            <td><code style="font-size:11px;">${esc(d.args || '')}</code></td>
+            <td style="text-align:right;">
+                ${known
+                    ? `<span class="text-dim" style="font-size:12px;">already added</span>`
+                    : `<button class="btn btn-sm btn-primary add-btn" data-i="${i}">Add</button>`}
+            </td>
+        </tr>`;
+    }).join("");
+    host.innerHTML = `
+        <div class="text-dim" style="margin-bottom: 8px;">
+            Last scan: ${fmtTime(DISCOVERY.timestamp)} · ${DISCOVERY.devices.length} device(s)
+        </div>
+        <table>${rows}</table>
+    `;
+    host.querySelectorAll(".add-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const d = DISCOVERY.devices[+btn.dataset.i];
+            const id = (d.serial || d.addr || "usrp" + (DATA.usrps.length + 1)).slice(0, 12);
+            const defaultPorts = (d.type === "b200") ? ["TX/RX", "RX2"]
+                              : (d.type && d.type.startsWith("x4")) ? ["TX/RX0", "RX0", "TX/RX1", "RX1"]
+                              : [];
+            DATA.usrps.push({
+                id,
+                label: d.product || d.name || id,
+                serial: d.serial || "",
+                type: d.type || "b200",
+                role: "",
+                ports: defaultPorts,
+                args: d.args || "",
+            });
+            setDirty(); renderAll();
+        });
+    });
+}
+
+function renderAll() {
+    renderUsrps();
+    renderChannels();
+    renderDiscovery();
+}
+
+async function load() {
+    try {
+        const r = await apiFetch("/inventory");
+        DATA      = r.inventory  || { usrps: [], channels: [] };
+        DISCOVERY = r.discovery  || { devices: [], timestamp: null };
+        setDirty(false);
+        renderAll();
+    } catch (e) {
+        status("Could not load inventory: " + e.message, "err");
+    }
+}
+
+document.getElementById("btn-refresh").addEventListener("click", async () => {
+    status("Scanning USRPs on host…");
+    try {
+        DISCOVERY = await apiFetch("/inventory/discover", { method: "POST" });
+        status("");
+        renderDiscovery();
+    } catch (e) {
+        status("Discovery failed: " + e.message, "err");
+    }
+});
+
+document.getElementById("btn-add-usrp").addEventListener("click", () => {
+    DATA.usrps.push({
+        id: "usrp" + (DATA.usrps.length + 1),
+        label: "", serial: "", type: "b200", role: "",
+        ports: ["TX/RX", "RX2"], args: "",
+    });
+    setDirty(); renderUsrps(); renderChannels();
+});
+
+document.getElementById("btn-add-channel").addEventListener("click", () => {
+    if (!DATA.usrps.length) {
+        status("Add at least one USRP first.", "warn");
+        return;
+    }
+    const tx = DATA.usrps[0];
+    const rx = DATA.usrps[DATA.usrps.length > 1 ? 1 : 0];
+    DATA.channels.push({
+        id: "ch" + DATA.channels.length,
+        label: "",
+        tx: { usrp: tx.id, port: (tx.ports || [""])[0] || "" },
+        rx: { usrp: rx.id, port: (rx.ports || [""])[0] || "" },
+    });
+    setDirty(); renderChannels();
+});
+
+document.getElementById("btn-save").addEventListener("click", async () => {
+    status("Saving…");
+    try {
+        const r = await apiFetch("/inventory", { method: "PUT", body: JSON.stringify(DATA) });
+        DATA = r.inventory;
+        setDirty(false);
+        renderAll();
+        status("Saved.", "ok");
+        setTimeout(() => status(""), 1500);
+    } catch (e) {
+        status("Save failed: " + e.message, "err");
+    }
+});
+
+window.addEventListener("beforeunload", e => {
+    if (dirty) { e.preventDefault(); e.returnValue = ""; }
+});
+
+load();
+</script>
+</body>
+</html>

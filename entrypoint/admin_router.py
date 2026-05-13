@@ -22,6 +22,7 @@ import token_gen
 import email_sender
 import server_state
 import settings_store
+import inventory
 
 
 router = APIRouter(prefix="/admin/api", tags=["admin"])
@@ -665,3 +666,30 @@ def settings_reset_one(
     except Exception:
         pass
     return {"ok": True}
+
+
+# ---------------- USRP Inventory ----------------
+
+@router.get("/inventory")
+def inventory_get(_: dict = Depends(auth.require_admin)):
+    """Return the persisted USRP inventory plus the latest discovery snapshot."""
+    return {
+        "inventory": inventory.read_inventory(),
+        "discovery": inventory.latest_discovery(),
+    }
+
+
+@router.put("/inventory")
+def inventory_put(payload: dict, _: dict = Depends(auth.require_admin)):
+    """Replace the whole inventory. Payload schema: {usrps: [...], channels: [...]}"""
+    try:
+        saved = inventory.write_inventory(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "inventory": saved}
+
+
+@router.post("/inventory/discover")
+def inventory_discover(_: dict = Depends(auth.require_admin)):
+    """Trigger uhd_find_devices on the host and wait briefly for the result."""
+    return inventory.wait_for_discovery(timeout_s=6.0)

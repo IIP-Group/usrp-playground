@@ -194,8 +194,26 @@ class TXDaemon(BaseUSRPDaemon):
             self.intf_channels = intf_channels
             self.channels = requested_channels
 
-            # Auto-rebuild signal matrix if signals are loaded and channel config changed
-            if (self.sync_signal_data is not None or self.intf_signal_data is not None) and channels_changed:
+            # Auto-rebuild signal matrix if signals are loaded and channel config changed.
+            # If the loaded signal's per-channel layout (2-D rows) no longer matches the
+            # new channel count, drop the stale signal instead of crashing — the next
+            # LOAD_SIGNAL will provide a fresh matrix that matches.
+            def _incompatible(arr, ch_list):
+                return (arr is not None and arr.ndim == 2
+                        and ch_list is not None
+                        and arr.shape[0] != len(ch_list))
+            if channels_changed and (
+                _incompatible(self.sync_signal_data, sync_channels)
+                or _incompatible(self.intf_signal_data, intf_channels)
+            ):
+                logging.info(
+                    "Channel count changed; dropping stale signal data so the next "
+                    "LOAD_SIGNAL can supply a matching matrix."
+                )
+                self.sync_signal_data = None
+                self.intf_signal_data = None
+                self.tx_signal = None
+            elif (self.sync_signal_data is not None or self.intf_signal_data is not None) and channels_changed:
                 logging.info("Channel configuration changed - rebuilding transmission signal matrix")
                 self._assemble_tx_signal()
 
