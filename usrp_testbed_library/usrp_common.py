@@ -541,8 +541,14 @@ def check_settings_mismatch(actual_settings, requested_params):
             if requested_gain is not None and not np.isclose(settings["G_TX"], requested_gain, rtol=0, atol=G_ATOL):
                 differences["G_TX"] = (settings["G_TX"], requested_gain)
 
-        if settings["antenna"] != requested_params["antenna"]:
-            differences["antenna"] = (settings["antenna"], requested_params["antenna"])
+        # Antenna may have been requested as a single string (broadcast to
+        # every channel) or a per-channel dict. Resolve to the value that
+        # was actually asked for on THIS channel before comparing.
+        req_ant = requested_params["antenna"]
+        if isinstance(req_ant, dict):
+            req_ant = req_ant.get(ch, req_ant.get(str(ch)))
+        if settings["antenna"] != req_ant:
+            differences["antenna"] = (settings["antenna"], req_ant)
 
         if differences:
             mismatches[ch] = differences
