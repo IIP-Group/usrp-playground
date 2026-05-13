@@ -98,7 +98,11 @@ fi
 # Watches the shared /data/inventory volume for discovery triggers from the
 # entrypoint container and responds with uhd_find_devices output.
 INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
-mkdir -p "$INVENTORY_DIR"
+sudo mkdir -p "$INVENTORY_DIR"
+# The Docker container previously may have created the directory as root,
+# so make sure the host user (who runs this helper) can write into it.
+sudo chown "$(id -u):$(id -g)" "$INVENTORY_DIR"
+sudo chmod 0775 "$INVENTORY_DIR"
 if [ -f "${PID_DIR}/inventory.pid" ] && kill -0 "$(cat ${PID_DIR}/inventory.pid)" 2>/dev/null; then
     echo "Inventory helper already running (PID $(cat ${PID_DIR}/inventory.pid))"
 else
