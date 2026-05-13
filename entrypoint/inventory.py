@@ -87,6 +87,15 @@ def write_inventory(data: dict) -> dict:
     usrp_index = {u["id"]: u for u in cleaned_usrps}
     cleaned_channels = []
     seen_ch_ids: set[str] = set()
+
+    def _num(value, default=None):
+        if value in ("", None):
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     for c in channels:
         cid = str(c.get("id", "")).strip()
         if not cid:
@@ -110,8 +119,17 @@ def write_inventory(data: dict) -> dict:
         cleaned_channels.append({
             "id":    cid,
             "label": str(c.get("label", cid)).strip(),
-            "tx":    {"usrp": tx_id, "port": tx_port},
-            "rx":    {"usrp": rx_id, "port": rx_port},
+            "tx":    {
+                "usrp":      tx_id,
+                "port":      tx_port,
+                "gain_db":   _num(tx.get("gain_db")),
+                "power_dbm": _num(tx.get("power_dbm")),
+            },
+            "rx":    {
+                "usrp":    rx_id,
+                "port":    rx_port,
+                "gain_db": _num(rx.get("gain_db")),
+            },
         })
 
     out = {"usrps": cleaned_usrps, "channels": cleaned_channels}

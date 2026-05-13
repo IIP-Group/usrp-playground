@@ -95,10 +95,10 @@
                 <table class="inv" id="tbl-channels">
                     <thead>
                         <tr>
-                            <th style="width: 110px;">ID</th>
-                            <th>Label</th>
-                            <th>TX (USRP / port)</th>
-                            <th>RX (USRP / port)</th>
+                            <th style="width: 90px;">ID</th>
+                            <th style="width: 110px;">Label</th>
+                            <th>TX (USRP / port / gain dB)</th>
+                            <th>RX (USRP / port / gain dB)</th>
                             <th class="actions"></th>
                         </tr>
                     </thead>
@@ -217,19 +217,27 @@ function renderChannels() {
     };
     DATA.channels.forEach((c, idx) => {
         const tr = document.createElement("tr");
+        const txGain = c.tx && c.tx.gain_db != null ? c.tx.gain_db : "";
+        const rxGain = c.rx && c.rx.gain_db != null ? c.rx.gain_db : "";
         tr.innerHTML = `
             <td><input value="${esc(c.id)}"    data-field="id"></td>
             <td><input value="${esc(c.label)}" data-field="label"></td>
             <td>
                 <div class="row" style="gap:6px;">
-                    <select data-field="tx.usrp" style="flex:1;">${usrpOpt(c.tx.usrp)}</select>
-                    <select data-field="tx.port" style="flex:1;">${portOpt(c.tx.usrp, c.tx.port)}</select>
+                    <select data-field="tx.usrp" style="flex:1.4;">${usrpOpt(c.tx.usrp)}</select>
+                    <select data-field="tx.port" style="flex:1.1;">${portOpt(c.tx.usrp, c.tx.port)}</select>
+                    <input type="number" step="0.5" value="${esc(txGain)}"
+                           data-field="tx.gain_db" placeholder="gain"
+                           style="width:70px;">
                 </div>
             </td>
             <td>
                 <div class="row" style="gap:6px;">
-                    <select data-field="rx.usrp" style="flex:1;">${usrpOpt(c.rx.usrp)}</select>
-                    <select data-field="rx.port" style="flex:1;">${portOpt(c.rx.usrp, c.rx.port)}</select>
+                    <select data-field="rx.usrp" style="flex:1.4;">${usrpOpt(c.rx.usrp)}</select>
+                    <select data-field="rx.port" style="flex:1.1;">${portOpt(c.rx.usrp, c.rx.port)}</select>
+                    <input type="number" step="0.5" value="${esc(rxGain)}"
+                           data-field="rx.gain_db" placeholder="gain"
+                           style="width:70px;">
                 </div>
             </td>
             <td class="actions">
@@ -253,9 +261,15 @@ function updateChannel(idx, el) {
     const c = DATA.channels[idx];
     if (f.startsWith("tx.") || f.startsWith("rx.")) {
         const [side, key] = f.split(".");
-        c[side][key] = el.value;
-        if (key === "usrp") c[side].port = "";   // reset port when usrp changes
-        renderChannels();
+        c[side] = c[side] || {};
+        // Numeric fields stay numeric; empty string means "unset/use default".
+        if (key === "gain_db" || key === "power_dbm") {
+            c[side][key] = el.value === "" ? null : Number(el.value);
+        } else {
+            c[side][key] = el.value;
+            if (key === "usrp") c[side].port = "";   // reset port when usrp changes
+            renderChannels();
+        }
     } else {
         c[f] = el.value;
     }
@@ -375,8 +389,8 @@ document.getElementById("btn-add-channel").addEventListener("click", () => {
     DATA.channels.push({
         id: "ch" + DATA.channels.length,
         label: "",
-        tx: { usrp: tx.id, port: (tx.ports || [""])[0] || "" },
-        rx: { usrp: rx.id, port: (rx.ports || [""])[0] || "" },
+        tx: { usrp: tx.id, port: (tx.ports || [""])[0] || "", gain_db: 50 },
+        rx: { usrp: rx.id, port: (rx.ports || [""])[0] || "", gain_db: 30 },
     });
     setDirty(); renderChannels();
 });

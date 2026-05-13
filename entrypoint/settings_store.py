@@ -131,16 +131,9 @@ EDITABLE_KEYS: dict[str, dict] = {
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "RX Gain (dB)",
         "desc": "Receive gain. Too high → saturation, too low → noise."},
-    "ANTENNA_TX":           {"type": "str",   "group": "radio",
-        "label": "TX Antenna",
-        "desc": "TX antenna port. Single value for SISO (z.B. TX/RX). Für "
-                "MIMO comma-separated, eine pro Channel — B210 2-Channel: "
-                "TX/RX,TX/RX2."},
-    "ANTENNA_RX":           {"type": "str",   "group": "radio",
-        "label": "RX Antenna",
-        "desc": "RX antenna port. Single value for SISO (z.B. RX2). Für "
-                "MIMO comma-separated, eine pro Channel — B210 2-Channel: "
-                "RX2,RX2 (jeder Channel hat seinen eigenen RX2-SMA)."},
+    # Antennas and per-channel gains live in the Hardware-Inventory page now.
+    # The legacy ANTENNA_TX / ANTENNA_RX env vars only act as a fallback when
+    # no inventory is configured at all.
 
     # MIMO
     "MIMO_ENABLED":         {"type": "bool",  "group": "radio",

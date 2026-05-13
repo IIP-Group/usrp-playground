@@ -45,6 +45,7 @@ services:
     volumes:
       - ./data/tasks:/data
       - ./data/signals:/data/signals
+      - ./data/inventory:/data/inventory
       - ./.env:/app/.env
     depends_on:
       db:

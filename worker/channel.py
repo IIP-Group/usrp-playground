@@ -61,6 +61,29 @@ def _file_get(key: str) -> str | None:
 _LOCKED_KEYS = {"CARRIER_FREQUENCY_HZ", "BANDWIDTH_HZ"}
 _LOCKED_CARRIER_HZ = 2_441_750_000
 
+# ---- Inventory file (Hardware-Inventory page writes this) -----------------
+_INVENTORY_FILE = "/data/inventory/inventory.json"
+_inv_cache: dict = {"mtime": 0.0, "channels": []}
+
+
+def _read_inventory_channels() -> list[dict]:
+    """Return the channel list from the inventory file, cached by mtime."""
+    try:
+        st = os.stat(_INVENTORY_FILE)
+    except FileNotFoundError:
+        return []
+    if st.st_mtime != _inv_cache["mtime"]:
+        try:
+            import json
+            with open(_INVENTORY_FILE) as f:
+                data = json.load(f)
+            _inv_cache["channels"] = data.get("channels") or []
+            _inv_cache["mtime"] = st.st_mtime
+        except Exception as e:
+            logger.warning("Could not read inventory file: %s", e)
+            _inv_cache["channels"] = []
+    return _inv_cache["channels"]
+
 # B210 with auto MCR lands on 32 MHz; valid rates are 32/integer.
 # Use a per-device-type SAMPLE_RATE_HZ_<DTYPE> override before falling
 # back to SAMPLE_RATE_HZ (default 25 MHz suits X4xx but not B210).
@@ -167,11 +190,12 @@ class USRPChannel:
         os.makedirs(SIGNAL_DIR, exist_ok=True)
 
     def _configure(self, n_channels: int = 1):
-        """(Re-)configure both USRPs with current settings. Always runs so that
-        changes made in the admin panel propagate to the hardware.
+        """(Re-)configure both USRPs with current settings.
 
-        For MIMO, `n_channels` > 1: configure both daemons for channels
-        [0 .. n_channels-1]. Per-channel gain/antenna stay uniform.
+        Channel routing (antenna port + per-channel gain) comes primarily
+        from the Hardware-Inventory file (`/data/inventory/inventory.json`).
+        If that file is missing or empty, fall back to the legacy
+        ANTENNA_TX / ANTENNA_RX / TX_GAIN_DB / RX_GAIN_DB env vars.
         """
         import zmq
 
@@ -179,54 +203,83 @@ class USRPChannel:
 
         fs = _get_sample_rate()
         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
-        # TX_POWER_DBM (calibrated absolute output) wins over TX_GAIN_DB
-        # (relative). Both are forwarded so the daemon can pick power-API
-        # when supported and fall back to gain otherwise.
-        tx_power_dbm = _get("TX_POWER_DBM", None, float)
-        tx_gain = _get("TX_GAIN_DB", 30.0, float)
-        rx_gain = _get("RX_GAIN_DB", 30.0, float)
-        antenna_tx_raw = _get("ANTENNA_TX", "TX/RX0")
-        antenna_rx_raw = _get("ANTENNA_RX", "RX1")
+        # Legacy fallbacks — used only when the inventory doesn't fully
+        # specify the channel.
+        default_tx_gain   = _get("TX_GAIN_DB", 30.0, float)
+        default_rx_gain   = _get("RX_GAIN_DB", 30.0, float)
+        default_tx_power  = _get("TX_POWER_DBM", None, float)
+        default_tx_ant    = _get("ANTENNA_TX", "TX/RX0")
+        default_rx_ant    = _get("ANTENNA_RX", "RX1")
 
-        # Allow per-channel antenna names via comma-separated list in .env,
-        # e.g. ANTENNA_TX=TX/RX,TX/RX2 for B210 channels 0 and 1. Falls back
-        # to the SISO default (the first or only value) for legacy configs.
-        def _split_antenna(raw):
-            return [s.strip() for s in str(raw).split(",") if s.strip()]
-        tx_ant_list = _split_antenna(antenna_tx_raw)
-        rx_ant_list = _split_antenna(antenna_rx_raw)
+        # ---- Pull channel routing from the inventory file ---------------
+        inventory_channels = _read_inventory_channels()
+        if not inventory_channels:
+            # Legacy fallback: synthesise channels from env-comma-lists.
+            def _split(raw):
+                return [s.strip() for s in str(raw).split(",") if s.strip()]
+            tx_ports = _split(default_tx_ant) or ["TX/RX0"]
+            rx_ports = _split(default_rx_ant) or ["RX1"]
+            inventory_channels = []
+            for i in range(max(n_channels, 1)):
+                inventory_channels.append({
+                    "tx": {"port": tx_ports[i] if i < len(tx_ports) else tx_ports[-1],
+                           "gain_db": default_tx_gain,
+                           "power_dbm": default_tx_power},
+                    "rx": {"port": rx_ports[i] if i < len(rx_ports) else rx_ports[-1],
+                           "gain_db": default_rx_gain},
+                })
 
-        if n_channels <= 1:
-            tx_channels = [TX_CHANNEL]
-            rx_channels = [RX_CHANNEL]
-            antenna_tx_field = tx_ant_list[0] if tx_ant_list else "TX/RX0"
-            antenna_rx_field = rx_ant_list[0] if rx_ant_list else "RX1"
-        else:
-            # MIMO: use the first n_channels physical paths
-            tx_channels = list(range(n_channels))
-            rx_channels = list(range(n_channels))
-            # Build per-channel antenna dict; if .env only specified one name
-            # broadcast it to all channels (B210 needs different names so the
-            # user typically sets a list, e.g. "TX/RX,TX/RX2").
-            antenna_tx_field = {
-                str(ch): (tx_ant_list[ch] if ch < len(tx_ant_list) else tx_ant_list[-1])
-                for ch in tx_channels
-            }
-            antenna_rx_field = {
-                str(ch): (rx_ant_list[ch] if ch < len(rx_ant_list) else rx_ant_list[-1])
-                for ch in rx_channels
-            }
+        if n_channels > len(inventory_channels):
+            raise RuntimeError(
+                f"Task asked for {n_channels} channels but the Hardware "
+                f"inventory only has {len(inventory_channels)} configured. "
+                f"Add more channels on the Hardware page."
+            )
+
+        used_channels = inventory_channels[:max(n_channels, 1)]
+        tx_channels = list(range(len(used_channels)))
+        rx_channels = list(range(len(used_channels)))
+
+        # Per-channel dicts (string keys, matching the daemon protocol).
+        antenna_tx_field = {str(i): (used_channels[i]["tx"].get("port") or default_tx_ant)
+                            for i in tx_channels}
+        antenna_rx_field = {str(i): (used_channels[i]["rx"].get("port") or default_rx_ant)
+                            for i in rx_channels}
+        g_tx_field = {str(i): float(used_channels[i]["tx"].get("gain_db")
+                                    if used_channels[i]["tx"].get("gain_db") is not None
+                                    else default_tx_gain)
+                      for i in tx_channels}
+        # RX daemon currently takes one scalar gain; broadcast the first
+        # channel's value (this is what UHD applies globally on B210).
+        rx_gain_scalar = float(used_channels[0]["rx"].get("gain_db")
+                               if used_channels[0]["rx"].get("gain_db") is not None
+                               else default_rx_gain)
+        # Per-channel TX power overrides — daemon falls back to gain if
+        # the device doesn't support set_tx_power_reference.
+        p_tx_field = {}
+        for i in tx_channels:
+            p = used_channels[i]["tx"].get("power_dbm")
+            if p is None:
+                p = default_tx_power
+            if p is not None:
+                p_tx_field[str(i)] = float(p)
+
+        # Collapse SISO to plain strings/scalars so the daemon's
+        # mismatch-checker keeps working with single-channel firmware.
+        if len(used_channels) == 1:
+            antenna_tx_field = antenna_tx_field["0"]
+            antenna_rx_field = antenna_rx_field["0"]
 
         tx_cmd = {
             "op": "CONFIGURE_USRP",
             "fs": fs, "fc": fc,
             "sync_channels": tx_channels,
             "intf_channels": [],
-            "G_TX": {str(ch): tx_gain for ch in tx_channels},
+            "G_TX": g_tx_field,
             "antenna": antenna_tx_field,
         }
-        if tx_power_dbm is not None:
-            tx_cmd["P_TX_DBM"] = {str(ch): float(tx_power_dbm) for ch in tx_channels}
+        if p_tx_field:
+            tx_cmd["P_TX_DBM"] = p_tx_field
         self._tx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         self._tx_req.send_json(tx_cmd)
         resp = self._tx_req.recv_json()
@@ -248,7 +301,7 @@ class USRPChannel:
             "op": "CONFIGURE_USRP",
             "fs": fs, "fc": fc,
             "channels": rx_channels,
-            "G_RX": rx_gain,
+            "G_RX": rx_gain_scalar,
             "antenna": antenna_rx_field,
         }
         self._rx_req.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
