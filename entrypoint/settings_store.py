@@ -133,10 +133,14 @@ EDITABLE_KEYS: dict[str, dict] = {
         "desc": "Receive gain. Too high → saturation, too low → noise."},
     "ANTENNA_TX":           {"type": "str",   "group": "radio",
         "label": "TX Antenna",
-        "desc": "USRP antenna port used for transmit (e.g. TX/RX0)."},
+        "desc": "TX antenna port. Single value for SISO (z.B. TX/RX). Für "
+                "MIMO comma-separated, eine pro Channel — B210 2-Channel: "
+                "TX/RX,TX/RX2."},
     "ANTENNA_RX":           {"type": "str",   "group": "radio",
         "label": "RX Antenna",
-        "desc": "USRP antenna port used for receive (e.g. RX1)."},
+        "desc": "RX antenna port. Single value for SISO (z.B. RX2). Für "
+                "MIMO comma-separated, eine pro Channel — B210 2-Channel: "
+                "RX2,RX2 (jeder Channel hat seinen eigenen RX2-SMA)."},
 
     # MIMO
     "MIMO_ENABLED":         {"type": "bool",  "group": "radio",
