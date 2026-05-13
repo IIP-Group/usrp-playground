@@ -242,18 +242,26 @@ class RXDaemon(BaseUSRPDaemon):
             # num_done request that follows.
             if n_ch > 1:
                 warmup_cmd = StreamCMD(StreamMode.start_cont)
-                warmup_cmd.stream_now = True
+                warmup_cmd.stream_now = False
+                warmup_cmd.time_spec = TimeSpec(
+                    self.usrp.get_time_now().get_real_secs() + 0.05
+                )
                 self.rx_streamer.issue_stream_cmd(warmup_cmd)
                 warmup_md = RXMetadata()
                 warmup_buf = np.zeros(
                     (n_ch, self.rx_streamer.get_max_num_samps()),
                     dtype=np.complex64,
                 )
-                for _ in range(4):
-                    self.rx_streamer.recv(warmup_buf, warmup_md, 0.1)
+                # Brief streaming window to make sure the front-end actually
+                # starts delivering samples before we issue the timed request.
+                for _ in range(6):
+                    self.rx_streamer.recv(warmup_buf, warmup_md, 0.15)
+                    if warmup_md.error_code == RXMetadataErrorCode.none:
+                        break
                 self.rx_streamer.issue_stream_cmd(StreamCMD(StreamMode.stop_cont))
-                # drain whatever is still in flight
-                for _ in range(4):
+                # Drain whatever is still in flight so the next recv() starts
+                # from a clean state.
+                for _ in range(8):
                     self.rx_streamer.recv(warmup_buf, warmup_md, 0.05)
                     if warmup_md.error_code == RXMetadataErrorCode.timeout:
                         break
