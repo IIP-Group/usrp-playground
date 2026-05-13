@@ -94,17 +94,81 @@ def _write_atomic(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def _device_key(d: dict) -> str:
+    """Stable key per device — serial wins over addr/name."""
+    return d.get("serial") or d.get("addr") or d.get("name") or d.get("args", "")
+
+
+def _load_known(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    try:
+        return {_device_key(d): d for d in json.loads(path.read_text()).get("devices", [])}
+    except Exception:
+        return {}
+
+
+def _merged_discovery(known: dict[str, dict]) -> dict:
+    """Run uhd_find_devices and merge with the persistent `known` map.
+
+    Currently-visible devices update their entry and get `claimed=False`.
+    Devices in `known` that did NOT show up this round are still returned,
+    flagged `claimed=True` (presumably claimed by a running daemon).
+    """
+    live = discover()
+    visible: dict[str, dict] = {}
+    for d in live.get("devices", []):
+        d["claimed"] = False
+        visible[_device_key(d)] = d
+
+    # Keep entries we've seen before but aren't visible right now.
+    merged = []
+    for key, prev in known.items():
+        if key in visible:
+            merged.append(visible[key])
+        else:
+            ghost = dict(prev)
+            ghost["claimed"] = True
+            merged.append(ghost)
+    # Anything new this round that we hadn't seen before.
+    for key, dev in visible.items():
+        if key not in known:
+            merged.append(dev)
+    live["devices"] = merged
+    return live
+
+
 def main() -> None:
     watch = _watch_dir()
     watch.mkdir(parents=True, exist_ok=True)
     request = watch / "discover_request"
     result_path = watch / "discover_result.json"
+    known_path = watch / "known_devices.json"
 
-    # Initial discovery on startup so the UI has something to show right away.
-    _write_atomic(result_path, discover())
+    known = _load_known(known_path)
+
+    def refresh():
+        nonlocal known
+        data = _merged_discovery(known)
+        # Persist every device we've ever seen (including the newly-found ones)
+        # so they survive across daemon restarts. We only store the visible
+        # ones; ghosts already in `known` are kept implicitly.
+        new_known = dict(known)
+        for d in data["devices"]:
+            if not d.get("claimed"):
+                new_known[_device_key(d)] = {k: v for k, v in d.items() if k != "claimed"}
+        if new_known != known:
+            known = new_known
+            _write_atomic(known_path, {"devices": list(known.values())})
+        _write_atomic(result_path, data)
+        return data
+
+    # Initial scan — best to call start-daemons.sh BEFORE the TX/RX daemons
+    # claim their USRPs, so the initial scan picks up everything.
+    refresh()
     print(f"[inventory] initial discovery written to {result_path}", flush=True)
-
     print(f"[inventory] watching {request} for discovery triggers …", flush=True)
+
     while True:
         if request.exists():
             try:
@@ -112,10 +176,10 @@ def main() -> None:
             except FileNotFoundError:
                 pass
             print(f"[inventory] discovery request received", flush=True)
-            data = discover()
-            _write_atomic(result_path, data)
-            n = len(data["devices"])
-            print(f"[inventory] {n} device(s) found "
+            data = refresh()
+            visible = sum(1 for d in data["devices"] if not d.get("claimed"))
+            ghosts  = sum(1 for d in data["devices"] if d.get("claimed"))
+            print(f"[inventory] {visible} visible, {ghosts} claimed/offline "
                   + (data.get("error") or ""), flush=True)
         time.sleep(2)
 

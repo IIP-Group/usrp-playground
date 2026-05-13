@@ -60,6 +60,30 @@ echo "  Buffer:   ${BUFFER_SCALE}x"
 echo "  Signals:  ${SIGNAL_DIR_HOST}"
 echo "=========================================="
 
+# ---- Inventory helper (BEFORE daemons so its initial scan sees all USRPs) -
+# Watches the shared /data/inventory volume for discovery triggers from the
+# entrypoint container and responds with uhd_find_devices output. We boot
+# this first so the very first scan happens before any TX/RX daemon claims
+# a USRP — otherwise claimed devices stay invisible.
+INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
+sudo mkdir -p "$INVENTORY_DIR"
+sudo chown "$(id -u):$(id -g)" "$INVENTORY_DIR"
+sudo chmod 0775 "$INVENTORY_DIR"
+if [ -f "${PID_DIR}/inventory.pid" ] && kill -0 "$(cat ${PID_DIR}/inventory.pid)" 2>/dev/null; then
+    echo "Inventory helper already running (PID $(cat ${PID_DIR}/inventory.pid))"
+else
+    echo "Starting inventory helper ..."
+    INVENTORY_WATCH_DIR="$INVENTORY_DIR" PYTHONPATH="$DAEMON_PYTHONPATH" \
+        "$PYTHON" "${DAEMON_DIR}/inventory_helper.py" \
+        >> "${LOG_DIR}/inventory.log" 2>&1 &
+    INV_PID=$!
+    echo "$INV_PID" > "${PID_DIR}/inventory.pid"
+    echo "Inventory helper started (PID ${INV_PID}), log: ${LOG_DIR}/inventory.log"
+    # Give the helper a moment to run its initial uhd_find_devices BEFORE the
+    # daemons claim anything. 5 s is enough on USB; 0.5 s on Ethernet.
+    sleep 5
+fi
+
 if [ -f "${PID_DIR}/tx.pid" ] && sudo kill -0 "$(cat ${PID_DIR}/tx.pid)" 2>/dev/null; then
     echo "TX daemon already running (PID $(cat ${PID_DIR}/tx.pid))"
 else
@@ -92,27 +116,6 @@ else
     RX_PID=$!
     echo "$RX_PID" > "${PID_DIR}/rx.pid"
     echo "RX daemon started (PID ${RX_PID}), log: ${LOG_DIR}/rx_daemon.log"
-fi
-
-# ---- Inventory helper -----------------------------------------------------
-# Watches the shared /data/inventory volume for discovery triggers from the
-# entrypoint container and responds with uhd_find_devices output.
-INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
-sudo mkdir -p "$INVENTORY_DIR"
-# The Docker container previously may have created the directory as root,
-# so make sure the host user (who runs this helper) can write into it.
-sudo chown "$(id -u):$(id -g)" "$INVENTORY_DIR"
-sudo chmod 0775 "$INVENTORY_DIR"
-if [ -f "${PID_DIR}/inventory.pid" ] && kill -0 "$(cat ${PID_DIR}/inventory.pid)" 2>/dev/null; then
-    echo "Inventory helper already running (PID $(cat ${PID_DIR}/inventory.pid))"
-else
-    echo "Starting inventory helper ..."
-    INVENTORY_WATCH_DIR="$INVENTORY_DIR" PYTHONPATH="$DAEMON_PYTHONPATH" \
-        "$PYTHON" "${DAEMON_DIR}/inventory_helper.py" \
-        >> "${LOG_DIR}/inventory.log" 2>&1 &
-    INV_PID=$!
-    echo "$INV_PID" > "${PID_DIR}/inventory.pid"
-    echo "Inventory helper started (PID ${INV_PID}), log: ${LOG_DIR}/inventory.log"
 fi
 
 echo ""

@@ -280,10 +280,13 @@ function renderDiscovery() {
         const known = DATA.usrps.some(u =>
             (u.identifier || u.args || u.serial || "") === identifier
         );
+        const statusBadge = d.claimed
+            ? `<span class="text-dim" style="font-size:11px;">claimed by daemon</span>`
+            : `<span style="font-size:11px; color:#6fdc8c;">visible</span>`;
         return `<tr>
             <td><strong>${esc(d.serial || d.addr || '?')}</strong></td>
             <td>${esc(d.product || d.type || '?')}</td>
-            <td>${esc(d.name || '')}</td>
+            <td>${statusBadge}</td>
             <td><code style="font-size:11px;">${esc(identifier)}</code></td>
             <td style="text-align:right;">
                 ${known
