@@ -9,7 +9,7 @@ async function apiFetch(path, opts = {}) {
         ...opts,
     });
     if (res.status === 401) {
-        // Not logged in — redirect to login (unless we are already there)
+        // Not logged in - redirect to login (unless we are already there)
         if (!location.pathname.endsWith("/") && !location.pathname.endsWith("index.html")) {
             location.href = "/";
         }
@@ -26,7 +26,7 @@ async function apiFetch(path, opts = {}) {
 
 // Relative-time "X minutes / hours / days ago"
 function relTime(isoDate) {
-    if (!isoDate) return "–";
+    if (!isoDate) return "-";
     const d = new Date(isoDate + (isoDate.endsWith("Z") ? "" : "Z"));
     const diffSec = Math.max(0, (Date.now() - d.getTime()) / 1000);
     if (diffSec < 60) return "just now";

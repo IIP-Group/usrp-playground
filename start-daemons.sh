@@ -64,7 +64,7 @@ echo "=========================================="
 # Watches the shared /data/inventory volume for discovery triggers from the
 # entrypoint container and responds with uhd_find_devices output. We boot
 # this first so the very first scan happens before any TX/RX daemon claims
-# a USRP — otherwise claimed devices stay invisible.
+# a USRP - otherwise claimed devices stay invisible.
 INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
 sudo mkdir -p "$INVENTORY_DIR"
 sudo chown "$(id -u):$(id -g)" "$INVENTORY_DIR"

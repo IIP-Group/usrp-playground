@@ -125,7 +125,7 @@ EDITABLE_KEYS: dict[str, dict] = {
         "hidden": True},
     "TX_GAIN_DB":           {"type": "float", "group": "radio",
         "label": "TX Gain (dB)",
-        "desc": "Sendeverstärkung. B210: Range 0–89.75 dB. "
+        "desc": "Sendeverstärkung. B210: Range 0-89.75 dB. "
                 "Höher = mehr Ausgangsleistung. Bei B210 ist das die einzige "
                 "Möglichkeit, die Leistung zu steuern (keine kalibrierte Power-API)."},
     "RX_GAIN_DB":           {"type": "float", "group": "radio",
@@ -358,7 +358,7 @@ def purge_locked_overrides(db: Session) -> int:
 
 
 # ---------------- 2.4 GHz SRD band info (RIR1008-11 / EN 300 440) -----------
-# License-exempt non-specific SRD: 2400–2483.5 MHz, 10 mW EIRP, no duty cycle,
+# License-exempt non-specific SRD: 2400-2483.5 MHz, 10 mW EIRP, no duty cycle,
 # no LBT. The numbers below feed the read-only info banner on the Settings
 # page; values are sourced from the .env with sensible fallbacks.
 

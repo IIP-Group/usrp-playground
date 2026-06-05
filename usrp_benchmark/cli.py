@@ -34,7 +34,7 @@ async def run(server, token, input_path, output_path):
                     print("[done] Processing complete, receiving file...")
                 elif info.get("message") == "queued":
                     pos = info.get("queue_position", "?")
-                    print(f"[queued] Task {info.get('uid', '')} — {pos} task(s) ahead in queue")
+                    print(f"[queued] Task {info.get('uid', '')} - {pos} task(s) ahead in queue")
                 elif info.get("message") == "status":
                     state = info.get("state", "?")
                     pos = info.get("queue_position", 0)

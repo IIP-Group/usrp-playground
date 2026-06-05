@@ -1,4 +1,4 @@
-# USRP Sandbox — Student Guide
+# USRP Sandbox - Student Guide
 
 Welcome! This page has everything you need to test your waveforms over the shared USRP.
 
@@ -71,11 +71,11 @@ print(f"Received: {len(rx)} samples")
 
 | Call | Returns |
 |---|---|
-| `USRPClient.setup(host, port, token)` | — call once per session |
-| `USRPClient.check()` | bool — server reachable? |
-| `USRPClient.info()` | dict — sample rate, carrier, gains, limits |
-| `USRPClient.send(signal)` | numpy array — received signal |
-| `USRPClient.send(signal, verbose=True)` | numpy array — with live status output |
+| `USRPClient.setup(host, port, token)` | - call once per session |
+| `USRPClient.check()` | bool - server reachable? |
+| `USRPClient.info()` | dict - sample rate, carrier, gains, limits |
+| `USRPClient.send(signal)` | numpy array - received signal |
+| `USRPClient.send(signal, verbose=True)` | numpy array - with live status output |
 
 `signal` must be a **complex numpy array** (IQ samples). It is converted to `complex64` internally.
 
@@ -83,12 +83,12 @@ print(f"Received: {len(rx)} samples")
 
 ## 6. What happens to your signal
 
-1. **Upload** — your signal is sent to the server as binary
-2. **Queue** — if other tasks are ahead of you, you wait
-3. **Duty cycle check** — the server makes sure we stay below the TX time quota (10% / 60 s window)
-4. **Listen Before Talk** — short RX check: is the channel free? If not, back off and retry
-5. **TX + RX simultaneously** — the signal is transmitted while RX captures
-6. **Download** — the received signal comes back as binary
+1. **Upload** - your signal is sent to the server as binary
+2. **Queue** - if other tasks are ahead of you, you wait
+3. **Duty cycle check** - the server makes sure we stay below the TX time quota (10% / 60 s window)
+4. **Listen Before Talk** - short RX check: is the channel free? If not, back off and retry
+5. **TX + RX simultaneously** - the signal is transmitted while RX captures
+6. **Download** - the received signal comes back as binary
 
 The result contains **guard regions** before and after your signal (~100 ms with default settings). This guarantees you capture the whole burst even with small timing drift.
 
@@ -98,7 +98,7 @@ The result contains **guard regions** before and after your signal (~100 ms with
 
 If your signal is generated in another language (MATLAB, C, GNU Radio) or you just want to push a file through quickly, after `pip install` the `usrp-client` command is available in your terminal.
 
-**File format:** `.f32` — interleaved float32, in the order `real, imag, real, imag, ...`. This is the same format used by GNU Radio and most SDR tools.
+**File format:** `.f32` - interleaved float32, in the order `real, imag, real, imag, ...`. This is the same format used by GNU Radio and most SDR tools.
 
 **Usage:**
 
@@ -112,7 +112,7 @@ usrp-client -i input.f32 -o output.f32 \
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `-i`, `--input` | Path to input file (`.f32`, interleaved IQ) | — (required) |
+| `-i`, `--input` | Path to input file (`.f32`, interleaved IQ) | - (required) |
 | `-o`, `--output` | Path for the received file | `output.f32` |
 | `-s`, `--server` | Server address `host:port` | `localhost:8000` |
 | `-t`, `--token` | Auth token from your email | default-bench-token |

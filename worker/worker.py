@@ -53,7 +53,7 @@ def process_f32(task_uid):
         raise ValueError(f"Signal too large: {n_samples} samples (max {MAX_SAMPLES})")
 
     if signal.ndim == 2:
-        # MIMO already spans channels 0..N-1 — the picker doesn't apply.
+        # MIMO already spans channels 0..N-1 - the picker doesn't apply.
         received = send_and_receive(signal)
     else:
         received = send_and_receive(signal, channel=channel)

@@ -196,7 +196,7 @@ class USRPClient:
                     if verbose:
                         total = len(msg)
                         print(f"\r[download] {total:,} bytes received", end="")
-                        print(f" — {total // 8:,} samples")
+                        print(f" - {total // 8:,} samples")
                     return msg
 
                 info = json.loads(msg)
@@ -224,9 +224,9 @@ class USRPClient:
                     pos = info.get("queue_position", 0)
                     uid = info.get("uid", "")[:8]
                     if pos == 0:
-                        print(f"[queued] Task {uid}... — next in line")
+                        print(f"[queued] Task {uid}... - next in line")
                     else:
-                        print(f"[queued] Task {uid}... — {pos} task(s) ahead")
+                        print(f"[queued] Task {uid}... - {pos} task(s) ahead")
 
                 elif msg_type == "status":
                     state = info.get("state", "?")

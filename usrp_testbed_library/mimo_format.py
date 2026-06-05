@@ -1,7 +1,7 @@
 """
 Shared wire format for multi-channel (MIMO) IQ blobs.
 
-A SISO blob is just float32 interleaved (I0, Q0, I1, Q1, ...) — unchanged
+A SISO blob is just float32 interleaved (I0, Q0, I1, Q1, ...) - unchanged
 from the original protocol, so old clients keep working byte-for-byte.
 
 A MIMO blob is prefixed with a 16-byte header so the receiver knows it
@@ -20,7 +20,7 @@ is multi-channel data:
 Total size after the header: n_channels * n_samples * 8 bytes (float32 IQ).
 
 The magic was chosen so that the first 8 bytes never look like plausible
-normalised IQ samples — interpreting the magic as two float32 yields
+normalised IQ samples - interpreting the magic as two float32 yields
 3.44e9 and 0.0, far outside the [-1, 1] range an ADC produces.
 """
 from __future__ import annotations

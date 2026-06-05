@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Users — USRP Sandbox</title>
+    <title>Users - USRP Sandbox</title>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -75,11 +75,11 @@
             <input id="add-last" type="text">
         </div>
         <div class="form-row">
-            <label>Email <span class="text-dim" style="font-weight: normal;">— empty = &lt;eth-id&gt;@ethz.ch</span></label>
+            <label>Email <span class="text-dim" style="font-weight: normal;">- empty = &lt;eth-id&gt;@ethz.ch</span></label>
             <input id="add-email" type="email">
         </div>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— space, comma or enter creates a tag</span></label>
+            <label>Tags <span class="text-dim" style="font-weight: normal;">- space, comma or enter creates a tag</span></label>
             <div id="add-tags-input"></div>
         </div>
         <div class="actions">
@@ -98,7 +98,7 @@
             An optional <strong>Tags</strong> column is applied per row.
         </p>
         <div class="form-row" style="margin-top: 12px;">
-            <label>Default tags applied to all imported users <span class="text-dim" style="font-weight: normal;">— optional</span></label>
+            <label>Default tags applied to all imported users <span class="text-dim" style="font-weight: normal;">- optional</span></label>
             <div id="csv-tags-input"></div>
         </div>
         <div class="actions">
@@ -113,7 +113,7 @@
     <div class="modal">
         <h3>Edit tags <span id="tags-modal-user" class="text-dim" style="font-weight: normal; font-size: 14px;"></span></h3>
         <div class="form-row">
-            <label>Tags <span class="text-dim" style="font-weight: normal;">— space, comma or enter creates a tag</span></label>
+            <label>Tags <span class="text-dim" style="font-weight: normal;">- space, comma or enter creates a tag</span></label>
             <div id="single-tags-input"></div>
         </div>
         <div class="actions">
@@ -177,7 +177,7 @@
         </div>
         <div class="row" style="margin-top: 10px;">
             <div style="flex: 1">
-                <label>Sender email <span class="text-dim" style="font-weight: normal;">— optional</span></label>
+                <label>Sender email <span class="text-dim" style="font-weight: normal;">- optional</span></label>
                 <input id="smtp-from" style="width: 100%">
             </div>
         </div>
@@ -194,7 +194,7 @@
         </div>
         <div class="form-row">
             <div class="row">
-                <label style="margin: 0;">Body — placeholders: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
+                <label style="margin: 0;">Body - placeholders: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
                 <span class="sp"></span>
                 <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-template" title="Reload template">↺ Load template</button>
             </div>
@@ -220,7 +220,7 @@ const SMTP_PRESETS = [
     { id: "ethz",    label: "ETH central (mail.ethz.ch)",  host: "mail.ethz.ch",        port: 587 },
     { id: "ee-smtp", label: "D-ITET (smtp.ee.ethz.ch)",    host: "smtp.ee.ethz.ch",     port: 587 },
     { id: "ee-mail", label: "D-ITET (mail.ee.ethz.ch)",    host: "mail.ee.ethz.ch",     port: 587 },
-    { id: "custom",  label: "Custom — configure manually", host: "",                    port: 587 },
+    { id: "custom",  label: "Custom - configure manually", host: "",                    port: 587 },
 ];
 const DEFAULT_PRESET = "iis";
 
@@ -276,7 +276,7 @@ async function loadAllTags() {
 
 function renderTags(tags) {
     if (!tags || !tags.length) {
-        return '<span class="tag-empty">–</span>';
+        return '<span class="tag-empty">-</span>';
     }
     return tags.map(t => `<span class="chip">${esc(t)}</span>`).join("");
 }
@@ -295,13 +295,13 @@ function render() {
                    <span class="mono">${esc(u.token)}</span>
                    <button class="copy-btn" data-copy="${esc(u.token)}" title="Copy">⎘</button>
                </div>`
-            : '<span class="text-dim">–</span>';
+            : '<span class="text-dim">-</span>';
         const emailCell = u.email
             ? `<div class="copy-cell">
                    <span class="text-dim">${esc(u.email)}</span>
                    <button class="copy-btn" data-copy="${esc(u.email)}" title="Copy">⎘</button>
                </div>`
-            : '<span class="text-dim">–</span>';
+            : '<span class="text-dim">-</span>';
         const tagsCell = `<div class="tag-cell" data-edit-id="${u.id}">${renderTags(u.tags)}<span class="tag-edit-hint">✎</span></div>`;
         return `<tr>
             <td><input type="checkbox" class="row-check big-check" data-id="${u.id}" ${checked}></td>
@@ -311,7 +311,7 @@ function render() {
             <td class="tags-col">${tagsCell}</td>
             <td>${tokenCell}</td>
             <td class="num">${u.submits}</td>
-            <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "–"}</td>
+            <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "-"}</td>
         </tr>`;
     }).join("");
 

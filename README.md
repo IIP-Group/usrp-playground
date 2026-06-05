@@ -51,7 +51,7 @@ usrp-client -i signal.f32 -o received.f32 -s localhost:8000 -t your-token
 
 ```
 [upload] Sent signal.f32 (8000 bytes)
-[queued] Task a1b2c3d4-... — 2 task(s) ahead in queue
+[queued] Task a1b2c3d4-... - 2 task(s) ahead in queue
 [waiting] Queue position: 1 task(s) ahead
 [running] Processing your signal...
 [done] Task finished
@@ -106,8 +106,8 @@ signal = raw[0::2] + 1j * raw[1::2]
 
 | Service | Description |
 |---|---|
-| **db** | PostgreSQL — tokens, task queue, audit logs |
-| **entrypoint** | FastAPI — WebSocket endpoint, auth, task creation |
+| **db** | PostgreSQL - tokens, task queue, audit logs |
+| **entrypoint** | FastAPI - WebSocket endpoint, auth, task creation |
 | **worker** | Polls DB, processes signals through channel simulation |
 
 ### WebSocket Protocol (`ws://host:port/ws/run?auth_token=TOKEN`)
@@ -138,9 +138,9 @@ Error responses: `{"error": "error_code", "message": "description"}`
 
 | State | Meaning |
 |---|---|
-| `PD` | Pending — waiting in queue |
-| `R` | Running — being processed |
-| `D` | Done — result ready |
+| `PD` | Pending - waiting in queue |
+| `R` | Running - being processed |
+| `D` | Done - result ready |
 
 ## Configuration (.env)
 

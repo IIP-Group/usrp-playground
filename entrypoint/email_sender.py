@@ -46,7 +46,7 @@ def test_credentials(creds: SmtpCredentials) -> tuple[bool, str]:
             s.login(creds.username, creds.password)
         return True, "SMTP login successful"
     except smtplib.SMTPAuthenticationError:
-        return False, "Authentication failed — check username/password"
+        return False, "Authentication failed - check username/password"
     except Exception as e:
         return False, f"SMTP error: {e}"
 
@@ -71,7 +71,7 @@ def send_token_email(
 
     The body template can contain placeholders [TOKEN], [FIRST_NAME],
     [LAST_NAME], [ETH_ID]. If it contains HTML tags (<a>, <p>, <br>, ...) the
-    mail is sent as HTML — links with custom text work. Otherwise it's plain
+    mail is sent as HTML - links with custom text work. Otherwise it's plain
     text; clients still auto-linkify http:// URLs.
     """
     body = (body_template

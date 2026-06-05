@@ -1,4 +1,4 @@
-/* ===== UnitInput — number on the left, unit dropdown on the right =====
+/* ===== UnitInput - number on the left, unit dropdown on the right =====
  *
  * The widget always converts to/from a canonical numeric value (whatever the
  * backend stores: Hz, seconds, dB, MB, ...). Unit conversion happens at the
@@ -8,7 +8,7 @@
  *   { key, label, mul }       mul = canonical-per-displayed
  *                             (e.g. for s/ms: ms.mul = 0.001)
  *
- * Special case — "samples":   mul = "samples"
+ * Special case - "samples":   mul = "samples"
  *   `multiplierFn()` is called to read the current sample rate (Hz). The
  *   effective mul becomes 1/fs (i.e. 1 sample == 1/fs seconds). This is the
  *   only unit where the conversion factor is dynamic.

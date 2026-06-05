@@ -219,7 +219,7 @@ async function loadSrdBand() {
     catch { return; }
     document.getElementById("srd-label").textContent = band.label;
     document.getElementById("srd-band").textContent =
-        `${(band.f_min_hz/1e6).toFixed(1)}–${(band.f_max_hz/1e6).toFixed(1)} MHz`;
+        `${(band.f_min_hz/1e6).toFixed(1)}-${(band.f_max_hz/1e6).toFixed(1)} MHz`;
     const mW = Math.pow(10, band.max_eirp_dbm/10);
     document.getElementById("srd-eirp").textContent =
         `${band.max_eirp_dbm.toFixed(0)} dBm (${mW < 1 ? mW.toFixed(2) : mW.toFixed(0)} mW)`;

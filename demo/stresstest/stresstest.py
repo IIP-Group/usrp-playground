@@ -70,7 +70,7 @@ async def one_client(idx: int, url: str, payload: bytes, total_timeout: float):
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=10)
             except asyncio.TimeoutError:
-                log(idx, "no message in 10s — giving up")
+                log(idx, "no message in 10s - giving up")
                 return
             except websockets.ConnectionClosed as e:
                 code = getattr(e, "code", "?")
@@ -79,12 +79,12 @@ async def one_client(idx: int, url: str, payload: bytes, total_timeout: float):
                 return
 
             if isinstance(msg, bytes):
-                log(idx, f"DONE — received {len(msg):,} bytes back")
+                log(idx, f"DONE - received {len(msg):,} bytes back")
                 return
 
             info = json.loads(msg)
             if "error" in info:
-                log(idx, f"SERVER ERROR: {info['error']} — {info.get('message','')}")
+                log(idx, f"SERVER ERROR: {info['error']} - {info.get('message','')}")
                 return
 
             mtype = info.get("message")
@@ -98,7 +98,7 @@ async def one_client(idx: int, url: str, payload: bytes, total_timeout: float):
                     sent = True
                     log(idx, f"uploaded {len(payload):,} bytes")
             elif mtype == "queued":
-                log(idx, f"queued — position {info.get('queue_position', '?')}, "
+                log(idx, f"queued - position {info.get('queue_position', '?')}, "
                          f"uid {info.get('uid','')[:8]}")
             elif mtype == "status":
                 state = info.get("state", "?")

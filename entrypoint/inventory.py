@@ -48,7 +48,7 @@ def write_inventory(data: dict) -> dict:
     channels = list(data.get("channels") or [])
 
     # Validate USRPs (id + identifier unique, both mandatory).
-    # `identifier` is whatever UHD needs to find the device — a free-form
+    # `identifier` is whatever UHD needs to find the device - a free-form
     # string that may contain `serial=…`, `addr=…`, `name=…`, or any
     # combination separated by commas. We don't try to parse it.
     seen_ids: set[str] = set()

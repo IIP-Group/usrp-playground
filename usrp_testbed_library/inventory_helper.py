@@ -95,7 +95,7 @@ def _write_atomic(path: Path, data: dict) -> None:
 
 
 def _device_key(d: dict) -> str:
-    """Stable key per device — serial wins over addr/name."""
+    """Stable key per device - serial wins over addr/name."""
     return d.get("serial") or d.get("addr") or d.get("name") or d.get("args", "")
 
 
@@ -136,7 +136,7 @@ def _merged_discovery(known: dict[str, dict]) -> dict:
             merged.append(dev)
     live["devices"] = merged
     # If we have any devices (currently visible or merged from cache), don't
-    # surface scan errors to the UI — every device is just `claimed=True`.
+    # surface scan errors to the UI - every device is just `claimed=True`.
     if merged:
         live["error"] = None
     return live
@@ -167,7 +167,7 @@ def main() -> None:
         _write_atomic(result_path, data)
         return data
 
-    # Initial scan — best to call start-daemons.sh BEFORE the TX/RX daemons
+    # Initial scan - best to call start-daemons.sh BEFORE the TX/RX daemons
     # claim their USRPs, so the initial scan picks up everything.
     refresh()
     print(f"[inventory] initial discovery written to {result_path}", flush=True)

@@ -196,7 +196,7 @@ class TXDaemon(BaseUSRPDaemon):
 
             # Auto-rebuild signal matrix if signals are loaded and channel config changed.
             # If the loaded signal's per-channel layout (2-D rows) no longer matches the
-            # new channel count, drop the stale signal instead of crashing — the next
+            # new channel count, drop the stale signal instead of crashing - the next
             # LOAD_SIGNAL will provide a fresh matrix that matches.
             def _incompatible(arr, ch_list):
                 return (arr is not None and arr.ndim == 2
@@ -468,9 +468,9 @@ class TXDaemon(BaseUSRPDaemon):
         """Assemble the final multi-channel transmission signal matrix.
 
         Each of `sync_signal_data` / `intf_signal_data` may be either:
-          * 1-D — the same signal is replicated onto every channel in the
+          * 1-D - the same signal is replicated onto every channel in the
             corresponding list (legacy / SISO behaviour).
-          * 2-D (n_channels, n_samples) — row i goes to the i-th channel
+          * 2-D (n_channels, n_samples) - row i goes to the i-th channel
             of the list, enabling true per-channel MIMO transmission.
         """
         def _len(arr):
@@ -665,7 +665,7 @@ def parse_arguments():
         ),
     )
     parser.add_argument('--buffer-scale', type=buffer_scale_float, default=1.0,
-                       help="Buffer size scaling factor (0.5–8.0, network devices only)")
+                       help="Buffer size scaling factor (0.5-8.0, network devices only)")
     return parser.parse_args()
 
 

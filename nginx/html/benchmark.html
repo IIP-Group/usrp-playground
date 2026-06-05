@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Benchmark — USRP Sandbox</title>
+    <title>Benchmark - USRP Sandbox</title>
     <link rel="stylesheet" href="/css/styles.css">
     <style>
         .bench-grid {
@@ -199,7 +199,7 @@ const f = {
     pct(v)  { return (v*100).toFixed(2) + " %"; },
     n(v)    { return Number(v).toLocaleString(); },
     relTime(ts) {
-        if (!ts) return "—";
+        if (!ts) return "-";
         const d = (Date.now() - ts) / 1000;
         if (d < 60) return "just now";
         if (d < 3600) return `${Math.floor(d/60)} min ago`;
@@ -228,8 +228,8 @@ function renderRun(run) {
         ["Bandwidth",    f.freq(inf.bandwidth_hz)],
         ["TX power",    inf.tx_power_dbm != null ? (Number(inf.tx_power_dbm).toFixed(1) + " dBm") : (inf.tx_gain_db + " dB gain")],
         ["RX gain",     inf.rx_gain_db + " dB"],
-        ["Antenna TX",   inf.antenna_tx || "—"],
-        ["Antenna RX",   inf.antenna_rx || "—"],
+        ["Antenna TX",   inf.antenna_tx || "-"],
+        ["Antenna RX",   inf.antenna_rx || "-"],
         ["Begin guard",  (Number(inf.begin_guard_min_sec)*1000).toFixed(1) + " ms"],
         ["End guard",    (Number(inf.end_guard_min_sec  )*1000).toFixed(1) + " ms"],
     ]);
@@ -259,13 +259,13 @@ function renderRun(run) {
         ["Peak power",    f.db(run.peak.peak_db)],
         ["RX avg power",  f.db(run.rx_stats.avg_power_db)],
         ["RX max |z|",    run.rx_stats.max_abs.toFixed(3) +
-                          (run.rx_stats.max_abs > 0.95 ? " — CLIPPING" : ""), clipCls],
+                          (run.rx_stats.max_abs > 0.95 ? " - CLIPPING" : ""), clipCls],
         ["RX clipped",    f.n(run.rx_stats.clips) + " samples", run.rx_stats.clips > 0 ? "warn" : ""],
         ["Sample balance", balText, balCls],
         ["Round-trip",    (run.elapsed_ms/1000).toFixed(2) + " s"],
     ]);
 
-    // Plots — convert to MHz for axis readability
+    // Plots - convert to MHz for axis readability
     const fsMHz = run.sample_rate_hz / 1e6;
     const txF = run.tx.f.map(v => v / 1e6);
     const rxF = run.rx.f.map(v => v / 1e6);
@@ -297,14 +297,14 @@ if (cached) renderRun(cached);
 // Always overwrite the Server-config card with LIVE /info so changes
 // made in Settings show up immediately, even if the cached benchmark
 // run is older.
-// Format guard "min – max" in ms with fractional precision when small,
+// Format guard "min - max" in ms with fractional precision when small,
 // so a 1 ms value isn't rounded down to "0 ms".
 function fmtGuardMs(minSec, maxSec) {
     const mn = Number(minSec) * 1000;
     const mx = Number(maxSec) * 1000;
     const dec = (v) => v < 10 ? 1 : 0;
     const d = Math.max(dec(mn), dec(mx));
-    return `${mn.toFixed(d)}–${mx.toFixed(d)} ms`;
+    return `${mn.toFixed(d)}-${mx.toFixed(d)} ms`;
 }
 
 async function refreshLiveServerConfig() {
@@ -323,8 +323,8 @@ async function refreshLiveServerConfig() {
                               ? (Number(inf.tx_power_dbm).toFixed(1) + " dBm")
                               : (inf.tx_gain_db + " dB gain")],
             ["RX gain",      inf.rx_gain_db + " dB"],
-            ["Antenna TX",   inf.antenna_tx || "—"],
-            ["Antenna RX",   inf.antenna_rx || "—"],
+            ["Antenna TX",   inf.antenna_tx || "-"],
+            ["Antenna RX",   inf.antenna_rx || "-"],
             ["Begin guard",  fmtGuardMs(inf.begin_guard_min_sec, inf.begin_guard_max_sec)],
             ["End guard",    fmtGuardMs(inf.end_guard_min_sec,   inf.end_guard_max_sec)],
         ]);
@@ -358,7 +358,7 @@ document.getElementById("btn-run").addEventListener("click", async () => {
                     status(`Server: ${(info.carrier_frequency_hz/1e9).toFixed(2)} GHz · ${sr} MSps`);
                 } else if (info.message === "queued") {
                     const p = info.queue_position || 0;
-                    status(p > 0 ? `Queued — ${p} task(s) ahead` : "Queued — next in line");
+                    status(p > 0 ? `Queued - ${p} task(s) ahead` : "Queued - next in line");
                 } else if (info.message === "status") {
                     if (info.state === "R") status("Running on USRP…");
                     else if (info.state === "PD") status("Waiting in queue…");
@@ -369,7 +369,7 @@ document.getElementById("btn-run").addEventListener("click", async () => {
         });
         Benchmark.save(run);
         renderRun(run);
-        status("Done — " + (run.elapsed_ms/1000).toFixed(2) + " s round-trip", "ok");
+        status("Done - " + (run.elapsed_ms/1000).toFixed(2) + " s round-trip", "ok");
     } catch (e) {
         status("Error: " + e.message, "err");
     } finally {

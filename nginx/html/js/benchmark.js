@@ -1,9 +1,9 @@
-/* ===== Benchmark page — TX a complex sine, measure what comes back =====
+/* ===== Benchmark page - TX a complex sine, measure what comes back =====
  *
  * The browser opens the same WebSocket /ws/run that the Python client uses,
  * sends interleaved float32 IQ samples, receives a status stream + the result
  * blob. We then run a small FFT on the signal slice, compute peak frequency,
- * power, clipping headroom, sample-balance — and render two spectrum plots
+ * power, clipping headroom, sample-balance - and render two spectrum plots
  * plus a power profile on plain canvas.
  *
  * Last successful run is stashed in localStorage so reloading the page or
@@ -12,7 +12,7 @@
 
 const STORAGE_KEY = "usrp.benchmark.lastrun.v1";
 
-// ---- Cooley–Tukey FFT, in-place, complex (separate real/imag arrays) ----
+// ---- Cooley-Tukey FFT, in-place, complex (separate real/imag arrays) ----
 function fftInPlace(re, im) {
     const n = re.length;
     if (n & (n - 1)) throw new Error("FFT length must be a power of 2");
@@ -89,7 +89,7 @@ function spectrum(re, im, fs) {
     return { f_arr, mag_db, peak_freq, peak_db: mag_db[peak_idx], peak_idx, n };
 }
 
-/** Decimate (f, y) to ~target points by max-pooling — keeps peaks visible. */
+/** Decimate (f, y) to ~target points by max-pooling - keeps peaks visible. */
 function downsamplePlot(f, y, target = 1024) {
     const n = f.length;
     if (n <= target) return { f: Array.from(f), y: Array.from(y) };
@@ -114,7 +114,7 @@ function drawLinePlot(canvas, x, y, opts = {}) {
     _drawPlotNow(canvas);
 }
 
-// Single ResizeObserver for all plots — redraws on layout changes.
+// Single ResizeObserver for all plots - redraws on layout changes.
 let _plotResizeObs = null;
 function _ensureResizeObserver(canvas) {
     if (canvas.__plotObs) return;
@@ -230,7 +230,7 @@ function _drawPlotNow(canvas) {
         ctx.restore();
     }
 
-    // Clip subsequent draws to the plot rect — keeps the line and the
+    // Clip subsequent draws to the plot rect - keeps the line and the
     // frequency marker strictly inside the frame.
     ctx.save();
     ctx.beginPath();
@@ -285,7 +285,7 @@ async function sendOverWS({ token, signal, channel, onStatus, onError }) {
                 onStatus?.(info);
                 return;
             }
-            // binary result blob — float32 interleaved I/Q
+            // binary result blob - float32 interleaved I/Q
             const arr = new Float32Array(ev.data);
             resolve(arr);
             ws.close();
@@ -305,7 +305,7 @@ async function sendOverWS({ token, signal, channel, onStatus, onError }) {
 async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) {
     // 1) fetch /info to learn fs / fc / guards
     const infoRes = await fetch(`/info?auth_token=${encodeURIComponent(token)}`);
-    if (!infoRes.ok) throw new Error("Could not fetch /info — token invalid?");
+    if (!infoRes.ok) throw new Error("Could not fetch /info - token invalid?");
     const info = await infoRes.json();
 
     const fs = Number(info.sample_rate_hz);
@@ -328,7 +328,7 @@ async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) 
 
     // 4) split RX
     const totalSamples = rx.length / 2;
-    // Guards may be randomised between min and max — derive the actual
+    // Guards may be randomised between min and max - derive the actual
     // total guard from the recorded sample count and just check it falls
     // inside the legal [min, max] window.
     const begin_min = Number(info.begin_guard_min_sec ?? 0.1);
@@ -382,7 +382,7 @@ async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) 
     }
     const rxAvgPower = rxPowerSum / nSamples;
     const rxAvgPowerDb = 10 * Math.log10(rxAvgPower + 1e-20);
-    const txAvgPowerDb = 0; // by construction — magnitude 1
+    const txAvgPowerDb = 0; // by construction - magnitude 1
 
     // SNR estimate: peak power vs median spectrum (noise floor)
     const sortedMag = Array.from(rxSpec.mag_db).sort((a, b) => a - b);

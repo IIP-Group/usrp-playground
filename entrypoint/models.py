@@ -8,7 +8,7 @@ from database import Base
 class User(Base):
     """
     Registered course participant. Owns one token.
-    ETH ID (eth_id) is the part before @ethz.ch — used for display/logging.
+    ETH ID (eth_id) is the part before @ethz.ch - used for display/logging.
     """
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
@@ -26,7 +26,7 @@ class Token(Base):
     token = Column(String(255), unique=True, nullable=False)
     label = Column(String(255))
     is_default = Column(Boolean, default=False)
-    # user_id optional — default token has no user
+    # user_id optional - default token has no user
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -296,7 +296,7 @@ async def ws_run(ws: WebSocket):
             await ws.close()
             return
         if mode == "siso" and is_mimo_blob:
-            # MIMO blob without handshake — reject so we never silently
+            # MIMO blob without handshake - reject so we never silently
             # accept multi-channel data while MIMO is off.
             if not mimo_enabled:
                 await _ws_send(ws, error="mimo_disabled",
@@ -382,7 +382,7 @@ async def ws_run(ws: WebSocket):
         await ws.close()
 
     except WebSocketDisconnect:
-        # Client hung up — if their task is still pending, cancel it.
+        # Client hung up - if their task is still pending, cancel it.
         if task_uid is not None:
             try:
                 with SessionLocal() as db:
@@ -406,7 +406,7 @@ async def ws_run(ws: WebSocket):
             except Exception:
                 pass
     except Exception:
-        # Don't let one bad client take down the worker — swallow & close.
+        # Don't let one bad client take down the worker - swallow & close.
         try:
             await ws.close()
         except Exception:
@@ -423,7 +423,7 @@ async def ws_run(ws: WebSocket):
 @app.get("/api/status")
 def public_status(db: Session = Depends(get_db)):
     """Anonymous, public health probe used by the /status landing page.
-    Reports only whether the server is running — no queue / IP details."""
+    Reports only whether the server is running - no queue / IP details."""
     state = server_state.get_state(db)
     return {"state": state, "ok": state == "running"}
 

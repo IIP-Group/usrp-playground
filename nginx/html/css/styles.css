@@ -1,4 +1,4 @@
-/* ===== USRP Benchmark — Admin Panel Styles ===== */
+/* ===== USRP Benchmark - Admin Panel Styles ===== */
 
 :root {
     --bg:        #0f1117;
@@ -204,7 +204,7 @@ input:focus, select:focus, textarea:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(91, 141, 239, 0.15);
 }
-/* Custom-styled <select> — drop the native chevron, use our own */
+/* Custom-styled <select> - drop the native chevron, use our own */
 select {
     appearance: none;
     -webkit-appearance: none;
@@ -421,7 +421,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     margin-top: 20px;
 }
 
-/* Email send result — single big check / cross, click to close */
+/* Email send result - single big check / cross, click to close */
 .send-mark {
     display: flex; align-items: center; justify-content: center;
     margin: 14px auto 0;
@@ -471,7 +471,7 @@ input.big-check {
     box-shadow: 0 0 0 2px rgba(241,76,76,0.2);
 }
 
-/* Info icon next to setting labels — native browser tooltip on hover */
+/* Info icon next to setting labels - native browser tooltip on hover */
 .info-icon {
     display: inline-flex;
     align-items: center;
@@ -562,7 +562,7 @@ tr:hover .copy-btn { opacity: 0.7; }
     color: white;
 }
 
-/* Tag column in user table — wraps vertically, never overflows horizontally */
+/* Tag column in user table - wraps vertically, never overflows horizontally */
 td.tags-col { max-width: 320px; }
 .tag-cell {
     display: flex;
@@ -593,7 +593,7 @@ td.tags-col { max-width: 320px; }
     font-style: italic;
 }
 
-/* ---------- ChipInput widget — single line, scrolls horizontally ---------- */
+/* ---------- ChipInput widget - single line, scrolls horizontally ---------- */
 .chip-input {
     position: relative;
     width: 100%;

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dashboard — USRP Sandbox</title>
+    <title>Dashboard - USRP Sandbox</title>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -22,22 +22,22 @@
         <div class="grid grid-4" style="margin-bottom: 20px;">
             <div class="card">
                 <h3>USRP State</h3>
-                <div class="value" id="stat-usrp">–</div>
+                <div class="value" id="stat-usrp">-</div>
                 <div class="sub" id="stat-usrp-sub"></div>
             </div>
             <div class="card">
                 <h3>Pending Tasks</h3>
-                <div class="value" id="stat-pending">–</div>
+                <div class="value" id="stat-pending">-</div>
                 <div class="sub">currently in queue</div>
             </div>
             <div class="card">
                 <h3>Running Tasks</h3>
-                <div class="value" id="stat-running">–</div>
+                <div class="value" id="stat-running">-</div>
                 <div class="sub">being processed</div>
             </div>
             <div class="card">
                 <h3>Registered Users</h3>
-                <div class="value" id="stat-users">–</div>
+                <div class="value" id="stat-users">-</div>
                 <div class="sub">course participants</div>
             </div>
         </div>
@@ -45,20 +45,20 @@
         <div class="grid grid-4" style="margin-bottom: 20px;">
             <div class="card">
                 <h3>Submits (1h)</h3>
-                <div class="value" id="stat-submits-1h">–</div>
+                <div class="value" id="stat-submits-1h">-</div>
             </div>
             <div class="card">
                 <h3>Submits (24h)</h3>
-                <div class="value" id="stat-submits-24h">–</div>
+                <div class="value" id="stat-submits-24h">-</div>
             </div>
             <div class="card">
                 <h3>Errors (24h)</h3>
-                <div class="value" id="stat-errors">–</div>
+                <div class="value" id="stat-errors">-</div>
                 <div class="sub">auth + task failures</div>
             </div>
             <div class="card">
                 <h3>Last update</h3>
-                <div class="value" style="font-size: 20px;" id="stat-now">–</div>
+                <div class="value" style="font-size: 20px;" id="stat-now">-</div>
             </div>
         </div>
 
@@ -142,8 +142,8 @@ function renderTasks(tasks) {
                 ? '<span class="badge warn"><span class="dot"></span>Running</span>'
                 : '<span class="badge"><span class="dot" style="background:var(--text-dim)"></span>Pending</span>';
         return `<tr>
-            <td>${esc(t.eth_id) || '<span class="text-dim">–</span>'}</td>
-            <td class="num">${t.n_samples ? t.n_samples.toLocaleString() : '–'}</td>
+            <td>${esc(t.eth_id) || '<span class="text-dim">-</span>'}</td>
+            <td class="num">${t.n_samples ? t.n_samples.toLocaleString() : '-'}</td>
             <td>${badge}</td>
             <td class="text-dim">${relTime(t.created_at)}</td>
         </tr>`;
@@ -162,9 +162,9 @@ function renderLogs(logs) {
     }
     const rows = logs.map(l => `
         <tr>
-            <td>${esc(l.eth_id) || '<span class="text-dim">–</span>'}</td>
+            <td>${esc(l.eth_id) || '<span class="text-dim">-</span>'}</td>
             <td class="mono">${esc(l.action)}</td>
-            <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '–'}</td>
+            <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '-'}</td>
             <td class="text-dim">${relTime(l.created_at)}</td>
         </tr>`).join("");
     document.getElementById("logs-table").innerHTML = `

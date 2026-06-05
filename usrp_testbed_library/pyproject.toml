@@ -18,7 +18,7 @@ daemon = [
     "uhd",
 ]
 
-# Flat layout — the project root IS the package directory (the same dir
+# Flat layout - the project root IS the package directory (the same dir
 # contains pyproject.toml AND __init__.py + module files). Tell setuptools
 # explicitly so the install actually contains the python files.
 [tool.setuptools]

@@ -208,7 +208,7 @@ class USRPChannel:
 
         fs = _get_sample_rate()
         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
-        # Legacy fallbacks — used only when the inventory doesn't fully
+        # Legacy fallbacks - used only when the inventory doesn't fully
         # specify the channel.
         default_tx_gain   = _get("TX_GAIN_DB", 30.0, float)
         default_rx_gain   = _get("RX_GAIN_DB", 30.0, float)
@@ -270,7 +270,7 @@ class USRPChannel:
         rx_gain_scalar = float(cfg[chan_idx[0]]["rx"].get("gain_db")
                                if cfg[chan_idx[0]]["rx"].get("gain_db") is not None
                                else default_rx_gain)
-        # Per-channel TX power overrides — daemon falls back to gain if
+        # Per-channel TX power overrides - daemon falls back to gain if
         # the device doesn't support set_tx_power_reference.
         p_tx_field = {}
         for c in chan_idx:
@@ -306,10 +306,10 @@ class USRPChannel:
             # Actual USRP settings differ from what we requested → downstream
             # timing/frequency math would silently be wrong. Abort loudly.
             raise RuntimeError(
-                f"TX configure mismatch — the USRP could not apply the requested "
+                f"TX configure mismatch - the USRP could not apply the requested "
                 f"settings exactly. Mismatches: {resp.get('mismatches')}"
             )
-        # >>> DIAGNOSTIC (3x-frequency-bug) — REMOVE WHEN DONE
+        # >>> DIAGNOSTIC (3x-frequency-bug) - REMOVE WHEN DONE
         logger.info("[DIAG] TX configure actual: %s", resp.get("settings"))
         # <<< DIAGNOSTIC
 
@@ -328,10 +328,10 @@ class USRPChannel:
             raise RuntimeError(f"RX configure failed: {resp.get('error')}")
         if status == "MISMATCH":
             raise RuntimeError(
-                f"RX configure mismatch — the USRP could not apply the requested "
+                f"RX configure mismatch - the USRP could not apply the requested "
                 f"settings exactly. Mismatches: {resp.get('mismatches')}"
             )
-        # >>> DIAGNOSTIC (3x-frequency-bug) — REMOVE WHEN DONE
+        # >>> DIAGNOSTIC (3x-frequency-bug) - REMOVE WHEN DONE
         logger.info("[DIAG] RX configure actual: %s  (requested fs=%s, fc=%s)",
                     resp.get("settings"), fs, fc)
         # <<< DIAGNOSTIC
@@ -438,7 +438,7 @@ class USRPChannel:
         )
 
     def _reset_sockets(self):
-        """Throw away the ZMQ REQ sockets — next call to `_connect` recreates
+        """Throw away the ZMQ REQ sockets - next call to `_connect` recreates
         them. Use when an exception leaves the REQ socket in an illegal state
         (sent without matching recv)."""
         import zmq
@@ -628,7 +628,7 @@ class USRPChannel:
                     self._rx_req.recv_json()
                 except Exception:
                     pass
-            # If either drain failed the socket is still dirty — nuke it.
+            # If either drain failed the socket is still dirty - nuke it.
             self._reset_sockets()
             raise
 

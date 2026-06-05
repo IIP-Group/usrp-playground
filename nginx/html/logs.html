@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Logs — USRP Sandbox</title>
+    <title>Logs - USRP Sandbox</title>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -106,10 +106,10 @@ function render() {
         return `<tr>
             <td><input type="checkbox" class="row-check big-check" data-id="${l.id}" ${checked}></td>
             <td class="text-dim nowrap">${relTime(l.created_at)}</td>
-            <td>${esc(l.eth_id) || '<span class="text-dim">–</span>'}</td>
+            <td>${esc(l.eth_id) || '<span class="text-dim">-</span>'}</td>
             <td>${actionBadge(l.action)}</td>
-            <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '–'}</td>
-            <td class="mono text-dim">${esc(l.ip || "–")}</td>
+            <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '-'}</td>
+            <td class="mono text-dim">${esc(l.ip || "-")}</td>
             <td class="text-dim">${esc(l.detail || "")}</td>
         </tr>`;
     }).join("");

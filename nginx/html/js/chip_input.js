@@ -1,4 +1,4 @@
-/* ===== Chip input — type + space/enter/comma commits a tag bubble ===== */
+/* ===== Chip input - type + space/enter/comma commits a tag bubble ===== */
 /* Backspace on empty input removes the last chip. × on a chip removes it.
  * Suggestion popover shows tags that already exist in the system. */
 

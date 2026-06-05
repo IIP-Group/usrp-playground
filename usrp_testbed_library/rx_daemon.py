@@ -368,7 +368,7 @@ def parse_arguments():
         ),
     )
     parser.add_argument('--buffer-scale', type=buffer_scale_float, default=1.0,
-                       help="Buffer size scaling factor (0.5–8.0, network devices only)")
+                       help="Buffer size scaling factor (0.5-8.0, network devices only)")
     return parser.parse_args()
 
 

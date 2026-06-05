@@ -6,7 +6,7 @@ Credentials are read from the .env:
     ADMIN_PASSWORD=...
     ADMIN_SESSION_SECRET=...   # HMAC key for the session cookies
 
-The session cookie carries an HMAC-signed token plus expiry — no DB
+The session cookie carries an HMAC-signed token plus expiry - no DB
 round-trip is needed for auth.
 """
 import os
