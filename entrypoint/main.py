@@ -11,6 +11,7 @@ from database import get_db, engine, SessionLocal
 from models import Token, Task, Log, User
 import server_state
 import settings_store
+import inventory
 from admin_router import router as admin_router
 
 app = FastAPI(title="USRP Sandbox System")
@@ -81,6 +82,13 @@ def _radio_info(db: Session) -> dict:
         "end_guard_max_sec":    float(g("END_GUARD_MAX_SEC", 0.1)),
         "mimo_enabled":         bool(g("MIMO_ENABLED", False)),
         "mimo_max_channels":    int(g("MIMO_MAX_CHANNELS", 2)),
+        # Channel list from the Hardware-Inventory. The position in this list
+        # IS the physical channel index the worker drives, so the benchmark
+        # page can offer a "test over channel X" picker.
+        "channels":             [
+            {"index": i, "id": c.get("id", str(i)), "label": c.get("label") or c.get("id") or str(i)}
+            for i, c in enumerate(inventory.read_inventory().get("channels", []))
+        ],
     }
 
 
@@ -192,6 +200,10 @@ async def ws_run(ws: WebSocket):
         mimo_max_ch = int(radio_info.get("mimo_max_channels", 2))
         mode = "siso"
         announced_channels = 1
+        # Which inventory channel a SISO test runs over (index into the
+        # inventory channel list). 0 = first channel = legacy behaviour.
+        selected_channel = 0
+        n_inv_channels = len(radio_info.get("channels", []))
         try:
             first = await asyncio.wait_for(
                 ws.receive(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"]
@@ -220,6 +232,17 @@ async def ws_run(ws: WebSocket):
             if mode not in ("siso", "mimo"):
                 await _ws_send(ws, error="bad_handshake",
                                message=f"Unknown mode '{mode}'")
+                await ws.close()
+                return
+            # Optional channel picker (SISO only). Reject out-of-range so a
+            # stale UI can't silently fall back to the wrong antenna.
+            try:
+                selected_channel = int(handshake.get("channel", 0) or 0)
+            except (TypeError, ValueError):
+                selected_channel = 0
+            if selected_channel < 0 or (n_inv_channels and selected_channel >= n_inv_channels):
+                await _ws_send(ws, error="bad_handshake",
+                               message=f"channel must be 0..{max(0, n_inv_channels - 1)}")
                 await ws.close()
                 return
             if mode == "mimo":
@@ -287,6 +310,11 @@ async def ws_run(ws: WebSocket):
         task_dir = INPUT_DIR / str(task_uid)
         task_dir.mkdir(parents=True)
         (task_dir / "input.f32").write_bytes(data)
+        # Sidecar metadata the worker reads alongside the signal. Channel
+        # selection only applies to SISO (MIMO drives channels 0..N-1).
+        (task_dir / "meta.json").write_text(json.dumps({
+            "channel": selected_channel if mode == "siso" else 0,
+        }))
         if mode == "mimo":
             # 16-byte header + channels * samples * 8 bytes IQ
             n_samples = max(0, (len(data) - 16) // (announced_channels * 8))

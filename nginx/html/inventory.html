@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Hardware — USRP Sandbox</title>
+    <title>Hardware - USRP Sandbox</title>
     <link rel="stylesheet" href="/css/styles.css">
     <style>
         .inv-tables { display: grid; grid-template-columns: 1fr; gap: 24px; }
@@ -59,12 +59,7 @@
                     <button id="btn-add-usrp" class="btn btn-sm">+ Add USRP</button>
                 </div>
                 <div class="text-dim" style="font-size: 12px; margin-bottom: 8px;">
-                    Each row is one physical USRP. <em>ID</em> is a short handle used
-                    by channel mappings. <em>Identifier</em> is the raw UHD device-args
-                    string — e.g. <code>serial=3485538</code>, <code>addr=192.168.10.2</code>,
-                    <code>name=myusrp</code>, or any combination. <em>Ports</em> are
-                    comma-separated antenna names available on that device
-                    (e.g. <code>TX/RX, RX2</code> for a B210).
+                    serial=3485538, addr=192.168.10.2
                 </div>
                 <table class="inv" id="tbl-usrps">
                     <thead>
@@ -87,10 +82,6 @@
                     <h3 style="margin: 0;">Channels (TX port → RX port)</h3>
                     <span class="sp"></span>
                     <button id="btn-add-channel" class="btn btn-sm">+ Add Channel</button>
-                </div>
-                <div class="text-dim" style="font-size: 12px; margin-bottom: 8px;">
-                    A channel is a physical wire from one USRP's TX port to another USRP's
-                    RX port. The worker uses this list when routing MIMO transmissions.
                 </div>
                 <table class="inv" id="tbl-channels">
                     <thead>
@@ -130,7 +121,7 @@ const setDirty = (v = true) => {
 };
 
 function fmtTime(iso) {
-    if (!iso) return "—";
+    if (!iso) return "-";
     return new Date(iso).toLocaleTimeString();
 }
 
@@ -153,7 +144,7 @@ function renderUsrps() {
                         style="font-family: var(--mono); font-size: 12px;"></td>
             <td>
                 <select data-field="type">
-                    <option value=""     ${!u.type        ?'selected':''}>—</option>
+                    <option value=""     ${!u.type        ?'selected':''}>-</option>
                     <option value="b200" ${u.type==='b200'?'selected':''}>b200</option>
                     <option value="x4xx" ${u.type==='x4xx'?'selected':''}>x4xx</option>
                     <option value="x3xx" ${u.type==='x3xx'?'selected':''}>x3xx</option>
@@ -161,7 +152,7 @@ function renderUsrps() {
             </td>
             <td>
                 <select data-field="role">
-                    <option value=""    ${!u.role        ?'selected':''}>—</option>
+                    <option value=""    ${!u.role        ?'selected':''}>-</option>
                     <option value="tx"  ${u.role==='tx'  ?'selected':''}>tx</option>
                     <option value="rx"  ${u.role==='rx'  ?'selected':''}>rx</option>
                     <option value="txrx"${u.role==='txrx'?'selected':''}>txrx</option>
@@ -211,7 +202,7 @@ function renderChannels() {
     const portOpt = (uid, selPort) => {
         const u = DATA.usrps.find(x => x.id === uid);
         if (!u) return `<option value="${esc(selPort||'')}">${esc(selPort||'?')}</option>`;
-        return `<option value="">—</option>` + (u.ports || []).map(p =>
+        return `<option value="">-</option>` + (u.ports || []).map(p =>
             `<option ${p===selPort?'selected':''}>${esc(p)}</option>`
         ).join("");
     };

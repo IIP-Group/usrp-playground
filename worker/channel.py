@@ -189,13 +189,18 @@ class USRPChannel:
 
         os.makedirs(SIGNAL_DIR, exist_ok=True)
 
-    def _configure(self, n_channels: int = 1):
+    def _configure(self, n_channels: int = 1, channel=None):
         """(Re-)configure both USRPs with current settings.
 
         Channel routing (antenna port + per-channel gain) comes primarily
         from the Hardware-Inventory file (`/data/inventory/inventory.json`).
         If that file is missing or empty, fall back to the legacy
         ANTENNA_TX / ANTENNA_RX / TX_GAIN_DB / RX_GAIN_DB env vars.
+
+        `channel` (SISO only) selects a single inventory channel by index.
+        The index is used both to pick the routing config AND as the physical
+        USRP channel index driven on the daemon. None means "channels
+        0..n_channels-1" (legacy SISO / MIMO behaviour).
         """
         import zmq
 
@@ -229,46 +234,57 @@ class USRPChannel:
                            "gain_db": default_rx_gain},
                 })
 
-        if n_channels > len(inventory_channels):
-            raise RuntimeError(
-                f"Task asked for {n_channels} channels but the Hardware "
-                f"inventory only has {len(inventory_channels)} configured. "
-                f"Add more channels on the Hardware page."
-            )
+        # Which physical channel index/indices to drive. A SISO `channel`
+        # pick maps straight onto the daemon channel index; otherwise use
+        # the first n_channels (legacy SISO = [0], MIMO = [0..n-1]).
+        if channel is not None:
+            chan_idx = [int(channel)]
+        else:
+            chan_idx = list(range(max(n_channels, 1)))
 
-        used_channels = inventory_channels[:max(n_channels, 1)]
-        tx_channels = list(range(len(used_channels)))
-        rx_channels = list(range(len(used_channels)))
+        for c in chan_idx:
+            if c < 0 or c >= len(inventory_channels):
+                raise RuntimeError(
+                    f"Requested channel {c} but the Hardware inventory only "
+                    f"has {len(inventory_channels)} channel(s) configured "
+                    f"(valid 0..{len(inventory_channels) - 1}). "
+                    f"Add or pick a different channel on the Hardware page."
+                )
+
+        # daemon-channel-index -> routing config
+        cfg = {c: inventory_channels[c] for c in chan_idx}
+        tx_channels = chan_idx
+        rx_channels = chan_idx
 
         # Per-channel dicts (string keys, matching the daemon protocol).
-        antenna_tx_field = {str(i): (used_channels[i]["tx"].get("port") or default_tx_ant)
-                            for i in tx_channels}
-        antenna_rx_field = {str(i): (used_channels[i]["rx"].get("port") or default_rx_ant)
-                            for i in rx_channels}
-        g_tx_field = {str(i): float(used_channels[i]["tx"].get("gain_db")
-                                    if used_channels[i]["tx"].get("gain_db") is not None
+        antenna_tx_field = {str(c): (cfg[c]["tx"].get("port") or default_tx_ant)
+                            for c in chan_idx}
+        antenna_rx_field = {str(c): (cfg[c]["rx"].get("port") or default_rx_ant)
+                            for c in chan_idx}
+        g_tx_field = {str(c): float(cfg[c]["tx"].get("gain_db")
+                                    if cfg[c]["tx"].get("gain_db") is not None
                                     else default_tx_gain)
-                      for i in tx_channels}
+                      for c in chan_idx}
         # RX daemon currently takes one scalar gain; broadcast the first
         # channel's value (this is what UHD applies globally on B210).
-        rx_gain_scalar = float(used_channels[0]["rx"].get("gain_db")
-                               if used_channels[0]["rx"].get("gain_db") is not None
+        rx_gain_scalar = float(cfg[chan_idx[0]]["rx"].get("gain_db")
+                               if cfg[chan_idx[0]]["rx"].get("gain_db") is not None
                                else default_rx_gain)
         # Per-channel TX power overrides — daemon falls back to gain if
         # the device doesn't support set_tx_power_reference.
         p_tx_field = {}
-        for i in tx_channels:
-            p = used_channels[i]["tx"].get("power_dbm")
+        for c in chan_idx:
+            p = cfg[c]["tx"].get("power_dbm")
             if p is None:
                 p = default_tx_power
             if p is not None:
-                p_tx_field[str(i)] = float(p)
+                p_tx_field[str(c)] = float(p)
 
         # Collapse SISO to plain strings/scalars so the daemon's
         # mismatch-checker keeps working with single-channel firmware.
-        if len(used_channels) == 1:
-            antenna_tx_field = antenna_tx_field["0"]
-            antenna_rx_field = antenna_rx_field["0"]
+        if len(chan_idx) == 1:
+            antenna_tx_field = antenna_tx_field[str(chan_idx[0])]
+            antenna_rx_field = antenna_rx_field[str(chan_idx[0])]
 
         tx_cmd = {
             "op": "CONFIGURE_USRP",
@@ -437,12 +453,17 @@ class USRPChannel:
                 setattr(self, attr, None)
         self._configured = False
 
-    def send_and_receive(self, signal):
+    def send_and_receive(self, signal, channel=None):
         """Send `signal` and return what was received.
 
         `signal` may be:
           * 1-D complex ndarray  → SISO, returns 1-D
           * 2-D shape (n_samples, n_channels) → MIMO, returns same shape
+
+        `channel` (SISO only) selects which inventory channel to test over.
+        It is the index into the inventory channel list and equals the
+        physical USRP channel index driven on the daemon. None / 0 keeps the
+        legacy behaviour (first channel).
         """
         import zmq
         import h5py
@@ -456,11 +477,12 @@ class USRPChannel:
             n_samples, n_channels = signal.shape
             # daemon expects (n_channels, n_samples)
             tx_matrix = signal.T.astype(np.complex64)
+            channel = None       # MIMO drives channels 0..N-1
         else:
             raise ValueError(f"signal must be 1-D or 2-D, got {signal.ndim}-D")
 
         try:
-            self._configure(n_channels=n_channels)
+            self._configure(n_channels=n_channels, channel=channel)
         except Exception:
             self._reset_sockets()
             raise
@@ -637,8 +659,8 @@ class USRPChannel:
 _channel = None
 
 
-def send_and_receive(signal):
+def send_and_receive(signal, channel=None):
     global _channel
     if _channel is None:
         _channel = USRPChannel()
-    return _channel.send_and_receive(signal)
+    return _channel.send_and_receive(signal, channel=channel)

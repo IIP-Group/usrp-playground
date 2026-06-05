@@ -259,7 +259,7 @@ function _drawPlotNow(canvas) {
 }
 
 // ---- WebSocket transport mirroring usrp_benchmark.client ----
-async function sendOverWS({ token, signal, onStatus, onError }) {
+async function sendOverWS({ token, signal, channel, onStatus, onError }) {
     const url = (location.protocol === "https:" ? "wss://" : "ws://") +
                 location.host + "/ws/run?auth_token=" + encodeURIComponent(token);
     const ws = new WebSocket(url);
@@ -267,7 +267,9 @@ async function sendOverWS({ token, signal, onStatus, onError }) {
 
     const result = new Promise((resolve, reject) => {
         ws.onopen = () => {
-            // signal is a Float32Array interleaved I/Q
+            // Text handshake selects which inventory channel to test over,
+            // then exactly one binary frame with the interleaved I/Q signal.
+            ws.send(JSON.stringify({ mode: "siso", channel: channel || 0 }));
             ws.send(signal.buffer);
         };
         ws.onmessage = (ev) => {
@@ -300,7 +302,7 @@ async function sendOverWS({ token, signal, onStatus, onError }) {
 }
 
 // ---- Public entry: run a benchmark and return all the metrics needed ----
-async function runBenchmark({ token, toneFreqHz, nSamples, onStatus }) {
+async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) {
     // 1) fetch /info to learn fs / fc / guards
     const infoRes = await fetch(`/info?auth_token=${encodeURIComponent(token)}`);
     if (!infoRes.ok) throw new Error("Could not fetch /info — token invalid?");
@@ -321,7 +323,7 @@ async function runBenchmark({ token, toneFreqHz, nSamples, onStatus }) {
 
     // 3) send / receive
     const t0 = performance.now();
-    const rx = await sendOverWS({ token, signal: tx, onStatus });
+    const rx = await sendOverWS({ token, signal: tx, channel, onStatus });
     const elapsed_ms = performance.now() - t0;
 
     // 4) split RX

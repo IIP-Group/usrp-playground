@@ -83,6 +83,10 @@
                 <label>Samples</label>
                 <input id="bench-samples" type="number" value="100000" min="1024" step="1024">
             </div>
+            <div class="field" id="bench-channel-field" style="display: none;">
+                <label>Channel</label>
+                <select id="bench-channel"></select>
+            </div>
             <div class="field">
                 <button id="btn-run" class="btn btn-primary">Run benchmark</button>
             </div>
@@ -135,6 +139,34 @@ tokenEl.addEventListener("input", () => {
     localStorage.setItem(TOKEN_KEY, tokenEl.value.trim());
     refreshLiveServerConfig();
 });
+
+// ---- Channel picker (populated from /info inventory channels) ----
+const CHANNEL_KEY = "usrp.benchmark.channel";
+const channelField = document.getElementById("bench-channel-field");
+const channelEl = document.getElementById("bench-channel");
+channelEl.addEventListener("change", () => {
+    localStorage.setItem(CHANNEL_KEY, channelEl.value);
+});
+function populateChannels(channels) {
+    // Only offer a picker when there's an actual choice to make.
+    if (!Array.isArray(channels) || channels.length < 2) {
+        channelField.style.display = "none";
+        return;
+    }
+    const saved = localStorage.getItem(CHANNEL_KEY);
+    channelEl.innerHTML = channels.map(c =>
+        `<option value="${c.index}">${esc(c.label || c.id || ("Channel " + c.index))}</option>`
+    ).join("");
+    // Restore previous pick if it's still valid.
+    if (saved != null && channels.some(c => String(c.index) === String(saved))) {
+        channelEl.value = saved;
+    }
+    channelField.style.display = "";
+}
+function selectedChannel() {
+    if (channelField.style.display === "none") return 0;
+    return Number(channelEl.value) || 0;
+}
 
 // ---- Tone frequency UnitInput (kHz/MHz/GHz, default MHz) ----
 const toneInput = new UnitInput(document.getElementById("bench-tone"), {
@@ -282,6 +314,7 @@ async function refreshLiveServerConfig() {
         const r = await fetch(`/info?auth_token=${encodeURIComponent(tk)}`);
         if (!r.ok) return;
         const inf = await r.json();
+        populateChannels(inf.channels);
         setKV(document.getElementById("srv-config"), [
             ["Carrier",      f.freq(inf.carrier_frequency_hz)],
             ["Sample rate",  f.freq(inf.sample_rate_hz)],
@@ -318,7 +351,7 @@ document.getElementById("btn-run").addEventListener("click", async () => {
     status("Connecting…");
     try {
         const run = await Benchmark.run({
-            token, toneFreqHz: tone, nSamples,
+            token, toneFreqHz: tone, nSamples, channel: selectedChannel(),
             onStatus(info) {
                 if (info.message === "info") {
                     const sr = (info.sample_rate_hz/1e6).toFixed(2);

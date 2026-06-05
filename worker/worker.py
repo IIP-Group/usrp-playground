@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import time
 import shutil
 import traceback
@@ -30,19 +31,32 @@ def process_f32(task_uid):
     out_dir = OUTPUT_DIR / task_uid
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    blob = (INPUT_DIR / task_uid / "input.f32").read_bytes()
+    in_dir = INPUT_DIR / task_uid
+    blob = (in_dir / "input.f32").read_bytes()
+
+    # Optional sidecar: which inventory channel a SISO test runs over.
+    channel = 0
+    meta_path = in_dir / "meta.json"
+    if meta_path.exists():
+        try:
+            channel = int(json.loads(meta_path.read_text()).get("channel", 0) or 0)
+        except Exception:
+            channel = 0
 
     if is_mimo_blob(blob):
         signal = decode_mimo(blob)           # shape (n_samples, n_channels)
-        n_samples = signal.shape[0]
     else:
         signal = decode_siso(blob)           # shape (n_samples,)
-        n_samples = signal.shape[0]
+    n_samples = signal.shape[0]
 
     if n_samples > MAX_SAMPLES:
         raise ValueError(f"Signal too large: {n_samples} samples (max {MAX_SAMPLES})")
 
-    received = send_and_receive(signal)
+    if signal.ndim == 2:
+        # MIMO already spans channels 0..N-1 — the picker doesn't apply.
+        received = send_and_receive(signal)
+    else:
+        received = send_and_receive(signal, channel=channel)
 
     out_path = out_dir / "output.f32"
     if received.ndim == 2:
