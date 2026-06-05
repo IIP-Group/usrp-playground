@@ -596,13 +596,13 @@ def settings_put(
     db: Session = Depends(get_db),
     _: dict = Depends(auth.require_admin),
 ):
-    """payload: {key: value, ...} — only EDITABLE_KEYS are accepted.
+    """payload: {key: value, ...} - only EDITABLE_KEYS are accepted.
 
     Linked keys
     -----------
     SAMPLE_RATE_BANDWIDTH_RATIO drives SAMPLE_RATE_HZ: sample_rate = bandwidth × ratio.
     Locked keys (see EDITABLE_KEYS spec `locked: True`) are rejected when sent
-    from the UI — they may only be changed via .env.
+    from the UI - they may only be changed via .env.
 
     Validation
     ----------

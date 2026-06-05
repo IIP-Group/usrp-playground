@@ -87,8 +87,8 @@ def _write_env_key(key: str, value: str) -> None:
 # Which keys can be overridden via the admin UI? Each spec lists type and description.
 #
 # Special keys:
-#   "options"  — fixed list of allowed values; UI renders a <select>, not free text.
-#   "hidden"   — managed automatically (e.g. derived from another setting); not shown.
+#   "options"  - fixed list of allowed values; UI renders a <select>, not free text.
+#   "hidden"   - managed automatically (e.g. derived from another setting); not shown.
 #
 # MASTER_CLOCK_RATE is intentionally NOT exposed: it is hardware-bound (X410
 # requires a specific value) and changing it would break the radio chain.
@@ -97,12 +97,12 @@ def _write_env_key(key: str, value: str) -> None:
 EDITABLE_KEYS: dict[str, dict] = {
     # Radio
     # Carrier is the centre of the SRD band by default. Visible in the UI
-    # but locked — change via .env CARRIER_FREQUENCY_HZ if a non-centred
+    # but locked - change via .env CARRIER_FREQUENCY_HZ if a non-centred
     # carrier is required.
     "CARRIER_FREQUENCY_HZ": {"type": "int", "group": "radio",
         "label": "Carrier Frequency",
         "locked": True,
-        "desc": "Centre of the transmitted band — defaults to the middle "
+        "desc": "Centre of the transmitted band - defaults to the middle "
                 "of the SRD band (2441.75 MHz). The signal occupies "
                 "carrier ± bandwidth/2."},
     "BANDWIDTH_HZ":         {"type": "int", "group": "radio",
@@ -169,7 +169,7 @@ EDITABLE_KEYS: dict[str, dict] = {
     "DUTY_CYCLE_ENABLED":     {"type": "bool",  "group": "safety",
         "label": "Duty Cycle Enabled",
         "desc": "Master switch for duty-cycle limiting. When off, the worker "
-                "transmits without a duty quota — only enable for lab "
+                "transmits without a duty quota - only enable for lab "
                 "experiments where regulation does not apply."},
     "DUTY_CYCLE_MAX_PERCENT": {"type": "float", "group": "safety",
         "label": "Max Duty Cycle",
@@ -195,7 +195,7 @@ EDITABLE_KEYS: dict[str, dict] = {
     "LBT_MAX_RETRIES":    {"type": "int",   "group": "safety",
         "label": "LBT Max Retries",
         "disabled_when": {"key": "LBT_ENABLED", "equals": False},
-        "desc": "How often to retry if the channel is busy — after that, error out."},
+        "desc": "How often to retry if the channel is busy - after that, error out."},
     "LBT_BACKOFF_SEC":    {"type": "float", "group": "safety",
         "label": "LBT Backoff",
         "disabled_when": {"key": "LBT_ENABLED", "equals": False},
@@ -249,7 +249,7 @@ def get(db: Session, key: str, default: Any = None) -> Any:
     if file_val is not None:
         return _coerce(file_val, type_)
 
-    # 2. os.environ (container startup values — read-only fallback)
+    # 2. os.environ (container startup values - read-only fallback)
     env_val = os.getenv(key)
     if env_val is not None:
         return _coerce(env_val, type_)
@@ -257,7 +257,7 @@ def get(db: Session, key: str, default: Any = None) -> Any:
     return default
 
 
-# Display defaults — used by the Settings UI when no DB override / .env value
+# Display defaults - used by the Settings UI when no DB override / .env value
 # is set, so that fields show a real number instead of an empty string (which
 # also confuses the dirty-tracking comparison).
 _DISPLAY_DEFAULTS = {
@@ -389,15 +389,11 @@ def _env_float(name: str, default: float) -> float:
 def srd_band_info() -> dict:
     return {
         "label":      _live_get("SRD_BAND_LABEL")
-                      or "2.4 GHz SRD — RIR1008-11 (Non-specific SRD)",
+                      or "2.4 GHz SRD - RIR1008-11 (Non-specific SRD)",
         "f_min_hz":   _env_int("SRD_BAND_F_MIN_HZ", 2_400_000_000),
         "f_max_hz":   _env_int("SRD_BAND_F_MAX_HZ", 2_483_500_000),
         "max_eirp_dbm": _env_float("SRD_MAX_EIRP_DBM", 10.0),
         "duty_cycle_pct": None,        # not regulated on 2.4 GHz SRD
         "lbt_required":   False,
-        "note":       _live_get("SRD_NOTE")
-                      or ("License-exempt, NIB/NPB. Stay within "
-                          "2400-2483.5 MHz, ≤10 mW EIRP. No duty cycle, "
-                          "no LBT. EIRP = USRP_TX_Output - cable_loss "
-                          "+ antenna_gain."),
+        "note":       _live_get("SRD_NOTE"),
     }

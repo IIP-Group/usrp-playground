@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Settings — USRP Sandbox</title>
+    <title>Settings - USRP Sandbox</title>
     <link rel="stylesheet" href="/css/styles.css">
     <style>
         .band-card {
@@ -93,14 +93,13 @@
                 <div class="band-head">
                     <div>
                         <div class="band-title" id="srd-label">2.4 GHz SRD</div>
-                        <div class="text-dim" style="font-size: 12px;">RIR1008-11 / EN 300 440 — license-exempt</div>
                     </div>
                 </div>
                 <div class="band-info">
-                    <div class="band-stat"><span class="k">Frequency band</span><span class="v" id="srd-band">—</span></div>
-                    <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="srd-eirp">—</span></div>
-                    <div class="band-stat"><span class="k">Duty cycle</span><span class="v muted">—</span></div>
-                    <div class="band-stat"><span class="k">LBT required</span><span class="v muted">—</span></div>
+                    <div class="band-stat"><span class="k">Frequency band</span><span class="v" id="srd-band">-</span></div>
+                    <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="srd-eirp">-</span></div>
+                    <div class="band-stat"><span class="k">Duty cycle</span><span class="v muted">-</span></div>
+                    <div class="band-stat"><span class="k">LBT required</span><span class="v muted">-</span></div>
                 </div>
                 <div id="srd-note" class="band-note text-dim"></div>
             </div>
@@ -126,7 +125,7 @@ const GROUP_TITLES = {
 
 // ---- Unit catalogues ----
 // Each unit's `mul` is canonical-per-displayed (canonical = displayed × mul).
-// Storage canon must match — e.g. SAMPLE_RATE_HZ stores Hz so mul of "Hz" = 1.
+// Storage canon must match - e.g. SAMPLE_RATE_HZ stores Hz so mul of "Hz" = 1.
 const UNIT_FREQ_HZ = [
     { key: "hz",  label: "Hz",  mul: 1 },
     { key: "khz", label: "kHz", mul: 1e3 },
@@ -194,7 +193,7 @@ let savedValues = {};                // key → canonical-string (current saved)
 let dirty = new Set();
 let widgets = {};                    // key → UnitInput | <select> | <input>
 
-// Sample rate getter — used by "samples" unit conversion.
+// Sample rate getter - used by "samples" unit conversion.
 const sampleRateHz = () => {
     const w = widgets["SAMPLE_RATE_HZ"];
     if (w && w.getValue && isFinite(w.getValue())) return w.getValue();
@@ -228,19 +227,19 @@ async function loadSrdBand() {
 }
 
 function fmtFreq(hz) {
-    if (hz == null) return "—";
+    if (hz == null) return "-";
     if (hz >= 1e9) return (hz/1e9).toFixed(3) + " GHz";
     if (hz >= 1e6) return (hz/1e6).toFixed(3) + " MHz";
     if (hz >= 1e3) return (hz/1e3).toFixed(3) + " kHz";
     return hz + " Hz";
 }
 function fmtPower(dbm) {
-    if (dbm == null) return "—";
+    if (dbm == null) return "-";
     const mW = Math.pow(10, dbm/10);
     return `${dbm.toFixed(0)} dBm (${mW < 1 ? mW.toFixed(2) : mW.toFixed(0)} mW)`;
 }
 function fmtDC(pct) {
-    if (pct == null) return "—";
+    if (pct == null) return "-";
     return pct.toFixed(pct < 1 ? 2 : 0) + " %";
 }
 function canonString(v) {
@@ -343,7 +342,7 @@ function render() {
         if (!el) continue;
         const fu = FIELD_UNITS[key];
         if (key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
-            // Native <input type=range> — read .value directly
+            // Native <input type=range> - read .value directly
             widgets[key] = el;
         } else if (fu && !(Array.isArray(spec.options) && spec.options.length) && spec.type !== "bool") {
             const w = new UnitInput(el, {
