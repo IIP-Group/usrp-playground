@@ -1,0 +1,13 @@
+.env
+.idea/
+__pycache__/
+*.pyc
+data/
+.venv/
+.daemon_pids/
+logs/
+*.egg-info/
+dist/
+build/
+*.f32
+usrp

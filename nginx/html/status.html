@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0c2f1a">
+    <title>USRP Sandbox - Status</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                         Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .stage {
+            position: fixed; inset: 0;
+            overflow: hidden;
+            transition: background 1.2s ease;
+        }
+
+        /* DAY */
+        .stage.running {
+            --sky-top:    #ffb55a;  --sky-mid:    #f57f3a;  --sky-bot: #c95a2c;
+            --sun:        #fff0c1;  --sun-glow:   #ffd97a;
+            --mtn-far:    #6b3a4e;
+            --tree-far:   #2c1322;  --tree-near:  #1a0c14;
+            --ground-back:  #d49866; --ground-mid: #8c5a2c; --ground-front: #2e1404;
+            --grass-back:   #8a5e2e; --grass-mid:  #4a2f10;
+            --animal-1:  #b88a4a;   --animal-1b: #6e4a1c;
+            --animal-2:  #4a4a52;
+            --animal-3:  #d8b878;   --animal-3b: #1c1410;
+            --animal-4:  #c46438;   --animal-4b: #6e3010;
+            --label-fg:  #fff8e6;   --label-glow:#ffd97a;
+            background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 45%, var(--sky-bot) 100%);
+        }
+        /* NIGHT */
+        .stage.down {
+            --sky-top:   #1d2c5e;  --sky-mid:   #2c3e75;  --sky-bot: #1f2d54;
+            --sun:       #f5efd8;  --sun-glow:  #c8d2f5;
+            --mtn-far:   #354670;
+            --tree-far:  #182240;  --tree-near: #0e1530;
+            --ground-back:  #4a5e8a; --ground-mid: #2a3a5e; --ground-front: #101c38;
+            --grass-back:   #3a4c74; --grass-mid:  #1c2a4a;
+            --animal-1:  #5b6c92;  --animal-1b: #2c3a5c;
+            --animal-2:  #4a5570;
+            --animal-3:  #6a7898;  --animal-3b: #1a2240;
+            --animal-4:  #5d6788;  --animal-4b: #2e3a58;
+            --label-fg:  #e8eefd;  --label-glow:#8aa5e0;
+            background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 60%, var(--sky-bot) 100%);
+        }
+        .stage.unknown {
+            --sky-top: #1a1d28; --sky-mid: #2a3340; --sky-bot: #181b24;
+            --sun: #b6cbf5;     --sun-glow: #5b8def;
+            --mtn-far: #2a2f3d;
+            --tree-far: #181b24; --tree-near: #0f1117;
+            --ground-back: #2a3340; --ground-mid: #1a1d28; --ground-front: #0a0c12;
+            --grass-back: #2a3340; --grass-mid: #1a1d28;
+            --animal-1: #3a4252; --animal-1b: #2a3340;
+            --animal-2: #2c3340;
+            --animal-3: #3a4252; --animal-3b: #1a1d28;
+            --animal-4: #3a4252; --animal-4b: #2a3340;
+            --label-fg: #c9d4ec; --label-glow: #5b8def;
+            background: linear-gradient(180deg, #181b24 0%, #0f1117 100%);
+        }
+
+        .scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+        /* Pose visibility - toggle via visibility so SMIL keeps running */
+        .pose-sleeping { visibility: hidden; }
+        .stage.down .pose-running   { visibility: hidden; }
+        .stage.down .pose-sleeping  { visibility: visible; }
+        .stage.unknown .pose-running { opacity: 0.4; }
+
+        /* parallax (CSS - works fine, just translateX) */
+        .stage.running .layer-mtn        { animation: scroll-x 90s linear infinite; }
+        .stage.running .layer-tree       { animation: scroll-x 50s linear infinite; }
+        .stage.running .layer-grass-back { animation: scroll-x 32s linear infinite; }
+        .stage.running .layer-grass-mid  { animation: scroll-x 22s linear infinite; }
+        .stage.running .layer-fg         { animation: scroll-x 12s linear infinite; }
+        @keyframes scroll-x {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        /* sun/moon float (translate only - CSS is fine) */
+        .celestial { animation: float 9s ease-in-out infinite; }
+        @keyframes float {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-8px); }
+        }
+
+        .star { opacity: 0; animation: twinkle 3s ease-in-out infinite; }
+        .stage.down .star { opacity: 0.9; }
+        @keyframes twinkle { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+        .cloud { opacity: 0.65; }
+        .stage.running .cloud { animation: cloud-drift 80s linear infinite; }
+        .stage.down .cloud { opacity: 0; }
+        @keyframes cloud-drift {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-1200px); }
+        }
+
+        /* body bob - pure translateY, CSS fine */
+        .body-bob       { animation: bob 0.55s ease-in-out infinite; }
+        .body-bob.slow  { animation-duration: 0.85s; }
+        .body-bob.fast  { animation-duration: 0.42s; }
+        .stage.down .body-bob { animation: none; }
+        @keyframes bob {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-3px); }
+        }
+
+        .label {
+            position: absolute;
+            top: 12%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+            user-select: none;
+            pointer-events: none;
+        }
+        .label .big {
+            font-size: clamp(48px, 11vw, 160px);
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: var(--label-fg);
+            text-shadow: 0 4px 16px rgba(0,0,0,0.45), 0 0 80px var(--label-glow);
+            line-height: 1;
+        }
+
+        /* Portrait / narrow viewports: SVG is anchored to the bottom via
+           xMidYMax meet, so the animals never get cropped. The empty top
+           is filled by the .stage CSS gradient (same sky colours). */
+        @media (max-aspect-ratio: 4/5) {
+            .label { top: 8%; }
+            .label .big { font-size: clamp(40px, 14vw, 110px); }
+        }
+    </style>
+</head>
+<body>
+
+<div id="stage" class="stage unknown">
+
+    <svg class="scene" viewBox="0 0 1200 600"
+         preserveAspectRatio="xMidYMax meet"
+         aria-hidden="true">
+
+        <g class="celestial">
+            <circle cx="990" cy="135" r="78" fill="var(--sun-glow)" opacity="0.35"/>
+            <circle cx="990" cy="135" r="58" fill="var(--sun-glow)" opacity="0.55"/>
+            <circle cx="990" cy="135" r="42" fill="var(--sun)"/>
+        </g>
+
+        <g class="stars">
+            <circle class="star" cx="120"  cy="60"  r="1.5" fill="#fff" style="animation-delay: 0s"/>
+            <circle class="star" cx="220"  cy="110" r="1.0" fill="#fff" style="animation-delay: 0.5s"/>
+            <circle class="star" cx="350"  cy="40"  r="1.2" fill="#fff" style="animation-delay: 1s"/>
+            <circle class="star" cx="450"  cy="130" r="1.5" fill="#fff" style="animation-delay: 1.5s"/>
+            <circle class="star" cx="560"  cy="70"  r="1.0" fill="#fff" style="animation-delay: 2s"/>
+            <circle class="star" cx="680"  cy="100" r="1.5" fill="#fff" style="animation-delay: 0.3s"/>
+            <circle class="star" cx="820"  cy="55"  r="1.2" fill="#fff" style="animation-delay: 0.8s"/>
+            <circle class="star" cx="180"  cy="180" r="1.0" fill="#fff" style="animation-delay: 1.3s"/>
+            <circle class="star" cx="1100" cy="80"  r="1.3" fill="#fff" style="animation-delay: 1.7s"/>
+            <circle class="star" cx="60"   cy="160" r="1.0" fill="#fff" style="animation-delay: 2.2s"/>
+        </g>
+
+        <g class="cloud cloud-1">
+            <ellipse cx="200" cy="170" rx="60" ry="14" fill="#fff5dc" opacity="0.45"/>
+            <ellipse cx="240" cy="160" rx="40" ry="10" fill="#fff5dc" opacity="0.45"/>
+        </g>
+        <g class="cloud cloud-2" style="animation-delay: -30s">
+            <ellipse cx="700" cy="120" rx="80" ry="16" fill="#fff5dc" opacity="0.40"/>
+            <ellipse cx="760" cy="110" rx="50" ry="12" fill="#fff5dc" opacity="0.40"/>
+        </g>
+
+        <g class="layer layer-mtn">
+            <path d="M0,400 L120,300 L220,360 L340,260 L460,340 L580,290 L700,370 L820,310 L940,360 L1080,300 L1200,360 L1200,500 L0,500 Z
+                     M1200,400 L1320,300 L1420,360 L1540,260 L1660,340 L1780,290 L1900,370 L2020,310 L2140,360 L2280,300 L2400,360 L2400,500 L1200,500 Z"
+                  fill="var(--mtn-far)" opacity="0.85"/>
+        </g>
+
+        <!-- Three ground tiers -->
+        <rect x="0" y="400" width="2400" height="35" fill="var(--ground-back)"/>
+        <rect x="0" y="433" width="2400" height="2"  fill="#000" opacity="0.15"/>
+        <rect x="0" y="435" width="2400" height="50" fill="var(--ground-mid)"/>
+        <rect x="0" y="483" width="2400" height="2"  fill="#000" opacity="0.22"/>
+        <rect x="0" y="485" width="2400" height="200" fill="var(--ground-front)"/>
+
+        <!-- Trees firmly planted at y=435 -->
+        <g class="layer layer-tree">
+            <g transform="translate(80,435)">
+                <line x1="0" y1="0" x2="0" y2="-50" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-55" rx="35" ry="10" fill="var(--tree-far)"/>
+                <ellipse cx="-15" cy="-62" rx="22" ry="6" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(380,435)">
+                <line x1="0" y1="0" x2="0" y2="-65" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-72" rx="48" ry="14" fill="var(--tree-near)"/>
+                <ellipse cx="20" cy="-82" rx="26" ry="8" fill="var(--tree-near)"/>
+            </g>
+            <g transform="translate(720,435)">
+                <line x1="0" y1="0" x2="0" y2="-55" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-60" rx="40" ry="11" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(1020,435)">
+                <line x1="0" y1="0" x2="0" y2="-70" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-78" rx="52" ry="15" fill="var(--tree-near)"/>
+                <ellipse cx="-22" cy="-88" rx="28" ry="9" fill="var(--tree-near)"/>
+            </g>
+            <g transform="translate(1280,435)">
+                <line x1="0" y1="0" x2="0" y2="-50" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-55" rx="35" ry="10" fill="var(--tree-far)"/>
+                <ellipse cx="-15" cy="-62" rx="22" ry="6" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(1580,435)">
+                <line x1="0" y1="0" x2="0" y2="-65" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-72" rx="48" ry="14" fill="var(--tree-near)"/>
+                <ellipse cx="20" cy="-82" rx="26" ry="8" fill="var(--tree-near)"/>
+            </g>
+            <g transform="translate(1920,435)">
+                <line x1="0" y1="0" x2="0" y2="-55" stroke="var(--tree-far)" stroke-width="3"/>
+                <ellipse cx="0" cy="-60" rx="40" ry="11" fill="var(--tree-far)"/>
+            </g>
+            <g transform="translate(2220,435)">
+                <line x1="0" y1="0" x2="0" y2="-70" stroke="var(--tree-near)" stroke-width="4"/>
+                <ellipse cx="0" cy="-78" rx="52" ry="15" fill="var(--tree-near)"/>
+                <ellipse cx="-22" cy="-88" rx="28" ry="9" fill="var(--tree-near)"/>
+            </g>
+        </g>
+
+        <g class="layer layer-grass-back" opacity="0.7">
+            <g fill="var(--grass-back)">
+                <path d="M30,425 l4,-8 l3,8 l3,-6 l3,6 z"/>
+                <path d="M210,425 l4,-9 l3,9 l3,-7 l3,7 z"/>
+                <path d="M460,425 l4,-7 l3,7 l3,-6 l3,6 z"/>
+                <path d="M620,425 l4,-9 l3,9 l3,-6 l3,6 z"/>
+                <path d="M880,425 l4,-8 l3,8 l3,-6 l3,6 z"/>
+                <path d="M1080,425 l4,-9 l3,9 l3,-6 l3,6 z"/>
+            </g>
+            <g fill="var(--grass-back)" transform="translate(1200,0)">
+                <path d="M30,425 l4,-8 l3,8 l3,-6 l3,6 z"/>
+                <path d="M210,425 l4,-9 l3,9 l3,-7 l3,7 z"/>
+                <path d="M460,425 l4,-7 l3,7 l3,-6 l3,6 z"/>
+                <path d="M620,425 l4,-9 l3,9 l3,-6 l3,6 z"/>
+                <path d="M880,425 l4,-8 l3,8 l3,-6 l3,6 z"/>
+                <path d="M1080,425 l4,-9 l3,9 l3,-6 l3,6 z"/>
+            </g>
+        </g>
+
+        <g class="layer layer-grass-mid">
+            <g fill="var(--grass-mid)" opacity="0.85">
+                <path d="M30,470 l5,-12 l3,12 l4,-10 l3,10 z"/>
+                <path d="M150,473 l5,-15 l3,15 l4,-12 l3,12 z"/>
+                <path d="M270,470 l5,-10 l3,10 l4,-8 l3,8 z"/>
+                <path d="M400,475 l4,-13 l3,13 l3,-9 l3,9 z"/>
+                <path d="M540,470 l5,-15 l4,15 l4,-12 l3,12 z"/>
+                <path d="M680,473 l4,-10 l3,10 l3,-8 l3,8 z"/>
+                <path d="M820,470 l5,-14 l3,14 l4,-10 l3,10 z"/>
+                <path d="M970,474 l4,-12 l3,12 l3,-9 l3,9 z"/>
+                <path d="M1100,470 l5,-12 l3,12 l4,-10 l3,10 z"/>
+            </g>
+            <g fill="var(--grass-mid)" opacity="0.85" transform="translate(1200,0)">
+                <path d="M30,470 l5,-12 l3,12 l4,-10 l3,10 z"/>
+                <path d="M150,473 l5,-15 l3,15 l4,-12 l3,12 z"/>
+                <path d="M270,470 l5,-10 l3,10 l4,-8 l3,8 z"/>
+                <path d="M400,475 l4,-13 l3,13 l3,-9 l3,9 z"/>
+                <path d="M540,470 l5,-15 l4,15 l4,-12 l3,12 z"/>
+                <path d="M680,473 l4,-10 l3,10 l3,-8 l3,8 z"/>
+                <path d="M820,470 l5,-14 l3,14 l4,-10 l3,10 z"/>
+                <path d="M970,474 l4,-12 l3,12 l3,-9 l3,9 z"/>
+                <path d="M1100,470 l5,-12 l3,12 l4,-10 l3,10 z"/>
+            </g>
+        </g>
+
+        <!-- Reusable SMIL fragments via <defs>+<use> would be ideal but most
+             attributes can't reference; we inline animateTransform on each
+             group. Pattern:
+                <g transform="translate(anchorX, anchorY)">
+                    <g>     ← animated group, contents around (0,0)
+                        ...shapes...
+                        <animateTransform .../>
+                    </g>
+                </g>
+             SMIL transforms compose multiplicatively with the parent's
+             transform attribute, so the inner group rotates/scales around
+             the anchor point regardless of browser. -->
+
+        <!-- ================== GIRAFFE ================== -->
+        <g class="animal animal-giraffe" transform="translate(180, 359)">
+            <g class="pose-running">
+                <g class="body-bob slow">
+                    <ellipse cx="20" cy="26" rx="40" ry="14" fill="var(--animal-1b)" opacity="0.18"/>
+                    <ellipse cx="20" cy="20" rx="44" ry="20" fill="var(--animal-1)"/>
+                    <ellipse cx="-15" cy="13" rx="5" ry="4" fill="var(--animal-1b)"/>
+                    <ellipse cx="-2"  cy="22" rx="4" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="8"   cy="10" rx="3.5" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="18"  cy="20" rx="5" ry="3.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="30"  cy="11" rx="4" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="40"  cy="22" rx="4.5" ry="3.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="52"  cy="14" rx="3" ry="2.5" fill="var(--animal-1b)"/>
+                    <path d="M48,2 L52,-92 L66,-94 L62,4 Z" fill="var(--animal-1)"/>
+                    <ellipse cx="56" cy="-15" rx="3.5" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="58" cy="-35" rx="3" ry="2.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="58" cy="-55" rx="3.5" ry="3" fill="var(--animal-1b)"/>
+                    <ellipse cx="60" cy="-75" rx="3" ry="2.5" fill="var(--animal-1b)"/>
+                    <ellipse cx="64" cy="-100" rx="13" ry="9" fill="var(--animal-1)"/>
+                    <ellipse cx="74" cy="-99" rx="5" ry="3.5" fill="var(--animal-1b)" opacity="0.5"/>
+                    <ellipse cx="65" cy="-103" rx="1.6" ry="1.2" fill="#fff"/>
+                    <circle cx="65.5" cy="-103" r="0.9" fill="#1a1410"/>
+                    <line x1="58" y1="-108" x2="56" y2="-117" stroke="var(--animal-1)" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="68" y1="-108" x2="70" y2="-117" stroke="var(--animal-1)" stroke-width="2.5" stroke-linecap="round"/>
+                    <circle cx="56" cy="-118" r="2.2" fill="var(--animal-1b)"/>
+                    <circle cx="70" cy="-118" r="2.2" fill="var(--animal-1b)"/>
+                    <!-- tail wagging -->
+                    <g transform="translate(-22,14)">
+                        <g>
+                            <line x1="0" y1="0" x2="-12" y2="10" stroke="var(--animal-1)" stroke-width="2.8"/>
+                            <ellipse cx="-13" cy="11" rx="3" ry="4.5" fill="var(--animal-1b)" transform="rotate(20 -13 11)"/>
+                            <animateTransform attributeName="transform" type="rotate"
+                                              values="-4 0 0; 8 0 0; -4 0 0"
+                                              dur="0.85s" repeatCount="indefinite"/>
+                        </g>
+                    </g>
+                </g>
+                <!-- 4 LEGS - each rotates around its top via animateTransform -->
+                <g transform="translate(-9,38)"><g>
+                    <rect x="-3" y="0"  width="6" height="38" rx="2" fill="var(--animal-1)"/>
+                    <rect x="-3" y="14" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="22" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="30" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3.5" y="35" width="7" height="4" rx="1" fill="var(--animal-1b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.85s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(9,38)"><g>
+                    <rect x="-3" y="0"  width="6" height="38" rx="2" fill="var(--animal-1)"/>
+                    <rect x="-3" y="14" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="22" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="30" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3.5" y="35" width="7" height="4" rx="1" fill="var(--animal-1b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.85s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(35,38)"><g>
+                    <rect x="-3" y="0"  width="6" height="38" rx="2" fill="var(--animal-1)"/>
+                    <rect x="-3" y="14" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="22" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="30" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3.5" y="35" width="7" height="4" rx="1" fill="var(--animal-1b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.85s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(53,38)"><g>
+                    <rect x="-3" y="0"  width="6" height="38" rx="2" fill="var(--animal-1)"/>
+                    <rect x="-3" y="14" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="22" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3" y="30" width="6" height="3"  fill="var(--animal-1b)" opacity="0.6"/>
+                    <rect x="-3.5" y="35" width="7" height="4" rx="1" fill="var(--animal-1b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.85s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+            <!-- SLEEPING giraffe - breathing belly + flying Z's -->
+            <g class="pose-sleeping" transform="translate(0, 8)">
+                <ellipse cx="20" cy="76" rx="60" ry="4" fill="#000" opacity="0.18"/>
+                <ellipse cx="-12" cy="70" rx="14" ry="5" fill="var(--animal-1b)" opacity="0.6"/>
+                <ellipse cx="42"  cy="70" rx="14" ry="5" fill="var(--animal-1b)" opacity="0.6"/>
+                <!-- breathing belly -->
+                <g transform="translate(20,65)"><g>
+                    <ellipse cx="0" cy="0" rx="56" ry="13" fill="var(--animal-1)"/>
+                    <ellipse cx="0" cy="4" rx="48" ry="6" fill="#fff" opacity="0.07"/>
+                    <animateTransform attributeName="transform" type="scale"
+                                      values="1 1; 1.08 1.18; 1 1"
+                                      dur="4.2s" repeatCount="indefinite"/>
+                </g></g>
+                <ellipse cx="-5" cy="60" r="4" fill="var(--animal-1b)"/>
+                <ellipse cx="15" cy="68" r="3.5" fill="var(--animal-1b)"/>
+                <ellipse cx="35" cy="60" rx="4" ry="3" fill="var(--animal-1b)"/>
+                <path d="M50,52 q-8,-22 12,-30 q18,-6 22,4 q4,8 -2,14" fill="var(--animal-1)"/>
+                <circle cx="62" cy="38" r="2" fill="var(--animal-1b)"/>
+                <circle cx="74" cy="32" r="2" fill="var(--animal-1b)"/>
+                <ellipse cx="80" cy="28" rx="13" ry="9" fill="var(--animal-1)"/>
+                <ellipse cx="86" cy="29" rx="4" ry="3" fill="var(--animal-1b)" opacity="0.45"/>
+                <path d="M78,26 q4,2 8,0" stroke="#1a1410" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+                <ellipse cx="72" cy="22" rx="3" ry="5" fill="var(--animal-1b)" transform="rotate(-30 72 22)"/>
+                <line x1="74" y1="20" x2="72" y2="12" stroke="var(--animal-1)" stroke-width="2.2"/>
+                <line x1="84" y1="20" x2="86" y2="12" stroke="var(--animal-1)" stroke-width="2.2"/>
+                <circle cx="72" cy="11" r="2" fill="var(--animal-1b)"/>
+                <circle cx="86" cy="11" r="2" fill="var(--animal-1b)"/>
+                <!-- floating Z's -->
+                <g transform="translate(96,6)"><g>
+                    <text x="0" y="0" font-size="22" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(104,-4)"><g>
+                    <text x="0" y="0" font-size="16" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-1.2s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-1.2s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+        </g>
+
+        <!-- ================== ELEPHANT ================== -->
+        <g class="animal animal-elephant" transform="translate(820, 381)">
+            <g class="pose-running">
+                <g class="body-bob">
+                    <ellipse cx="0" cy="6" rx="58" ry="10" fill="var(--animal-2)" opacity="0.4"/>
+                    <ellipse cx="0" cy="0" rx="58" ry="32" fill="var(--animal-2)"/>
+                    <ellipse cx="46" cy="-6" rx="28" ry="26" fill="var(--animal-2)"/>
+                    <!-- ear flap -->
+                    <g transform="translate(60,-14)"><g>
+                        <path d="M-30,-8 q22,-12 30,8 q-4,20 -22,16 z" fill="var(--animal-2)" opacity="0.95"/>
+                        <animateTransform attributeName="transform" type="rotate"
+                                          values="-5 0 0; 8 0 0; -5 0 0"
+                                          dur="0.55s" repeatCount="indefinite"/>
+                    </g></g>
+                    <circle cx="58" cy="-10" r="2" fill="#fff"/>
+                    <circle cx="58.5" cy="-9.5" r="1.1" fill="#1a1410"/>
+                    <path d="M70,-2 q14,18 4,32 q-10,8 -16,-2 q4,-6 2,-12"
+                          stroke="var(--animal-2)" stroke-width="11" fill="none" stroke-linecap="round"/>
+                    <path d="M66,4 q2,8 -4,12" stroke="#f8f0d8" stroke-width="3" fill="none" stroke-linecap="round"/>
+                    <g transform="translate(-58,-6)"><g>
+                        <line x1="0" y1="0" x2="-16" y2="4" stroke="var(--animal-2)" stroke-width="3"/>
+                        <ellipse cx="-18" cy="4" rx="2.5" ry="4" fill="var(--animal-2)"/>
+                        <animateTransform attributeName="transform" type="rotate"
+                                          values="-4 0 0; 8 0 0; -4 0 0"
+                                          dur="0.85s" repeatCount="indefinite"/>
+                    </g></g>
+                </g>
+                <g transform="translate(-37.5,22)"><g>
+                    <rect x="-6.5" y="0"  width="13" height="32" rx="3" fill="var(--animal-2)"/>
+                    <rect x="-6.5" y="27" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.55s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(-7.5,22)"><g>
+                    <rect x="-6.5" y="0"  width="13" height="32" rx="3" fill="var(--animal-2)"/>
+                    <rect x="-6.5" y="27" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.55s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(20.5,22)"><g>
+                    <rect x="-6.5" y="0"  width="13" height="32" rx="3" fill="var(--animal-2)"/>
+                    <rect x="-6.5" y="27" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.55s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(46.5,22)"><g>
+                    <rect x="-6.5" y="0"  width="13" height="32" rx="3" fill="var(--animal-2)"/>
+                    <rect x="-6.5" y="27" width="13" height="5" fill="#f8f0d8" opacity="0.4"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.55s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+            <g class="pose-sleeping" transform="translate(0, 12)">
+                <ellipse cx="0" cy="50" rx="72" ry="5" fill="#000" opacity="0.18"/>
+                <ellipse cx="-30" cy="46" rx="14" ry="6" fill="var(--animal-2)" opacity="0.7"/>
+                <ellipse cx="20"  cy="46" rx="14" ry="6" fill="var(--animal-2)" opacity="0.7"/>
+                <g transform="translate(-2,36)"><g>
+                    <ellipse cx="0" cy="0" rx="68" ry="20" fill="var(--animal-2)"/>
+                    <ellipse cx="0" cy="8" rx="58" ry="8" fill="#fff" opacity="0.05"/>
+                    <animateTransform attributeName="transform" type="scale"
+                                      values="1 1; 1.06 1.15; 1 1"
+                                      dur="3.2s" repeatCount="indefinite"/>
+                </g></g>
+                <ellipse cx="50" cy="32" rx="26" ry="22" fill="var(--animal-2)"/>
+                <path d="M30,12 q22,-12 30,8 q-4,18 -22,16 z" fill="var(--animal-2)" opacity="0.85"/>
+                <path d="M72,32 q14,16 4,28 q-6,4 -12,-4 q3,-6 0,-10"
+                      stroke="var(--animal-2)" stroke-width="11" fill="none" stroke-linecap="round"/>
+                <path d="M53,28 q4,2 8,0" stroke="#1a1410" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+                <path d="M64,42 q2,6 -4,8" stroke="#f8f0d8" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                <g transform="translate(78,14)"><g>
+                    <text x="0" y="0" font-size="22" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-0.5s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-0.5s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(86,-4)"><g>
+                    <text x="0" y="0" font-size="16" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-1.8s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-1.8s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+        </g>
+
+        <!-- ================== ZEBRA ================== -->
+        <g class="animal animal-zebra" transform="translate(550, 391)">
+            <g class="pose-running">
+                <g class="body-bob fast">
+                    <ellipse cx="0" cy="4" rx="40" ry="6" fill="var(--animal-3b)" opacity="0.25"/>
+                    <ellipse cx="0" cy="0" rx="42" ry="18" fill="var(--animal-3)"/>
+                    <path d="M-32,-12 q3,15 0,28" stroke="var(--animal-3b)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+                    <path d="M-22,-16 q3,18 0,32" stroke="var(--animal-3b)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+                    <path d="M-10,-18 q3,18 0,34" stroke="var(--animal-3b)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+                    <path d="M2,-18 q3,18 0,34" stroke="var(--animal-3b)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+                    <path d="M14,-16 q3,16 0,30" stroke="var(--animal-3b)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+                    <path d="M26,-13 q2,13 0,24" stroke="var(--animal-3b)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+                    <path d="M28,-10 q14,-12 24,-22 l8,8 q-14,14 -22,18 z" fill="var(--animal-3)"/>
+                    <ellipse cx="58" cy="-30" rx="14" ry="9" fill="var(--animal-3)"/>
+                    <ellipse cx="50" cy="-36" rx="2.5" ry="4.5" fill="var(--animal-3b)" transform="rotate(-15 50 -36)"/>
+                    <circle cx="62" cy="-31" r="1.5" fill="#fff"/>
+                    <circle cx="62.5" cy="-30.5" r="0.9" fill="#1a1410"/>
+                    <g transform="translate(-40,-4)"><g>
+                        <line x1="0" y1="0" x2="-12" y2="-4" stroke="var(--animal-3)" stroke-width="2.5"/>
+                        <path d="M-12,-4 l-2,8 l-2,-2 l-2,7 l-3,-1 l-2,5"
+                              stroke="var(--animal-3b)" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+                        <animateTransform attributeName="transform" type="rotate"
+                                          values="-4 0 0; 8 0 0; -4 0 0"
+                                          dur="0.85s" repeatCount="indefinite"/>
+                    </g></g>
+                </g>
+                <g transform="translate(-27,16)"><g>
+                    <rect x="-3" y="0"  width="6" height="28" rx="2" fill="var(--animal-3)"/>
+                    <rect x="-3" y="6"  width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="14" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3.5" y="24" width="7" height="4" rx="1" fill="var(--animal-3b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(-9,16)"><g>
+                    <rect x="-3" y="0"  width="6" height="28" rx="2" fill="var(--animal-3)"/>
+                    <rect x="-3" y="6"  width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="14" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3.5" y="24" width="7" height="4" rx="1" fill="var(--animal-3b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(17,16)"><g>
+                    <rect x="-3" y="0"  width="6" height="28" rx="2" fill="var(--animal-3)"/>
+                    <rect x="-3" y="6"  width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="14" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3.5" y="24" width="7" height="4" rx="1" fill="var(--animal-3b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(31,16)"><g>
+                    <rect x="-3" y="0"  width="6" height="28" rx="2" fill="var(--animal-3)"/>
+                    <rect x="-3" y="6"  width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="14" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3" y="22" width="6" height="3" fill="var(--animal-3b)"/>
+                    <rect x="-3.5" y="24" width="7" height="4" rx="1" fill="var(--animal-3b)"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+            <g class="pose-sleeping" transform="translate(0, 8)">
+                <ellipse cx="0" cy="46" rx="54" ry="4" fill="#000" opacity="0.18"/>
+                <ellipse cx="-22" cy="42" rx="14" ry="5" fill="var(--animal-3b)" opacity="0.5"/>
+                <ellipse cx="22"  cy="42" rx="14" ry="5" fill="var(--animal-3b)" opacity="0.5"/>
+                <g transform="translate(0,32)"><g>
+                    <ellipse cx="0" cy="0" rx="50" ry="14" fill="var(--animal-3)"/>
+                    <ellipse cx="0" cy="6" rx="40" ry="6" fill="#fff" opacity="0.07"/>
+                    <animateTransform attributeName="transform" type="scale"
+                                      values="1 1; 1.07 1.16; 1 1"
+                                      dur="3.0s" repeatCount="indefinite"/>
+                </g></g>
+                <path d="M-32,22 q3,12 0,22" stroke="var(--animal-3b)" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <path d="M-18,20 q3,14 0,24" stroke="var(--animal-3b)" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <path d="M-4,20 q3,14 0,24" stroke="var(--animal-3b)" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <path d="M10,20 q3,14 0,24" stroke="var(--animal-3b)" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <path d="M22,22 q2,12 0,22" stroke="var(--animal-3b)" stroke-width="3" fill="none" stroke-linecap="round"/>
+                <ellipse cx="58" cy="28" rx="13" ry="9" fill="var(--animal-3)"/>
+                <path d="M58,28 q3,2 6,0" stroke="#1a1410" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+                <circle cx="68" cy="30" r="0.8" fill="#1a1410"/>
+                <g transform="translate(80,14)"><g>
+                    <text x="0" y="0" font-size="20" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-0.2s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-0.2s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(88,-2)"><g>
+                    <text x="0" y="0" font-size="14" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-1.5s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-1.5s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+        </g>
+
+        <!-- ================== LION ================== -->
+        <g class="animal animal-lion" transform="translate(380, 399)">
+            <g class="pose-running">
+                <g class="body-bob fast">
+                    <ellipse cx="0" cy="4" rx="34" ry="5" fill="var(--animal-4b)" opacity="0.3"/>
+                    <ellipse cx="0" cy="0" rx="36" ry="16" fill="var(--animal-4)"/>
+                    <ellipse cx="32" cy="-10" rx="20" ry="18" fill="var(--animal-4b)"/>
+                    <g fill="var(--animal-4b)">
+                        <ellipse cx="14" cy="-18" rx="4" ry="3" transform="rotate(-30 14 -18)"/>
+                        <ellipse cx="14" cy="0"   rx="4" ry="3" transform="rotate(30 14 0)"/>
+                        <ellipse cx="50" cy="-20" rx="4" ry="3" transform="rotate(20 50 -20)"/>
+                        <ellipse cx="52" cy="0"   rx="4" ry="3" transform="rotate(-20 52 0)"/>
+                        <ellipse cx="32" cy="-30" rx="4" ry="5"/>
+                    </g>
+                    <circle cx="32" cy="-10" r="14" fill="var(--animal-4)" opacity="0.5"/>
+                    <circle cx="34" cy="-9"  r="11" fill="var(--animal-4)"/>
+                    <ellipse cx="42" cy="-6" rx="5" ry="4" fill="var(--animal-4)"/>
+                    <ellipse cx="44" cy="-6" rx="1.5" ry="1.2" fill="#1a1410"/>
+                    <circle cx="32" cy="-11" r="1.5" fill="#fff"/>
+                    <circle cx="32.3" cy="-10.7" r="0.9" fill="#1a1410"/>
+                    <circle cx="40" cy="-11" r="1.5" fill="#fff"/>
+                    <circle cx="40.3" cy="-10.7" r="0.9" fill="#1a1410"/>
+                    <g transform="translate(-32,-2)"><g>
+                        <path d="M0,0 q-14,-10 -22,2" stroke="var(--animal-4)" stroke-width="3" fill="none"/>
+                        <ellipse cx="-22" cy="2" rx="3" ry="5" fill="var(--animal-4b)" transform="rotate(20 -22 2)"/>
+                        <animateTransform attributeName="transform" type="rotate"
+                                          values="-4 0 0; 8 0 0; -4 0 0"
+                                          dur="0.85s" repeatCount="indefinite"/>
+                    </g></g>
+                </g>
+                <g transform="translate(-23,14)"><g>
+                    <rect x="-3" y="0"  width="6" height="22" rx="2" fill="var(--animal-4)"/>
+                    <rect x="-3.5" y="18" width="7" height="4" rx="1" fill="var(--animal-4b)" opacity="0.7"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(-7,14)"><g>
+                    <rect x="-3" y="0"  width="6" height="22" rx="2" fill="var(--animal-4)"/>
+                    <rect x="-3.5" y="18" width="7" height="4" rx="1" fill="var(--animal-4b)" opacity="0.7"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(13,14)"><g>
+                    <rect x="-3" y="0"  width="6" height="22" rx="2" fill="var(--animal-4)"/>
+                    <rect x="-3.5" y="18" width="7" height="4" rx="1" fill="var(--animal-4b)" opacity="0.7"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="-22 0 0; 22 0 0; -22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(25,14)"><g>
+                    <rect x="-3" y="0"  width="6" height="22" rx="2" fill="var(--animal-4)"/>
+                    <rect x="-3.5" y="18" width="7" height="4" rx="1" fill="var(--animal-4b)" opacity="0.7"/>
+                    <animateTransform attributeName="transform" type="rotate"
+                                      values="22 0 0; -22 0 0; 22 0 0"
+                                      dur="0.42s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+            <g class="pose-sleeping" transform="translate(0, 6)">
+                <ellipse cx="0" cy="40" rx="48" ry="4" fill="#000" opacity="0.18"/>
+                <ellipse cx="-22" cy="36" rx="10" ry="4" fill="var(--animal-4b)" opacity="0.55"/>
+                <ellipse cx="22"  cy="36" rx="10" ry="4" fill="var(--animal-4b)" opacity="0.55"/>
+                <g transform="translate(0,28)"><g>
+                    <ellipse cx="0" cy="0" rx="44" ry="13" fill="var(--animal-4)"/>
+                    <ellipse cx="0" cy="6" rx="36" ry="6" fill="#fff" opacity="0.08"/>
+                    <animateTransform attributeName="transform" type="scale"
+                                      values="1 1; 1.07 1.16; 1 1"
+                                      dur="3.6s" repeatCount="indefinite"/>
+                </g></g>
+                <circle cx="36" cy="22" r="14" fill="var(--animal-4b)"/>
+                <circle cx="36" cy="22" r="10" fill="var(--animal-4)"/>
+                <ellipse cx="44" cy="24" rx="5" ry="3.5" fill="var(--animal-4)"/>
+                <ellipse cx="46" cy="24" rx="1.4" ry="1" fill="#1a1410"/>
+                <path d="M32,22 q2,1.5 4,0" stroke="#1a1410" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+                <path d="M40,22 q2,1.5 4,0" stroke="#1a1410" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+                <path d="M-44,32 q-14,-2 -16,8 q-2,8 6,8" stroke="var(--animal-4)"
+                      stroke-width="3" fill="none" stroke-linecap="round"/>
+                <g transform="translate(60,0)"><g>
+                    <text x="0" y="0" font-size="20" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-0.7s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-0.7s" repeatCount="indefinite"/>
+                </g></g>
+                <g transform="translate(66,-16)"><g>
+                    <text x="0" y="0" font-size="14" font-weight="bold" fill="var(--label-fg)">z</text>
+                    <animateTransform attributeName="transform" type="translate"
+                                      values="0 0; 8 -28; -6 -50; 4 -70"
+                                      keyTimes="0; 0.35; 0.65; 1"
+                                      dur="3.5s" begin="-1.9s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity"
+                             values="0; 1; 1; 0.6; 0"
+                             keyTimes="0; 0.1; 0.4; 0.7; 1"
+                             dur="3.5s" begin="-1.9s" repeatCount="indefinite"/>
+                </g></g>
+            </g>
+        </g>
+
+        <g class="layer layer-fg" opacity="0.7">
+            <g fill="var(--ground-front)">
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(60,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(220,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(420,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(640,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(880,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(1080,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(1260,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(1420,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(1620,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(1840,0)"/>
+                <path d="M0,540 l4,-22 l3,22 l3,-18 l3,18 z" transform="translate(2080,0)"/>
+                <path d="M0,545 l4,-26 l3,26 l3,-20 l3,20 z" transform="translate(2280,0)"/>
+            </g>
+        </g>
+    </svg>
+
+    <div class="label">
+        <div class="big" id="labelBig">…</div>
+    </div>
+</div>
+
+<script>
+const stage    = document.getElementById("stage");
+const labelBig = document.getElementById("labelBig");
+
+let lastState = null;
+
+async function poll() {
+    let state = "unreachable";
+    try {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        if (r.ok) {
+            const j = await r.json();
+            state = j.state || (j.ok ? "running" : "down");
+        }
+    } catch {
+        state = "unreachable";
+    }
+    apply(state);
+}
+
+function apply(state) {
+    if (state === lastState) return;
+    lastState = state;
+    stage.classList.remove("running", "down", "unknown");
+    if (state === "running") {
+        stage.classList.add("running");
+        labelBig.textContent = "Running";
+    } else if (state === "sleeping" || state === "unreachable" || state === "down") {
+        stage.classList.add("down");
+        labelBig.textContent = "Sleeping";
+    } else {
+        stage.classList.add("unknown");
+        labelBig.textContent = "…";
+    }
+}
+
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>

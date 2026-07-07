@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Settings - USRP Sandbox</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .band-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 18px;
+            margin-bottom: 18px;
+        }
+        .locked-field {
+            opacity: 0.55;
+            pointer-events: none;
+        }
+        .locked-field input,
+        .locked-field select,
+        .locked-field .unit-input,
+        .locked-field .unit-input-num,
+        .locked-field .unit-input-sel {
+            cursor: not-allowed !important;
+        }
+        /* Clickable cycle button used for the ratio multiplier */
+        .ratio-btn-row {
+            display: flex; align-items: center; gap: 12px;
+        }
+        .ratio-btn {
+            min-width: 64px;
+            font-family: var(--mono);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 8px 16px;
+            background: rgba(91, 141, 239, 0.18);
+            color: #cfdcf6;
+            border: 1px solid rgba(91, 141, 239, 0.4);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.05s;
+        }
+        .ratio-btn:hover { background: rgba(91, 141, 239, 0.28); }
+        .ratio-btn:active { transform: scale(0.97); }
+        .ratio-derived {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .band-head {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 14px;
+        }
+        .band-title { font-weight: 600; font-size: 14px; }
+        .band-info {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .band-stat {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .band-stat .k {
+            font-size: 11px; color: var(--text-dim);
+            text-transform: uppercase; letter-spacing: 0.04em;
+        }
+        .band-stat .v { font-family: var(--mono); font-size: 14px; }
+        .band-stat .v.muted { color: var(--text-dim); }
+        .band-note {
+            font-size: 12px; margin-top: 12px; line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Settings</h2>
+            <span class="sp"></span>
+            <button id="btn-save" class="btn btn-primary">Save all changes</button>
+        </div>
+
+        <div id="notice-area"></div>
+
+        <div class="scroll-region" style="padding: 0 18px 18px;">
+            <div class="band-card">
+                <div class="band-head">
+                    <div>
+                        <div class="band-title" id="srd-label">2.4 GHz SRD</div>
+                    </div>
+                </div>
+                <div class="band-info">
+                    <div class="band-stat"><span class="k">Frequency band</span><span class="v" id="srd-band">-</span></div>
+                    <div class="band-stat"><span class="k">Max EIRP</span><span class="v" id="srd-eirp">-</span></div>
+                    <div class="band-stat"><span class="k">Duty cycle</span><span class="v muted">-</span></div>
+                    <div class="band-stat"><span class="k">LBT required</span><span class="v muted">-</span></div>
+                </div>
+                <div id="srd-note" class="band-note text-dim"></div>
+            </div>
+
+            <div id="groups">
+                <div class="empty">Loading…</div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/unit_input.js"></script>
+<script>
+initShell("settings");
+
+const GROUP_TITLES = {
+    radio:  "📡 Radio",
+    guard:  "⏱ Timing / Guard",
+    safety: "🛡 Duty Cycle / LBT",
+    limits: "🚦 Limits",
+};
+
+// ---- Unit catalogues ----
+// Each unit's `mul` is canonical-per-displayed (canonical = displayed × mul).
+// Storage canon must match - e.g. SAMPLE_RATE_HZ stores Hz so mul of "Hz" = 1.
+const UNIT_FREQ_HZ = [
+    { key: "hz",  label: "Hz",  mul: 1 },
+    { key: "khz", label: "kHz", mul: 1e3 },
+    { key: "mhz", label: "MHz", mul: 1e6 },
+    { key: "ghz", label: "GHz", mul: 1e9 },
+];
+const UNIT_TIME_SEC = [
+    { key: "s",   label: "s",   mul: 1 },
+    { key: "ms",  label: "ms",  mul: 1e-3 },
+    { key: "us",  label: "µs",  mul: 1e-6 },
+    { key: "min", label: "min", mul: 60 },
+];
+const UNIT_TIME_OR_SAMPLES = [
+    { key: "s",       label: "s",       mul: 1 },
+    { key: "ms",      label: "ms",      mul: 1e-3 },
+    { key: "us",      label: "µs",      mul: 1e-6 },
+    { key: "samples", label: "samples", mul: "samples" },
+];
+const UNIT_TIME_HOURS = [
+    { key: "h",    label: "h",   mul: 1 },
+    { key: "min",  label: "min", mul: 1/60 },
+    { key: "days", label: "d",   mul: 24 },
+];
+const UNIT_DB     = [{ key: "db",   label: "dB",   mul: 1 }];
+const UNIT_DBFS   = [{ key: "dbfs", label: "dBFS", mul: 1 }];
+const UNIT_PCT    = [{ key: "pct",  label: "%",    mul: 1 }];
+const UNIT_BYTES_MB = [
+    { key: "kb", label: "KB", mul: 1/1024 },
+    { key: "mb", label: "MB", mul: 1 },
+    { key: "gb", label: "GB", mul: 1024 },
+];
+const UNIT_COUNT_SAMPLES = [{ key: "n", label: "samples", mul: 1 }];
+const UNIT_COUNT      = [{ key: "n", label: "count",      mul: 1 }];
+
+// Per-setting unit configuration. Default unit is what shows on first render.
+// Backend storage stays unchanged; UnitInput converts at the widget boundary.
+const FIELD_UNITS = {
+    CARRIER_FREQUENCY_HZ:  { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
+    BANDWIDTH_HZ:          { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
+    SAMPLE_RATE_HZ:        { units: UNIT_FREQ_HZ,         defaultUnit: "mhz" },
+    TX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
+    RX_GAIN_DB:            { units: UNIT_DB,              defaultUnit: "db"  },
+    LBT_THRESHOLD_DBFS:    { units: UNIT_DBFS,            defaultUnit: "dbfs"},
+
+    BEGIN_GUARD_MIN_SEC:   { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    BEGIN_GUARD_MAX_SEC:   { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    END_GUARD_MIN_SEC:     { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    END_GUARD_MAX_SEC:     { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+    INITIAL_DELAY:         { units: UNIT_TIME_OR_SAMPLES, defaultUnit: "ms"  },
+
+    DUTY_CYCLE_MAX_PERCENT:{ units: UNIT_PCT,             defaultUnit: "pct" },
+    DUTY_CYCLE_WINDOW_SEC: { units: UNIT_TIME_SEC,        defaultUnit: "s"   },
+    LBT_BACKOFF_SEC:       { units: UNIT_TIME_SEC,        defaultUnit: "ms"  },
+    LBT_SENSE_SAMPLES:     { units: UNIT_COUNT_SAMPLES,   defaultUnit: "n"   },
+
+    UPLOAD_TIMEOUT_SEC:    { units: UNIT_TIME_SEC,        defaultUnit: "s"   },
+    POLL_INTERVAL_SEC:     { units: UNIT_TIME_SEC,        defaultUnit: "s"   },
+    MAX_UPLOAD_MB:         { units: UNIT_BYTES_MB,        defaultUnit: "mb"  },
+    MAX_SAMPLES:           { units: UNIT_COUNT_SAMPLES,   defaultUnit: "n"   },
+    TASK_TTL_HOURS:        { units: UNIT_TIME_HOURS,      defaultUnit: "h"   },
+};
+
+let current = {};                    // key → {value, type, source, label, group, ...}
+let savedValues = {};                // key → canonical-string (current saved)
+let dirty = new Set();
+let widgets = {};                    // key → UnitInput | <select> | <input>
+
+// Sample rate getter - used by "samples" unit conversion.
+const sampleRateHz = () => {
+    const w = widgets["SAMPLE_RATE_HZ"];
+    if (w && w.getValue && isFinite(w.getValue())) return w.getValue();
+    const cur = current["SAMPLE_RATE_HZ"];
+    return cur ? Number(cur.value) : NaN;
+};
+
+async function loadSettings() {
+    try {
+        current = await apiFetch("/settings");
+        savedValues = {};
+        for (const [k, s] of Object.entries(current)) savedValues[k] = canonString(s.value);
+        dirty.clear();
+        render();
+        updateSaveButton();
+    } catch (e) { toast(e.message, "err"); }
+}
+
+// ---- 2.4 GHz SRD info banner (RIR1008-11) ----
+async function loadSrdBand() {
+    let band;
+    try { band = await apiFetch("/srd_band"); }
+    catch { return; }
+    document.getElementById("srd-label").textContent = band.label;
+    document.getElementById("srd-band").textContent =
+        `${(band.f_min_hz/1e6).toFixed(1)}-${(band.f_max_hz/1e6).toFixed(1)} MHz`;
+    const mW = Math.pow(10, band.max_eirp_dbm/10);
+    document.getElementById("srd-eirp").textContent =
+        `${band.max_eirp_dbm.toFixed(0)} dBm (${mW < 1 ? mW.toFixed(2) : mW.toFixed(0)} mW)`;
+    document.getElementById("srd-note").textContent = band.note || "";
+}
+
+function fmtFreq(hz) {
+    if (hz == null) return "-";
+    if (hz >= 1e9) return (hz/1e9).toFixed(3) + " GHz";
+    if (hz >= 1e6) return (hz/1e6).toFixed(3) + " MHz";
+    if (hz >= 1e3) return (hz/1e3).toFixed(3) + " kHz";
+    return hz + " Hz";
+}
+function fmtPower(dbm) {
+    if (dbm == null) return "-";
+    const mW = Math.pow(10, dbm/10);
+    return `${dbm.toFixed(0)} dBm (${mW < 1 ? mW.toFixed(2) : mW.toFixed(0)} mW)`;
+}
+function fmtDC(pct) {
+    if (pct == null) return "-";
+    return pct.toFixed(pct < 1 ? 2 : 0) + " %";
+}
+function canonString(v) {
+    if (typeof v === "boolean") return v ? "true" : "false";
+    return String(v);
+}
+
+function readWidgetCanon(key) {
+    const w = widgets[key];
+    if (!w) return "";
+    if (w instanceof UnitInput) {
+        const v = w.getValue();
+        return isFinite(v) ? String(v) : "";
+    }
+    if (key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
+        return String(w.dataset.value || w.value || "");
+    }
+    return w.value;
+}
+
+function makeOptionsSelect(s) {
+    const id = `f-${s.key}`;
+    const opts = s.options.map(o => {
+        const value = (typeof o === "object") ? o.value : o;
+        const label = (typeof o === "object") ? (o.label || String(o.value)) : String(o);
+        const sel = String(s.value) === String(value) ? "selected" : "";
+        return `<option value="${esc(value)}" ${sel}>${esc(label)}</option>`;
+    }).join("");
+    return `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">${opts}</select>`;
+}
+
+function render() {
+    const groups = {};
+    for (const [key, spec] of Object.entries(current)) {
+        if (spec.hidden) continue;
+        (groups[spec.group] ||= []).push({key, ...spec});
+    }
+
+    const order = ["radio", "guard", "safety", "limits"];
+    const html = order.filter(g => groups[g]).map(g => {
+        const rows = groups[g].map(s => {
+            const id = `f-${s.key}`;
+            const hasOptions = Array.isArray(s.options) && s.options.length;
+            const isBool     = s.type === "bool";
+            const fu         = FIELD_UNITS[s.key];
+
+            let inputHtml;
+            if (s.key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
+                const cur = Number(s.value) || 1;
+                inputHtml = `<div class="ratio-btn-row">
+                    <button type="button" id="${id}" data-key="${s.key}"
+                            class="ratio-btn" data-value="${cur}"
+                            onclick="onRatioCycle()">${cur}×</button>
+                    <span class="ratio-derived" id="ratio-derived"></span>
+                </div>`;
+            } else if (hasOptions) {
+                inputHtml = makeOptionsSelect(s);
+            } else if (isBool) {
+                inputHtml = `<select id="${id}" data-key="${s.key}" onchange="onChange('${s.key}')">
+                    <option value="true"  ${s.value === true  ? "selected" : ""}>true</option>
+                    <option value="false" ${s.value === false ? "selected" : ""}>false</option>
+                </select>`;
+            } else if (fu) {
+                inputHtml = `<div id="${id}" data-key="${s.key}"></div>`;
+            } else {
+                inputHtml = `<input id="${id}" data-key="${s.key}" value="${esc(s.value)}" oninput="onChange('${s.key}')" style="width: 100%;">`;
+            }
+
+            const info = s.desc
+                ? `<span class="info-icon" tabindex="0" title="${esc(s.desc)}" aria-label="${esc(s.desc)}">i</span>`
+                : "";
+            const rowClasses = [];
+            if (s.locked) rowClasses.push("locked-field");
+            // disabled_when: row is disabled while another bool field equals
+            // a given value. Tracked at runtime via a data-attr.
+            const dw = s.disabled_when;
+            const dwAttr = dw ? `data-disable-when-key="${esc(dw.key)}" data-disable-when-equals="${esc(dw.equals)}"` : "";
+            return `<tr class="${rowClasses.join(' ')}" data-row-key="${esc(s.key)}" ${dwAttr}>
+                <td style="width: 260px;">
+                    <strong>${esc(s.label)}</strong> ${info}
+                    <div class="mono text-dim" style="font-size: 11px;">${esc(s.key)}</div>
+                </td>
+                <td>${inputHtml}</td>
+                <td style="width: 28px; text-align: center;"><span class="settings-dot" data-dot="${s.key}" title="saved"></span></td>
+            </tr>`;
+        }).join("");
+        return `
+            <h3 style="margin: 20px 0 10px; font-size: 14px; color: var(--text-dim); font-weight: 600;">${GROUP_TITLES[g] || g}</h3>
+            <table><tbody>${rows}</tbody></table>
+        `;
+    }).join("");
+
+    document.getElementById("groups").innerHTML = html;
+
+    // Mount UnitInput widgets and wire up dirty-tracking
+    widgets = {};
+    for (const [key, spec] of Object.entries(current)) {
+        if (spec.hidden) continue;
+        const el = document.getElementById(`f-${key}`);
+        if (!el) continue;
+        const fu = FIELD_UNITS[key];
+        if (key === "SAMPLE_RATE_BANDWIDTH_RATIO") {
+            // Native <input type=range> - read .value directly
+            widgets[key] = el;
+        } else if (fu && !(Array.isArray(spec.options) && spec.options.length) && spec.type !== "bool") {
+            const w = new UnitInput(el, {
+                units: fu.units,
+                defaultUnit: fu.defaultUnit,
+                persistKey: `settings.${key}`,
+                multiplierFn: sampleRateHz,
+                onChange: () => onChange(key),
+            });
+            w.setValue(spec.value);
+            widgets[key] = w;
+        } else {
+            widgets[key] = el;
+        }
+    }
+    refreshRatioDerived();
+    refreshDependencyLocks();
+}
+
+// Walks every row that has data-disable-when-key, looks up the master
+// boolean value, and toggles .locked-field accordingly.
+function refreshDependencyLocks() {
+    document.querySelectorAll("tr[data-disable-when-key]").forEach(row => {
+        const masterKey = row.dataset.disableWhenKey;
+        const wantedValue = row.dataset.disableWhenEquals;        // string: "true" | "false"
+        const masterEl = document.getElementById("f-" + masterKey);
+        if (!masterEl) return;
+        const masterValue = String(masterEl.value);
+        const shouldDisable = (masterValue === wantedValue);
+        row.classList.toggle("locked-field", shouldDisable);
+    });
+}
+
+// Update the derived "fs = bandwidth × ratio" caption next to the button.
+function refreshRatioDerived() {
+    const btn = document.getElementById("f-SAMPLE_RATE_BANDWIDTH_RATIO");
+    if (!btn) return;
+    const ratio = Number(btn.dataset.value) || 1;
+    const bw = Number(current["BANDWIDTH_HZ"]?.value) || 0;
+    const fs = bw * ratio;
+    btn.textContent = `${ratio}×`;
+    const der = document.getElementById("ratio-derived");
+    if (der) der.textContent = `→ fs = ${(fs/1e6).toFixed(3)} MHz   (bw × ratio)`;
+}
+
+// Click → cycle 1 → 2 → 3 → 4 → 5 → 1 → ...
+window.onRatioCycle = function () {
+    const btn = document.getElementById("f-SAMPLE_RATE_BANDWIDTH_RATIO");
+    if (!btn) return;
+    const cur = Number(btn.dataset.value) || 1;
+    const next = (cur % 5) + 1;
+    btn.dataset.value = String(next);
+    refreshRatioDerived();
+    onChange("SAMPLE_RATE_BANDWIDTH_RATIO");
+};
+
+function onChange(key) {
+    const cur = readWidgetCanon(key);
+    const dot = document.querySelector(`[data-dot="${key}"]`);
+    // Compare numerically when possible to avoid "0.1" vs "0.10" diffs.
+    const numA = Number(cur), numB = Number(savedValues[key]);
+    const equal = (isFinite(numA) && isFinite(numB))
+        ? numA === numB
+        : cur === savedValues[key];
+    if (equal) {
+        dirty.delete(key);
+        if (dot) { dot.classList.remove("dirty"); dot.title = "saved"; }
+    } else {
+        dirty.add(key);
+        if (dot) { dot.classList.add("dirty"); dot.title = "unsaved"; }
+    }
+    // Master toggles (LBT_ENABLED, DUTY_CYCLE_ENABLED, …) gate other rows.
+    refreshDependencyLocks();
+    updateSaveButton();
+}
+
+function updateSaveButton() {
+    const btn = document.getElementById("btn-save");
+    btn.textContent = dirty.size ? `Save changes (${dirty.size})` : "Save all changes";
+    btn.disabled = dirty.size === 0;
+}
+
+document.getElementById("btn-save").addEventListener("click", async () => {
+    if (!dirty.size) { toast("No changes"); return; }
+    const payload = {};
+    for (const key of dirty) {
+        const v = readWidgetCanon(key);
+        if (v === "" || v === null || (typeof v === "number" && !isFinite(v))) {
+            toast(`Invalid value for ${key}`, "err");
+            return;
+        }
+        payload[key] = v;
+    }
+    try {
+        const r = await apiFetch("/settings", {method: "PUT", body: JSON.stringify(payload)});
+        const errCount = Object.keys(r.errors || {}).length;
+        if (errCount) {
+            toast(`${r.applied.length} saved, ${errCount} error(s)`, "err");
+        } else {
+            toast(`${r.applied.length} saved`, "ok");
+        }
+        dirty.clear();
+        document.getElementById("btn-save").textContent = "Save all changes";
+        loadSettings();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+(async () => {
+    await loadSettings();
+    await loadSrdBand();
+})();
+</script>
+</body>
+</html>

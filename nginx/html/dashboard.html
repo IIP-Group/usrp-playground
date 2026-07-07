@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard - USRP Sandbox</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Dashboard</h2>
+            <span class="sp"></span>
+            <div id="server-status"></div>
+            <button id="toggle-server" class="btn">Toggle Server</button>
+        </div>
+
+        <div id="notice-area"></div>
+
+        <div class="grid grid-4" style="margin-bottom: 20px;">
+            <div class="card">
+                <h3>USRP State</h3>
+                <div class="value" id="stat-usrp">-</div>
+                <div class="sub" id="stat-usrp-sub"></div>
+            </div>
+            <div class="card">
+                <h3>Pending Tasks</h3>
+                <div class="value" id="stat-pending">-</div>
+                <div class="sub">currently in queue</div>
+            </div>
+            <div class="card">
+                <h3>Running Tasks</h3>
+                <div class="value" id="stat-running">-</div>
+                <div class="sub">being processed</div>
+            </div>
+            <div class="card">
+                <h3>Registered Users</h3>
+                <div class="value" id="stat-users">-</div>
+                <div class="sub">course participants</div>
+            </div>
+        </div>
+
+        <div class="grid grid-4" style="margin-bottom: 20px;">
+            <div class="card">
+                <h3>Submits (1h)</h3>
+                <div class="value" id="stat-submits-1h">-</div>
+            </div>
+            <div class="card">
+                <h3>Submits (24h)</h3>
+                <div class="value" id="stat-submits-24h">-</div>
+            </div>
+            <div class="card">
+                <h3>Errors (24h)</h3>
+                <div class="value" id="stat-errors">-</div>
+                <div class="sub">auth + task failures</div>
+            </div>
+            <div class="card">
+                <h3>Last update</h3>
+                <div class="value" style="font-size: 20px;" id="stat-now">-</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card scroll" style="padding: 0;">
+                <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center;">
+                    <strong>Recent Tasks</strong>
+                    <span class="sp"></span>
+                    <a href="/logs.html">All logs →</a>
+                </div>
+                <div class="card-body" id="tasks-table">
+                    <div class="empty">Loading…</div>
+                </div>
+            </div>
+
+            <div class="card scroll" style="padding: 0;">
+                <div style="padding: 14px 18px; border-bottom: 1px solid var(--border);">
+                    <strong>Recent Logs</strong>
+                </div>
+                <div class="card-body" id="logs-table">
+                    <div class="empty">Loading…</div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+initShell("dashboard");
+
+async function refresh() {
+    try {
+        const d = await apiFetch("/dashboard");
+        document.getElementById("stat-pending").textContent = d.pending;
+        document.getElementById("stat-running").textContent = d.running;
+        document.getElementById("stat-users").textContent = d.users_total;
+        document.getElementById("stat-submits-1h").textContent = d.submits_1h;
+        document.getElementById("stat-submits-24h").textContent = d.submits_24h;
+        document.getElementById("stat-errors").textContent = d.errors_24h;
+        document.getElementById("stat-now").textContent = new Date(d.now + "Z").toLocaleTimeString();
+
+        // USRP state
+        const usrpEl = document.getElementById("stat-usrp");
+        const statusEl = document.getElementById("server-status");
+        const subEl = document.getElementById("stat-usrp-sub");
+        if (d.usrp_state === "running") {
+            usrpEl.textContent = "Running";
+            usrpEl.style.color = "var(--ok)";
+            statusEl.innerHTML = '<span class="badge ok"><span class="dot"></span>Running</span>';
+            subEl.textContent = "Accepting tasks";
+        } else {
+            usrpEl.textContent = "Sleeping";
+            usrpEl.style.color = "var(--sleep)";
+            statusEl.innerHTML = '<span class="badge sleep"><span class="dot"></span>Sleeping</span>';
+            subEl.textContent = "Queue paused";
+        }
+
+        // Tasks
+        const tasks = await apiFetch("/tasks?limit=15");
+        renderTasks(tasks);
+
+        // Logs
+        const logs = await apiFetch("/logs?limit=15");
+        renderLogs(logs);
+    } catch (e) {
+        document.getElementById("notice-area").innerHTML =
+            `<div class="notice err">Failed to load: ${esc(e.message)}</div>`;
+    }
+}
+
+function renderTasks(tasks) {
+    if (!tasks.length) {
+        document.getElementById("tasks-table").innerHTML = '<div class="empty">No tasks</div>';
+        return;
+    }
+    const rows = tasks.map(t => {
+        const badge = t.state === "D"
+            ? (t.error_message ? '<span class="badge err"><span class="dot"></span>Error</span>' : '<span class="badge ok"><span class="dot"></span>Done</span>')
+            : t.state === "R"
+                ? '<span class="badge warn"><span class="dot"></span>Running</span>'
+                : '<span class="badge"><span class="dot" style="background:var(--text-dim)"></span>Pending</span>';
+        return `<tr>
+            <td>${esc(t.eth_id) || '<span class="text-dim">-</span>'}</td>
+            <td class="num">${t.n_samples ? t.n_samples.toLocaleString() : '-'}</td>
+            <td>${badge}</td>
+            <td class="text-dim">${relTime(t.created_at)}</td>
+        </tr>`;
+    }).join("");
+    document.getElementById("tasks-table").innerHTML = `
+        <table>
+            <thead><tr><th>User</th><th class="num">Samples</th><th>State</th><th>Created</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function renderLogs(logs) {
+    if (!logs.length) {
+        document.getElementById("logs-table").innerHTML = '<div class="empty">No logs</div>';
+        return;
+    }
+    const rows = logs.map(l => `
+        <tr>
+            <td>${esc(l.eth_id) || '<span class="text-dim">-</span>'}</td>
+            <td class="mono">${esc(l.action)}</td>
+            <td class="num">${l.n_samples ? l.n_samples.toLocaleString() : '-'}</td>
+            <td class="text-dim">${relTime(l.created_at)}</td>
+        </tr>`).join("");
+    document.getElementById("logs-table").innerHTML = `
+        <table>
+            <thead><tr><th>User</th><th>Action</th><th class="num">Samples</th><th>Time</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+document.getElementById("toggle-server").addEventListener("click", async () => {
+    try {
+        const cur = await apiFetch("/server");
+        const next = cur.state === "running" ? "sleeping" : "running";
+        await apiFetch("/server", {method: "POST", body: JSON.stringify({state: next})});
+        toast(`Server is now ${next}`, "ok");
+        refresh();
+    } catch (e) {
+        toast(e.message, "err");
+    }
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

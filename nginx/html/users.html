@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Users - USRP Sandbox</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+        <div class="row" style="margin-bottom: 20px;">
+            <h2 style="margin: 0;">Users</h2>
+            <span class="sp"></span>
+            <span class="text-dim" id="user-count"></span>
+        </div>
+
+        <div class="toolbar">
+            <input id="search" class="search-input" placeholder="Search by name, ETH-ID, email...">
+            <button id="btn-add" class="btn btn-primary">Add user</button>
+            <button id="btn-upload" class="btn">CSV upload</button>
+            <span class="sp"></span>
+            <button id="btn-bulk-regenerate" class="btn" disabled>Regenerate token</button>
+            <button id="btn-bulk-tags" class="btn" disabled>Tags…</button>
+            <button id="btn-bulk-email" class="btn" disabled>Token email</button>
+            <button id="btn-bulk-delete" class="btn btn-danger" disabled>Delete</button>
+        </div>
+
+        <div class="tag-filter-bar">
+            <span class="filter-label">Filter:</span>
+            <div id="filter-chip-input"></div>
+        </div>
+
+        <div id="notice-area"></div>
+
+        <div class="scroll-region">
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="select-all" class="big-check"></th>
+                        <th>ETH-ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Tags</th>
+                        <th>Token</th>
+                        <th class="num">Submits</th>
+                        <th>Last submit</th>
+                    </tr>
+                </thead>
+                <tbody id="users-body">
+                    <tr><td colspan="8" class="empty">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <input type="file" id="csv-input" accept=".csv" style="display:none">
+    </main>
+</div>
+
+<!-- Add user modal -->
+<div class="modal-backdrop" id="modal-add">
+    <div class="modal">
+        <h3>New user</h3>
+        <div class="form-row">
+            <label>ETH-ID</label>
+            <input id="add-eth-id" type="text" autocomplete="off">
+        </div>
+        <div class="form-row">
+            <label>First name</label>
+            <input id="add-first" type="text">
+        </div>
+        <div class="form-row">
+            <label>Last name</label>
+            <input id="add-last" type="text">
+        </div>
+        <div class="form-row">
+            <label>Email <span class="text-dim" style="font-weight: normal;">- empty = &lt;eth-id&gt;@ethz.ch</span></label>
+            <input id="add-email" type="email">
+        </div>
+        <div class="form-row">
+            <label>Tags <span class="text-dim" style="font-weight: normal;">- space, comma or enter creates a tag</span></label>
+            <div id="add-tags-input"></div>
+        </div>
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-add')">Cancel</button>
+            <button class="btn btn-primary" id="btn-add-confirm">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- CSV upload modal -->
+<div class="modal-backdrop" id="modal-csv">
+    <div class="modal">
+        <h3>CSV upload</h3>
+        <p class="text-dim" style="font-size: 13px;">
+            Expected Moodle format: <code>First name, Last name, ID number, Email, Groups, [Tags]</code>.
+            An optional <strong>Tags</strong> column is applied per row.
+        </p>
+        <div class="form-row" style="margin-top: 12px;">
+            <label>Default tags applied to all imported users <span class="text-dim" style="font-weight: normal;">- optional</span></label>
+            <div id="csv-tags-input"></div>
+        </div>
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-csv')">Cancel</button>
+            <button class="btn btn-primary" id="btn-csv-pick">Choose CSV…</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit single-user tags modal -->
+<div class="modal-backdrop" id="modal-tags">
+    <div class="modal">
+        <h3>Edit tags <span id="tags-modal-user" class="text-dim" style="font-weight: normal; font-size: 14px;"></span></h3>
+        <div class="form-row">
+            <label>Tags <span class="text-dim" style="font-weight: normal;">- space, comma or enter creates a tag</span></label>
+            <div id="single-tags-input"></div>
+        </div>
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-tags')">Cancel</button>
+            <button class="btn btn-primary" id="btn-tags-save">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk tags modal -->
+<div class="modal-backdrop" id="modal-bulk-tags">
+    <div class="modal">
+        <h3>Apply tags to <span id="bulk-tags-count">0</span> user(s)</h3>
+        <div class="form-row">
+            <label>Action</label>
+            <select id="bulk-tags-action">
+                <option value="tags_add">Add</option>
+                <option value="tags_remove">Remove</option>
+                <option value="tags_set">Replace</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label>Tags</label>
+            <div id="bulk-tags-input"></div>
+        </div>
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-bulk-tags')">Cancel</button>
+            <button class="btn btn-primary" id="btn-bulk-tags-confirm">Apply</button>
+        </div>
+    </div>
+</div>
+
+<!-- Email modal -->
+<div class="modal-backdrop" id="modal-email">
+    <div class="modal">
+        <h3>Send token email</h3>
+
+        <div class="row">
+            <div style="flex: 1">
+                <label>Username</label>
+                <input id="smtp-user" style="width: 100%" autocomplete="off">
+            </div>
+            <div style="flex: 1">
+                <label>Password</label>
+                <input id="smtp-pass" type="password" style="width: 100%" autocomplete="off">
+            </div>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+            <div style="flex: 1.2">
+                <label>SMTP server</label>
+                <select id="smtp-preset" style="width: 100%"></select>
+            </div>
+            <div style="flex: 1.2">
+                <label>Host</label>
+                <input id="smtp-host" style="width: 100%" readonly>
+            </div>
+            <div style="width: 90px">
+                <label>Port</label>
+                <input id="smtp-port" type="number" style="width: 100%" readonly>
+            </div>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+            <div style="flex: 1">
+                <label>Sender email <span class="text-dim" style="font-weight: normal;">- optional</span></label>
+                <input id="smtp-from" style="width: 100%">
+            </div>
+        </div>
+        <div style="margin-top: 10px;">
+            <button id="btn-smtp-test" class="btn btn-sm">Test connection</button>
+            <span id="smtp-test-status" class="text-dim"></span>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border);">
+
+        <div class="form-row">
+            <label>Subject</label>
+            <input id="mail-subject" value="Your USRP Sandbox Token" style="width: 100%">
+        </div>
+        <div class="form-row">
+            <div class="row">
+                <label style="margin: 0;">Body - placeholders: [TOKEN] [FIRST_NAME] [LAST_NAME] [ETH_ID]</label>
+                <span class="sp"></span>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-template" title="Reload template">↺ Load template</button>
+            </div>
+            <textarea id="mail-body" rows="6" style="width: 100%; font-family: var(--mono);"></textarea>
+        </div>
+
+        <div class="actions">
+            <button class="btn" onclick="closeModal('modal-email')">Cancel</button>
+            <button class="btn btn-primary" id="btn-send-mails">Send to selected</button>
+        </div>
+        <div id="send-results" style="margin-top: 12px;"></div>
+    </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/chip_input.js"></script>
+<script>
+initShell("users");
+
+// ---- SMTP server presets ----
+const SMTP_PRESETS = [
+    { id: "iis",     label: "IIS (iis-mail.ee.ethz.ch)",   host: "iis-mail.ee.ethz.ch", port: 587 },
+    { id: "ethz",    label: "ETH central (mail.ethz.ch)",  host: "mail.ethz.ch",        port: 587 },
+    { id: "ee-smtp", label: "D-ITET (smtp.ee.ethz.ch)",    host: "smtp.ee.ethz.ch",     port: 587 },
+    { id: "ee-mail", label: "D-ITET (mail.ee.ethz.ch)",    host: "mail.ee.ethz.ch",     port: 587 },
+    { id: "custom",  label: "Custom - configure manually", host: "",                    port: 587 },
+];
+const DEFAULT_PRESET = "iis";
+
+let allUsers = [];
+let selected = new Set();
+let allTagCounts = [];   // [{tag, count}, ...]
+
+const tagSuggestionStrings = () => allTagCounts.map(t => t.tag);
+
+// ---- ChipInput instances ----
+const filterTags = new ChipInput(document.getElementById("filter-chip-input"), {
+    placeholder: "Type or pick a tag…",
+    suggestionsFn: tagSuggestionStrings,
+    onChange: () => loadUsers(),
+});
+const addTags = new ChipInput(document.getElementById("add-tags-input"), {
+    placeholder: "e.g. group-a hs2026",
+    suggestionsFn: tagSuggestionStrings,
+});
+const csvTags = new ChipInput(document.getElementById("csv-tags-input"), {
+    placeholder: "e.g. hs2026 batch-3",
+    suggestionsFn: tagSuggestionStrings,
+});
+const singleTags = new ChipInput(document.getElementById("single-tags-input"), {
+    placeholder: "Type a tag…",
+    suggestionsFn: tagSuggestionStrings,
+});
+const bulkTags = new ChipInput(document.getElementById("bulk-tags-input"), {
+    placeholder: "Type a tag…",
+    suggestionsFn: tagSuggestionStrings,
+});
+
+async function loadUsers() {
+    const q = document.getElementById("search").value.trim();
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    const f = filterTags.getValue();
+    if (f.length) params.set("tag", f.join(","));
+    const url = "/users" + (params.toString() ? `?${params}` : "");
+    try {
+        allUsers = await apiFetch(url);
+        document.getElementById("user-count").textContent = `${allUsers.length} users`;
+        render();
+    } catch (e) {
+        toast(e.message, "err");
+    }
+}
+
+async function loadAllTags() {
+    try { allTagCounts = await apiFetch("/users/tags"); }
+    catch { allTagCounts = []; }
+}
+
+function renderTags(tags) {
+    if (!tags || !tags.length) {
+        return '<span class="tag-empty">-</span>';
+    }
+    return tags.map(t => `<span class="chip">${esc(t)}</span>`).join("");
+}
+
+function render() {
+    const body = document.getElementById("users-body");
+    if (!allUsers.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">No users</td></tr>';
+        updateBulkButtons();
+        return;
+    }
+    body.innerHTML = allUsers.map(u => {
+        const checked = selected.has(u.id) ? "checked" : "";
+        const tokenCell = u.token
+            ? `<div class="copy-cell">
+                   <span class="mono">${esc(u.token)}</span>
+                   <button class="copy-btn" data-copy="${esc(u.token)}" title="Copy">⎘</button>
+               </div>`
+            : '<span class="text-dim">-</span>';
+        const emailCell = u.email
+            ? `<div class="copy-cell">
+                   <span class="text-dim">${esc(u.email)}</span>
+                   <button class="copy-btn" data-copy="${esc(u.email)}" title="Copy">⎘</button>
+               </div>`
+            : '<span class="text-dim">-</span>';
+        const tagsCell = `<div class="tag-cell" data-edit-id="${u.id}">${renderTags(u.tags)}<span class="tag-edit-hint">✎</span></div>`;
+        return `<tr>
+            <td><input type="checkbox" class="row-check big-check" data-id="${u.id}" ${checked}></td>
+            <td class="mono"><strong>${esc(u.eth_id)}</strong></td>
+            <td>${esc(u.first_name || "")} ${esc(u.last_name || "")}</td>
+            <td>${emailCell}</td>
+            <td class="tags-col">${tagsCell}</td>
+            <td>${tokenCell}</td>
+            <td class="num">${u.submits}</td>
+            <td class="text-dim">${u.last_submit ? relTime(u.last_submit) : "-"}</td>
+        </tr>`;
+    }).join("");
+
+    body.querySelectorAll(".row-check").forEach(cb => {
+        cb.addEventListener("change", (e) => {
+            const id = Number(e.target.dataset.id);
+            if (e.target.checked) selected.add(id);
+            else selected.delete(id);
+            updateBulkButtons();
+        });
+    });
+    body.querySelectorAll(".copy-btn").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const value = btn.dataset.copy;
+            try {
+                await navigator.clipboard.writeText(value);
+                toast("Copied", "ok");
+            } catch {
+                const ta = document.createElement("textarea");
+                ta.value = value;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand("copy"); toast("Copied", "ok"); }
+                catch { toast("Copy failed", "err"); }
+                ta.remove();
+            }
+        });
+    });
+    body.querySelectorAll(".tag-cell").forEach(cell => {
+        cell.addEventListener("click", () => openTagEditor(Number(cell.dataset.editId)));
+    });
+    updateBulkButtons();
+}
+
+function updateBulkButtons() {
+    const any = selected.size > 0;
+    ["btn-bulk-delete","btn-bulk-regenerate","btn-bulk-email","btn-bulk-tags"].forEach(id => {
+        document.getElementById(id).disabled = !any;
+    });
+    const selAll = document.getElementById("select-all");
+    if (allUsers.length) {
+        selAll.checked = allUsers.every(u => selected.has(u.id));
+        selAll.indeterminate = !selAll.checked && allUsers.some(u => selected.has(u.id));
+    } else {
+        selAll.checked = false;
+    }
+}
+
+// ---- Live search ----
+let searchT;
+document.getElementById("search").addEventListener("input", () => {
+    clearTimeout(searchT);
+    searchT = setTimeout(loadUsers, 150);
+});
+
+// ---- Select all ----
+document.getElementById("select-all").addEventListener("change", (e) => {
+    if (e.target.checked) allUsers.forEach(u => selected.add(u.id));
+    else selected.clear();
+    render();
+});
+
+// ---- Add user ----
+document.getElementById("btn-add").addEventListener("click", () => {
+    ["add-eth-id","add-first","add-last","add-email"].forEach(id => document.getElementById(id).value = "");
+    addTags.clear();
+    openModal("modal-add");
+});
+document.getElementById("btn-add-confirm").addEventListener("click", async () => {
+    const eth_id = document.getElementById("add-eth-id").value.trim();
+    if (!eth_id) { toast("ETH-ID is required", "err"); return; }
+    try {
+        await apiFetch("/users", {method: "POST", body: JSON.stringify({
+            eth_id,
+            first_name: document.getElementById("add-first").value,
+            last_name: document.getElementById("add-last").value,
+            email: document.getElementById("add-email").value,
+            tags: addTags.getValue(),
+        })});
+        closeModal("modal-add");
+        toast("User created", "ok");
+        await loadAllTags();
+        loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---- CSV upload ----
+document.getElementById("btn-upload").addEventListener("click", () => {
+    csvTags.clear();
+    openModal("modal-csv");
+});
+document.getElementById("btn-csv-pick").addEventListener("click", () => {
+    closeModal("modal-csv");
+    document.getElementById("csv-input").click();
+});
+document.getElementById("csv-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("tags", csvTags.getValue().join(","));
+    try {
+        const r = await apiFetch("/users/upload_csv", {method: "POST", body: fd});
+        toast(`Imported: ${r.created} created, ${r.skipped} skipped`, "ok");
+        await loadAllTags();
+        loadUsers();
+    } catch (err) { toast(err.message, "err"); }
+    e.target.value = "";
+});
+
+// ---- Bulk actions ----
+document.getElementById("btn-bulk-delete").addEventListener("click", async () => {
+    const n = selected.size;
+    if (!n) return;
+    const pw = await askPassword(`${n} user(s) will be deleted. Enter password to confirm:`);
+    if (pw === null) return;
+    try {
+        await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
+            action: "delete", ids: [...selected], password: pw,
+        })});
+        selected.clear(); toast(`${n} user(s) deleted`, "ok");
+        await loadAllTags(); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+document.getElementById("btn-bulk-regenerate").addEventListener("click", async () => {
+    if (!confirm(`Regenerate ${selected.size} token(s)?`)) return;
+    try {
+        const r = await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({action: "regenerate", ids: [...selected]})});
+        toast(`${r.count} token(s) regenerated`, "ok");
+        loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---- Edit single-user tags ----
+let tagsEditingId = null;
+function openTagEditor(userId) {
+    const u = allUsers.find(x => x.id === userId);
+    if (!u) return;
+    tagsEditingId = userId;
+    document.getElementById("tags-modal-user").textContent = `· ${u.eth_id}`;
+    singleTags.setValue(u.tags || []);
+    openModal("modal-tags");
+    setTimeout(() => singleTags.focus(), 50);
+}
+document.getElementById("btn-tags-save").addEventListener("click", async () => {
+    if (tagsEditingId == null) return;
+    try {
+        await apiFetch(`/users/${tagsEditingId}/tags`, {method: "PATCH", body: JSON.stringify({tags: singleTags.getValue()})});
+        closeModal("modal-tags");
+        toast("Tags updated", "ok");
+        await loadAllTags(); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---- Bulk tags ----
+document.getElementById("btn-bulk-tags").addEventListener("click", () => {
+    document.getElementById("bulk-tags-count").textContent = String(selected.size);
+    document.getElementById("bulk-tags-action").value = "tags_add";
+    bulkTags.clear();
+    openModal("modal-bulk-tags");
+    setTimeout(() => bulkTags.focus(), 50);
+});
+document.getElementById("btn-bulk-tags-confirm").addEventListener("click", async () => {
+    const action = document.getElementById("bulk-tags-action").value;
+    const tags = bulkTags.getValue();
+    if (!tags.length && action !== "tags_set") { toast("Tags are required", "err"); return; }
+    try {
+        const r = await apiFetch("/users/bulk", {method: "POST", body: JSON.stringify({
+            action, ids: [...selected], tags,
+        })});
+        closeModal("modal-bulk-tags");
+        toast(`${r.count} user(s) updated`, "ok");
+        await loadAllTags(); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
+});
+
+// ---- Email modal ----
+function buildSmtpPresetOptions() {
+    const sel = document.getElementById("smtp-preset");
+    sel.innerHTML = SMTP_PRESETS.map(p =>
+        `<option value="${p.id}">${esc(p.label)}</option>`
+    ).join("");
+    sel.value = DEFAULT_PRESET;
+    applyPreset();
+}
+function applyPreset() {
+    const id = document.getElementById("smtp-preset").value;
+    const preset = SMTP_PRESETS.find(p => p.id === id) || SMTP_PRESETS[0];
+    const host = document.getElementById("smtp-host");
+    const port = document.getElementById("smtp-port");
+    if (id === "custom") {
+        host.removeAttribute("readonly");
+        port.removeAttribute("readonly");
+        if (SMTP_PRESETS.some(p => p.host === host.value)) host.value = "";
+        host.focus();
+    } else {
+        host.value = preset.host;
+        port.value = preset.port;
+        host.setAttribute("readonly", "");
+        port.setAttribute("readonly", "");
+    }
+}
+
+async function loadEmailTemplate() {
+    try {
+        const res = await fetch("/email_template.txt?_=" + Date.now());
+        if (res.ok) document.getElementById("mail-body").value = await res.text();
+    } catch (e) { /* fall through */ }
+}
+document.getElementById("btn-bulk-email").addEventListener("click", async () => {
+    document.getElementById("send-results").innerHTML = "";
+    document.getElementById("smtp-test-status").textContent = "";
+    if (!document.getElementById("smtp-preset").options.length) buildSmtpPresetOptions();
+    if (!document.getElementById("mail-body").value.trim()) {
+        await loadEmailTemplate();
+    }
+    openModal("modal-email");
+});
+document.getElementById("smtp-preset").addEventListener("change", applyPreset);
+document.getElementById("btn-reset-template").addEventListener("click", loadEmailTemplate);
+document.getElementById("btn-smtp-test").addEventListener("click", async () => {
+    const st = document.getElementById("smtp-test-status");
+    st.textContent = "  Testing…";
+    try {
+        const r = await apiFetch("/email/test", {method: "POST", body: JSON.stringify(readSmtp())});
+        st.textContent = "  " + r.message;
+        st.className = r.ok ? "text-ok" : "text-err";
+    } catch (e) {
+        st.textContent = "  " + e.message;
+        st.className = "text-err";
+    }
+});
+document.getElementById("btn-send-mails").addEventListener("click", async () => {
+    const payload = {...readSmtp(),
+        user_ids: [...selected],
+        subject: document.getElementById("mail-subject").value,
+        body: document.getElementById("mail-body").value,
+    };
+    const resEl = document.getElementById("send-results");
+    resEl.innerHTML = '<div class="send-mark send-mark-pending">…</div>';
+    const close = () => closeModal("modal-email");
+    try {
+        const r = await apiFetch("/email/send", {method: "POST", body: JSON.stringify(payload)});
+        const fail = r.results.filter(x => !x.ok).length;
+        resEl.innerHTML = fail === 0
+            ? '<div class="send-mark send-mark-ok" title="Click to close">✓</div>'
+            : '<div class="send-mark send-mark-err" title="Click to close">✗</div>';
+    } catch {
+        resEl.innerHTML = '<div class="send-mark send-mark-err" title="Click to close">✗</div>';
+    }
+    const mark = resEl.querySelector(".send-mark");
+    if (mark) mark.addEventListener("click", close);
+});
+
+function readSmtp() {
+    return {
+        username: document.getElementById("smtp-user").value,
+        password: document.getElementById("smtp-pass").value,
+        host:     document.getElementById("smtp-host").value,
+        port:     Number(document.getElementById("smtp-port").value),
+        sender_email: document.getElementById("smtp-from").value || null,
+    };
+}
+
+buildSmtpPresetOptions();
+loadAllTags().then(loadUsers);
+</script>
+</body>
+</html>

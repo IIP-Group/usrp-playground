@@ -1,0 +1,63 @@
+services:
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=300"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  entrypoint:
+    image: ghcr.io/${GHCR_OWNER}/usrp-playground-entrypoint:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # No ports: only reachable through nginx reverse proxy
+    expose:
+      - "8000"
+    env_file: .env
+    volumes:
+      - ./data/tasks:/data
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    image: ghcr.io/${GHCR_OWNER}/usrp-playground-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/tasks:/data
+      - ./data/signals:/data/signals
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    image: ghcr.io/${GHCR_OWNER}/usrp-playground-nginx:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+    environment:
+      BACKEND_HOST: entrypoint
+      BACKEND_PORT: "8000"
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    depends_on:
+      - entrypoint

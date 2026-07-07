@@ -1,0 +1,1 @@
+python3 client.py test.f32 -o result.f32
