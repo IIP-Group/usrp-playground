@@ -9,7 +9,7 @@
   <li><strong>Student guide:</strong>
     <a href="http://129.132.24.210/docs.html">http://129.132.24.210/docs.html</a></li>
   <li><strong>GitHub repository:</strong>
-    <a href="https://github.com/RaresBares/USRP-Benchmark-System">github.com/RaresBares/USRP-Benchmark-System</a></li>
+    <a href="https://github.com/IIP-Group/usrp-playground">github.com/IIP-Group/usrp-playground</a></li>
 </ul>
 
 <p>Please do not share your token. Questions? Just reply to this email.</p>

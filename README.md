@@ -1,45 +1,43 @@
 # USRP Sandbox System
 
-A distributed system for sending complex baseband signals through a simulated (later real) USRP/UHD wireless channel. Built for university lab courses where students submit IQ samples and receive the channel-impaired result.
+A distributed system for sending complex baseband signals over a real USRP/UHD wireless channel. Built for university lab courses where students submit IQ samples and receive the channel-impaired result. Supports single-channel (SISO) and multi-channel (MIMO) transmission, per-test channel selection, and receive-only capture (listen).
 
 ```
-                                        Server (Docker)
-                                  ┌──────────────────────────┐
-                                  │                          │
-  Student                         │  ┌──────────┐           │
-  ┌──────────┐    WebSocket       │  │ FastAPI  │           │
-  │ Python   │◄──────────────────►│  │ :8000    │           │
-  │ Client   │  f32 in/out        │  └────┬─────┘           │
-  └──────────┘                    │       │                  │
-                                  │  ┌────┴─────┐  ┌──────┐ │
-                                  │  │ Postgres │  │Worker│ │
-                                  │  │          │◄─┤AWGN  │ │
-                                  │  └──────────┘  └──────┘ │
+                                        Server (Docker)                    Host
+                                  ┌──────────────────────────┐   ┌───────────────┐
+  Student                         │  ┌──────────┐            │   │  TX daemon    │
+  ┌──────────┐    WebSocket       │  │ FastAPI  │            │   │  RX daemon    │
+  │ Python   │◄──────────────────►│  │ :8000    │            │   │  (UHD/USRP)   │
+  │ Client   │  f32 in/out        │  └────┬─────┘            │   └───────▲───────┘
+  └──────────┘                    │       │                  │           │ ZMQ
+                                  │  ┌────┴─────┐  ┌──────┐  │           │
+                                  │  │ Postgres │  │Worker├──┼───────────┘
+                                  │  └──────────┘  └──────┘  │
                                   └──────────────────────────┘
 ```
 
 ## Quick Start (Server)
 
 ```bash
-git clone https://github.com/YOURUSER/USRP-Benchmark-System.git
-cd USRP-Benchmark-System
+git clone https://github.com/IIP-Group/usrp-playground.git
+cd usrp-playground
 cp .env.example .env    # adjust if needed
 docker compose up -d --build
 ```
 
-The server runs on `http://localhost:8000`.
+The server runs on `http://localhost:8000`. The TX/RX daemons run on the host next to the USRPs (`./start-daemons.sh`).
 
 ## Client Installation
 
 ### Option A: pip (recommended)
 
 ```bash
-pip install git+https://github.com/YOURUSER/USRP-Benchmark-System.git
+pip install git+https://github.com/IIP-Group/usrp-playground.git
 ```
 
 ### Option B: Standalone binary
 
-Download the latest release for your platform from the [Releases](https://github.com/YOURUSER/USRP-Benchmark-System/releases) page.
+Download the latest release for your platform from the [Releases](https://github.com/IIP-Group/usrp-playground/releases) page.
 
 ## Usage
 
@@ -47,6 +45,15 @@ Download the latest release for your platform from the [Releases](https://github
 
 ```bash
 usrp-client -i signal.f32 -o received.f32 -s localhost:8000 -t your-token
+
+# send over hardware channel 1 (SISO)
+usrp-client -i signal.f32 -c 1 -s localhost:8000 -t your-token
+
+# receive only: capture 100000 samples without transmitting
+usrp-client --listen 100000 -o capture.f32 -s localhost:8000 -t your-token
+
+# receive only on all channels at once (MIMO)
+usrp-client --listen 100000 --channels 2 -o capture.f32 -s localhost:8000 -t your-token
 ```
 
 ```
@@ -73,7 +80,21 @@ assert USRPClient.check()
 # Send complex baseband signal, receive channel-impaired version
 tx = np.array([0.5+0.3j, -0.2+0.8j, 0.7-0.1j], dtype=np.complex64)
 rx = USRPClient.send(tx)
+
+# SISO over a selectable hardware channel
+rx = USRPClient.send(tx, channel=1)          # same as send_siso(tx, channel=1)
+
+# MIMO: shape (n_samples, n_channels), column i drives channel i
+tx2 = np.stack([tx, 2 * tx], axis=1)
+rx2 = USRPClient.send_mimo(tx2)              # returns (n_rx, n_channels)
+
+# Receive only - no transmission
+rx  = USRPClient.listen(100_000)                   # channel 0
+rx  = USRPClient.listen_siso(100_000, channel=1)   # specific channel
+rx2 = USRPClient.listen_mimo(100_000)              # all channels, (n, channels)
 ```
+
+See `demo/python/api_tour.ipynb` for a runnable tour of the whole API, and the hosted docs page (`/docs.html`) for the student guide.
 
 ### Creating a test signal
 
@@ -108,9 +129,20 @@ signal = raw[0::2] + 1j * raw[1::2]
 |---|---|
 | **db** | PostgreSQL - tokens, task queue, audit logs |
 | **entrypoint** | FastAPI - WebSocket endpoint, auth, task creation |
-| **worker** | Polls DB, processes signals through channel simulation |
+| **worker** | Polls DB, drives the TX/RX daemons (real USRPs) over ZMQ |
 
 ### WebSocket Protocol (`ws://host:port/ws/run?auth_token=TOKEN`)
+
+The client may send an optional JSON text frame before the binary payload:
+
+```
+{"mode": "siso", "channel": 1}             SISO over hardware channel 1
+{"mode": "mimo", "channels": 2}            multi-channel upload (MIMO header required)
+{"mode": "listen", "n_samples": 100000}    receive only - NO binary payload follows
+{"mode": "listen", "n_samples": 100000, "channels": 2}    MIMO listen
+```
+
+Without a handshake, a plain binary frame is treated as a SISO upload on channel 0 (fully backward compatible).
 
 ```
 Client                              Server
@@ -147,22 +179,20 @@ Error responses: `{"error": "error_code", "message": "description"}`
 | Variable | Default | Description |
 |---|---|---|
 | `DEFAULT_AUTH_TOKEN` | `default-bench-token-2024` | Built-in auth token |
-| `CHANNEL_SNR_DB` | `20` | AWGN channel SNR in dB |
 | `MAX_UPLOAD_MB` | `200` | Max file size per upload |
-| `MAX_SAMPLES` | `2500000` | Max complex samples per signal |
-| `MAX_WS_CONNECTIONS` | `100` | Max concurrent WebSocket connections |
-| `MAX_PENDING_TASKS` | `200` | Max tasks in queue |
+| `MAX_SAMPLES` | `2500000` | Max complex samples per signal (per channel) |
+| `MAX_QUEUE` | `100` | Max concurrent queue slots (WebSocket connections) |
+| `MAX_QUEUE_PER_IP` | `5` | Max queue slots per client IP |
 | `TASK_TTL_HOURS` | `24` | Auto-delete tasks older than this |
+| `MIMO_ENABLED` | `false` | Allow multi-channel (MIMO) uploads |
+| `BEGIN_GUARD_MIN_SEC` / `..MAX..` | `0.1` | Range the pre-signal guard is drawn from |
+| `END_GUARD_MIN_SEC` / `..MAX..` | `0.1` | Range the post-signal guard is drawn from |
 
-## Channel Model
+Most of these can also be changed at runtime on the admin Settings page; the worker picks changes up live.
 
-Currently a simple AWGN (Additive White Gaussian Noise) simulation:
+## RF Path
 
-```
-y[n] = x[n] + noise[n]
-```
-
-The noise power is derived from the signal power and the configured SNR. This will later be replaced with real USRP/UHD full-duplex TX/RX over two antennas at 20 MHz sample rate.
+The worker drives two UHD daemons (TX and RX) on the host over ZMQ. Each test transmits the uploaded signal over the real USRP hardware while the RX side captures - including random guard intervals before and after the burst, a duty-cycle quota, and Listen-Before-Talk. Channel routing (antenna ports, gains) comes from the Hardware Inventory page.
 
 ## Health Check
 
