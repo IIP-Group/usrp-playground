@@ -1,3 +1,7 @@
+# Keep annotations lazy: `int | None` etc. would crash at import time on
+# Python 3.9, which the package still supports (requires-python >= 3.9).
+from __future__ import annotations
+
 import json
 import struct
 import sys
