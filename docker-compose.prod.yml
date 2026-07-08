@@ -26,6 +26,11 @@ services:
     env_file: .env
     volumes:
       - ./data/tasks:/data
+      - ./data/inventory:/data/inventory
+      # Live settings: the admin UI writes here and the worker re-reads the
+      # file every 2 s. Without this mount, UI changes never reach the
+      # worker and are lost when the container is recreated.
+      - ./.env:/app/.env
     ulimits:
       nofile:
         soft: 65535
@@ -43,6 +48,8 @@ services:
     volumes:
       - ./data/tasks:/data
       - ./data/signals:/data/signals
+      - ./data/inventory:/data/inventory
+      - ./.env:/app/.env
     depends_on:
       db:
         condition: service_healthy
