@@ -1,7 +1,9 @@
 import os
 import uuid
 import json
+import struct
 import asyncio
+import traceback
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -139,6 +141,32 @@ def _eth_id_for_token(db: Session, token: Token) -> str | None:
     return None
 
 
+def _cancel_pending_task(task_uid, token_id, eth_id, ip):
+    """The client is gone - if their task hasn't started yet, drop it so
+    the worker doesn't waste USRP airtime on a result nobody will read."""
+    if task_uid is None:
+        return
+    try:
+        with SessionLocal() as db:
+            fresh = db.query(Task).filter(Task.uid == task_uid).first()
+            if fresh is None:
+                return
+            if fresh.state == "PD":
+                tdir = INPUT_DIR / str(task_uid)
+                if tdir.exists():
+                    import shutil
+                    shutil.rmtree(tdir, ignore_errors=True)
+                db.delete(fresh)
+                db.commit()
+                _log(db, "cancelled", token_id=token_id, eth_id=eth_id,
+                     ip=ip, detail=f"uid={task_uid} (while PD)")
+            elif fresh.state == "R":
+                _log(db, "cancelled", token_id=token_id, eth_id=eth_id,
+                     ip=ip, detail=f"uid={task_uid} (while R, completing anyway)")
+    except Exception:
+        pass
+
+
 @app.websocket("/ws/run")
 async def ws_run(ws: WebSocket):
     global ws_count
@@ -155,7 +183,9 @@ async def ws_run(ws: WebSocket):
         await ws.close(code=1013, reason="too many connections from your IP")
         return
 
-    await ws.accept()
+    # Reserve the slot BEFORE the first await: between check and increment
+    # no other coroutine may run, otherwise N parallel handshakes could all
+    # pass the check and overshoot the limit. Released in the finally below.
     ws_count += 1
     ws_per_ip[ip] = ws_per_ip.get(ip, 0) + 1
 
@@ -165,6 +195,7 @@ async def ws_run(ws: WebSocket):
     token_id = None
 
     try:
+        await ws.accept()
         # -------- One short DB session for setup (auth + radio info + queue check) --------
         with SessionLocal() as db:
             if not server_state.is_running(db):
@@ -192,7 +223,9 @@ async def ws_run(ws: WebSocket):
         #   * Client MAY send a TEXT frame first:
         #       {"mode": "siso"}                       (same as no handshake)
         #       {"mode": "mimo", "channels": <int>}    (multi-channel upload)
-        #   * Then exactly ONE BINARY frame containing the payload.
+        #       {"mode": "listen", "n_samples": <int>} (RX only, no payload)
+        #   * Then exactly ONE BINARY frame containing the payload
+        #     (except mode=listen, which has no payload).
         #     SISO  payload  = raw float32 interleaved I/Q
         #     MIMO  payload  = mimo_format header + channel-sequential IQ
         # Backward compat: if the first frame is already binary, it's SISO.
@@ -200,6 +233,7 @@ async def ws_run(ws: WebSocket):
         mimo_max_ch = int(radio_info.get("mimo_max_channels", 2))
         mode = "siso"
         announced_channels = 1
+        listen_samples = 0
         # Which inventory channel a SISO test runs over (index into the
         # inventory channel list). 0 = first channel = legacy behaviour.
         selected_channel = 0
@@ -221,15 +255,22 @@ async def ws_run(ws: WebSocket):
 
         data = None
         if "text" in first and first["text"] is not None:
+            if len(first["text"]) > 4096:
+                await _ws_send(ws, error="bad_handshake",
+                               message="Handshake frame too large")
+                await ws.close()
+                return
             try:
                 handshake = json.loads(first["text"])
+                if not isinstance(handshake, dict):
+                    raise ValueError("handshake must be a JSON object")
             except Exception:
                 await _ws_send(ws, error="bad_handshake",
-                               message="First text frame must be JSON")
+                               message="First text frame must be a JSON object")
                 await ws.close()
                 return
             mode = str(handshake.get("mode", "siso")).lower()
-            if mode not in ("siso", "mimo"):
+            if mode not in ("siso", "mimo", "listen"):
                 await _ws_send(ws, error="bad_handshake",
                                message=f"Unknown mode '{mode}'")
                 await ws.close()
@@ -251,24 +292,58 @@ async def ws_run(ws: WebSocket):
                                    message="MIMO is disabled on the server")
                     await ws.close()
                     return
-                announced_channels = int(handshake.get("channels", 1))
+                try:
+                    announced_channels = int(handshake.get("channels", 1) or 1)
+                except (TypeError, ValueError):
+                    announced_channels = 0    # forces the range error below
                 if announced_channels < 1 or announced_channels > mimo_max_ch:
                     await _ws_send(ws, error="bad_handshake",
                                    message=f"channels must be 1..{mimo_max_ch}")
                     await ws.close()
                     return
+            elif mode == "listen":
+                try:
+                    listen_samples = int(handshake.get("n_samples", 0) or 0)
+                except (TypeError, ValueError):
+                    listen_samples = 0
+                max_samples = int(radio_info.get("max_samples", 0) or 0)
+                if listen_samples <= 0 or (max_samples and listen_samples > max_samples):
+                    await _ws_send(ws, error="bad_handshake",
+                                   message=f"n_samples must be 1..{max_samples}")
+                    await ws.close()
+                    return
+                try:
+                    announced_channels = int(handshake.get("channels", 1) or 1)
+                except (TypeError, ValueError):
+                    announced_channels = 1
+                if announced_channels < 1 or announced_channels > mimo_max_ch:
+                    await _ws_send(ws, error="bad_handshake",
+                                   message=f"channels must be 1..{mimo_max_ch}")
+                    await ws.close()
+                    return
+                if announced_channels > 1:
+                    if not mimo_enabled:
+                        await _ws_send(ws, error="mimo_disabled",
+                                       message="MIMO is disabled on the server")
+                        await ws.close()
+                        return
+                    # MIMO listen always captures channels 0..N-1.
+                    selected_channel = 0
             await _ws_send(ws, message="ack", mode=mode, channels=announced_channels)
-            try:
-                data = await asyncio.wait_for(
-                    ws.receive_bytes(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"]
-                )
-            except asyncio.TimeoutError:
-                with SessionLocal() as db:
-                    _log(db, "upload_timeout", token_id=token_id, eth_id=eth_id, ip=ip)
-                await _ws_send(ws, error="upload_timeout",
-                               message=f"No payload within {_LIMITS['UPLOAD_TIMEOUT_SEC']:.0f}s")
-                await ws.close()
-                return
+            if mode == "listen":
+                data = b""     # RX only - no payload follows
+            else:
+                try:
+                    data = await asyncio.wait_for(
+                        ws.receive_bytes(), timeout=_LIMITS["UPLOAD_TIMEOUT_SEC"]
+                    )
+                except asyncio.TimeoutError:
+                    with SessionLocal() as db:
+                        _log(db, "upload_timeout", token_id=token_id, eth_id=eth_id, ip=ip)
+                    await _ws_send(ws, error="upload_timeout",
+                                   message=f"No payload within {_LIMITS['UPLOAD_TIMEOUT_SEC']:.0f}s")
+                    await ws.close()
+                    return
         elif "bytes" in first and first["bytes"] is not None:
             data = first["bytes"]
         else:
@@ -295,6 +370,7 @@ async def ws_run(ws: WebSocket):
                            message="mode=mimo but payload has no MIMO header")
             await ws.close()
             return
+        mimo_explicit = (mode == "mimo")
         if mode == "siso" and is_mimo_blob:
             # MIMO blob without handshake - reject so we never silently
             # accept multi-channel data while MIMO is off.
@@ -305,21 +381,70 @@ async def ws_run(ws: WebSocket):
                 return
             mode = "mimo"
 
+        # -------- Validate the payload BEFORE it occupies a queue slot -----
+        # Everything rejected here would otherwise waste queue time and only
+        # fail later in the worker with a less direct error.
+        max_samples = int(radio_info.get("max_samples", 0) or 0)
+        if mode == "mimo":
+            if len(data) < 16:
+                await _ws_send(ws, error="bad_payload",
+                               message="MIMO payload shorter than its 16-byte header")
+                await ws.close()
+                return
+            hdr_ch, hdr_n = struct.unpack("<II", data[8:16])
+            if hdr_ch < 1 or hdr_ch > mimo_max_ch:
+                await _ws_send(ws, error="bad_payload",
+                               message=f"MIMO header: channels must be 1..{mimo_max_ch}")
+                await ws.close()
+                return
+            if mimo_explicit and hdr_ch != announced_channels:
+                await _ws_send(ws, error="bad_payload",
+                               message=f"MIMO header says {hdr_ch} channel(s) but "
+                                       f"handshake announced {announced_channels}")
+                await ws.close()
+                return
+            if len(data) - 16 < hdr_ch * hdr_n * 8:
+                await _ws_send(ws, error="bad_payload",
+                               message="MIMO payload truncated: fewer bytes than the "
+                                       "header promises")
+                await ws.close()
+                return
+            announced_channels = hdr_ch
+            payload_samples = hdr_n
+        elif mode == "siso":
+            payload_samples = len(data) // 8
+        else:   # listen - validated in the handshake already
+            payload_samples = listen_samples
+        if mode != "listen":
+            if payload_samples <= 0:
+                await _ws_send(ws, error="bad_payload",
+                               message="Empty signal")
+                await ws.close()
+                return
+            if max_samples and payload_samples > max_samples:
+                await _ws_send(ws, error="too_many_samples",
+                               message=f"Signal has {payload_samples} samples per "
+                                       f"channel, max is {max_samples}")
+                await ws.close()
+                return
+
         # -------- Create task --------
         task_uid = uuid.uuid4()
         task_dir = INPUT_DIR / str(task_uid)
         task_dir.mkdir(parents=True)
         (task_dir / "input.f32").write_bytes(data)
         # Sidecar metadata the worker reads alongside the signal. Channel
-        # selection only applies to SISO (MIMO drives channels 0..N-1).
-        (task_dir / "meta.json").write_text(json.dumps({
-            "channel": selected_channel if mode == "siso" else 0,
-        }))
-        if mode == "mimo":
-            # 16-byte header + channels * samples * 8 bytes IQ
-            n_samples = max(0, (len(data) - 16) // (announced_channels * 8))
-        else:
-            n_samples = len(data) // 8
+        # selection only applies to SISO paths (MIMO drives channels 0..N-1).
+        meta = {"channel": selected_channel if mode in ("siso", "listen") else 0}
+        if mode == "listen":
+            meta["listen"] = {"n_samples": listen_samples,
+                              "channels": announced_channels}
+        (task_dir / "meta.json").write_text(json.dumps(meta))
+        n_samples = payload_samples
+        # Release the upload buffer NOW - it is on disk. Otherwise every
+        # queued connection pins its full payload (up to max_upload) in RAM
+        # for the whole queue wait.
+        data = b""
 
         with SessionLocal() as db:
             task = Task(uid=task_uid, token_id=token_id, n_samples=n_samples)
@@ -337,24 +462,43 @@ async def ws_run(ws: WebSocket):
                        state="PD", queue_position=pos)
 
         # -------- Poll status (short DB session per poll, NOT held across sleep) --------
+        db_failures = 0
         while True:
             await asyncio.sleep(_LIMITS["POLL_INTERVAL_SEC"])
-            with SessionLocal() as db:
-                if not server_state.is_running(db):
-                    await _ws_send(ws, error="server_sleeping",
-                                   message="Server went to sleep zzZZ....")
+            try:
+                with SessionLocal() as db:
+                    running = server_state.is_running(db)
+                    fresh = None
+                    state = error_message = None
+                    pos = 0
+                    if running:
+                        fresh = db.query(Task).filter(Task.uid == task_uid).first()
+                        if fresh is not None:
+                            state = fresh.state
+                            error_message = fresh.error_message
+                            pos = db.query(Task).filter(
+                                Task.state == "PD", Task.created_at < created_at
+                            ).count()
+                db_failures = 0
+            except Exception:
+                # A transient DB hiccup must not kill every waiting client.
+                # Skip this status round; give up only if it persists.
+                db_failures += 1
+                if db_failures >= 10:
+                    await _ws_send(ws, error="server_error",
+                                   message="Temporary server problem, please resubmit")
                     await ws.close()
                     return
-                fresh = db.query(Task).filter(Task.uid == task_uid).first()
-                if fresh is None:
-                    await _ws_send(ws, error="task_lost", message="Task disappeared")
-                    await ws.close()
-                    return
-                state = fresh.state
-                error_message = fresh.error_message
-                pos = db.query(Task).filter(
-                    Task.state == "PD", Task.created_at < created_at
-                ).count()
+                continue
+            if not running:
+                await _ws_send(ws, error="server_sleeping",
+                               message="Server went to sleep zzZZ....")
+                await ws.close()
+                return
+            if fresh is None:
+                await _ws_send(ws, error="task_lost", message="Task disappeared")
+                await ws.close()
+                return
             await _ws_send(ws, message="status", uid=str(task_uid),
                            state=state, queue_position=pos)
             if state == "D":
@@ -383,30 +527,13 @@ async def ws_run(ws: WebSocket):
 
     except WebSocketDisconnect:
         # Client hung up - if their task is still pending, cancel it.
-        if task_uid is not None:
-            try:
-                with SessionLocal() as db:
-                    fresh = db.query(Task).filter(Task.uid == task_uid).first()
-                    if fresh is None:
-                        return
-                    if fresh.state == "PD":
-                        tdir = INPUT_DIR / str(task_uid)
-                        if tdir.exists():
-                            import shutil
-                            shutil.rmtree(tdir, ignore_errors=True)
-                        db.delete(fresh)
-                        db.commit()
-                        _log(db, "cancelled", token_id=token_id,
-                             eth_id=eth_id, ip=ip,
-                             detail=f"uid={task_uid} (while PD)")
-                    elif fresh.state == "R":
-                        _log(db, "cancelled", token_id=token_id,
-                             eth_id=eth_id, ip=ip,
-                             detail=f"uid={task_uid} (while R, completing anyway)")
-            except Exception:
-                pass
+        _cancel_pending_task(task_uid, token_id, eth_id, ip)
     except Exception:
-        # Don't let one bad client take down the worker - swallow & close.
+        # Don't let one bad client take down the server - log, clean up the
+        # pending task (a send to a vanished client raises here, not
+        # WebSocketDisconnect), and close.
+        traceback.print_exc()
+        _cancel_pending_task(task_uid, token_id, eth_id, ip)
         try:
             await ws.close()
         except Exception:

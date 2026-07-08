@@ -347,11 +347,19 @@ class USRPChannel:
             return True, 0.0
         duty_max = _get("DUTY_CYCLE_MAX_PERCENT", 10.0, float) / 100.0
         duty_window = _get("DUTY_CYCLE_WINDOW_SEC", 60.0, float)
+        max_allowed = duty_max * duty_window
+        # A signal longer than the whole budget can NEVER become allowed -
+        # waiting would spin forever and stall the queue for everyone.
+        if signal_duration > max_allowed:
+            raise RuntimeError(
+                f"Signal too long for the duty-cycle limit: {signal_duration:.2f}s "
+                f"airtime but only {max_allowed:.2f}s allowed per "
+                f"{duty_window:.0f}s window. Use a shorter signal."
+            )
         now = time.time()
         cutoff = now - duty_window
         self._tx_history = [(t, d) for t, d in self._tx_history if t > cutoff]
         total_tx_time = sum(d for _, d in self._tx_history)
-        max_allowed = duty_max * duty_window
         available = max_allowed - total_tx_time
 
         if signal_duration > available:
@@ -591,26 +599,7 @@ class USRPChannel:
 
             self._tx_history.append((time.time(), signal_duration))
 
-            with h5py.File(rx_file, "r") as f:
-                rx_data = f["rx_signal"][:]
-                if n_channels == 1:
-                    if rx_data.ndim == 2:
-                        rx_data = rx_data[0]
-                    out = rx_data.astype(np.complex64)   # 1-D
-                else:
-                    if rx_data.ndim != 2 or rx_data.shape[0] < n_channels:
-                        raise RuntimeError(
-                            f"RX expected {n_channels}-channel data, got shape {rx_data.shape}"
-                        )
-                    # daemon stores (n_channels, n_samples); transpose back
-                    out = rx_data[:n_channels].T.astype(np.complex64)   # (n_samples, n_channels)
-                attrs = dict(f["rx_signal"].attrs)
-                logger.info(
-                    "RX file: shape=%s, actual fs=%s, fc=%s (configured fs=%s)",
-                    out.shape, attrs.get("fs"), attrs.get("fc"), fs,
-                )
-
-            return out
+            return self._read_rx_file(rx_file, n_channels, fs)
 
         except Exception:
             # A command was sent but no reply consumed → REQ socket is in
@@ -639,6 +628,109 @@ class USRPChannel:
                 except OSError:
                     pass
 
+    def _read_rx_file(self, rx_file, n_channels, fs):
+        """Read an RX capture file and return 1-D (SISO) or
+        (n_samples, n_channels) (MIMO) complex64 data."""
+        import h5py
+
+        with h5py.File(rx_file, "r") as f:
+            rx_data = f["rx_signal"][:]
+            if n_channels == 1:
+                if rx_data.ndim == 2:
+                    rx_data = rx_data[0]
+                out = rx_data.astype(np.complex64)   # 1-D
+            else:
+                if rx_data.ndim != 2 or rx_data.shape[0] < n_channels:
+                    raise RuntimeError(
+                        f"RX expected {n_channels}-channel data, got shape {rx_data.shape}"
+                    )
+                # daemon stores (n_channels, n_samples); transpose back
+                out = rx_data[:n_channels].T.astype(np.complex64)   # (n_samples, n_channels)
+            attrs = dict(f["rx_signal"].attrs)
+            logger.info(
+                "RX file: shape=%s, actual fs=%s, fc=%s (configured fs=%s)",
+                out.shape, attrs.get("fs"), attrs.get("fc"), fs,
+            )
+        return out
+
+    def receive_only(self, n_samples, channel=None, n_channels=1):
+        """Capture `n_samples` from the radio WITHOUT transmitting.
+
+        * n_channels == 1 → SISO listen. `channel` selects which inventory
+          channel to listen on (None/0 = first channel). Returns 1-D.
+        * n_channels >= 2 → MIMO listen on channels 0..n_channels-1.
+          Returns (n_samples, n_channels).
+
+        No LBT, duty-cycle or guard handling - nothing is transmitted.
+        """
+        import zmq
+
+        n_samples = int(n_samples)
+        if n_samples <= 0:
+            raise ValueError("n_samples must be positive")
+        if n_channels > 1:
+            channel = None    # MIMO listen always uses channels 0..N-1
+
+        try:
+            self._configure(n_channels=n_channels, channel=channel)
+        except Exception:
+            self._reset_sockets()
+            raise
+
+        fs = _get_sample_rate()
+        initial_delay = _get("INITIAL_DELAY", 1.0, float)
+        duration = n_samples / fs
+
+        uid = f"{int(time.time() * 1000)}_{os.getpid()}"
+        rx_file = os.path.join(SIGNAL_DIR, f"rx_{uid}.h5")
+        host_rx_file = self._to_host_path(rx_file)
+
+        rx_cmd_sent = False
+        try:
+            self._rx_req.setsockopt(zmq.RCVTIMEO, 5000)
+            self._rx_req.send_json({"op": "FLUSH_RX"})
+            self._rx_req.recv_json()
+
+            rx_timeout_ms = int(
+                (initial_delay + duration + OPERATION_TIMEOUT_MARGIN) * 1000
+            )
+            self._rx_req.setsockopt(zmq.RCVTIMEO, rx_timeout_ms)
+            self._rx_req.send_json({
+                "op": "RECEIVE_TO_FILE",
+                "n_samples": n_samples,
+                "path": host_rx_file,
+                "delay": initial_delay,
+            })
+            rx_cmd_sent = True
+            rx_resp = self._rx_req.recv_json()
+            rx_cmd_sent = False
+            if rx_resp.get("status") != "OK":
+                raise RuntimeError(
+                    f"RECEIVE_TO_FILE failed: {rx_resp.get('error')}"
+                )
+            logger.info(
+                "Listen done: %d samples received",
+                rx_resp.get("samples_received", 0)
+            )
+
+            return self._read_rx_file(rx_file, n_channels, fs)
+
+        except Exception:
+            if rx_cmd_sent:
+                try:
+                    self._rx_req.setsockopt(zmq.RCVTIMEO, 1000)
+                    self._rx_req.recv_json()
+                except Exception:
+                    pass
+            self._reset_sockets()
+            raise
+
+        finally:
+            try:
+                os.unlink(rx_file)
+            except OSError:
+                pass
+
     def close(self):
         import zmq
         for sock in (self._tx_req, self._rx_req):
@@ -664,3 +756,10 @@ def send_and_receive(signal, channel=None):
     if _channel is None:
         _channel = USRPChannel()
     return _channel.send_and_receive(signal, channel=channel)
+
+
+def receive_only(n_samples, channel=None, n_channels=1):
+    global _channel
+    if _channel is None:
+        _channel = USRPChannel()
+    return _channel.receive_only(n_samples, channel=channel, n_channels=n_channels)

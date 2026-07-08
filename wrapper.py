@@ -28,20 +28,23 @@ def _init():
     _initialized = True
 
 
-def send_and_receive(signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+def send_and_receive(signal: np.ndarray, channel: int = 0,
+                     verbose: bool = False) -> np.ndarray:
     """
     Sendet ein komplexes Basisband-Signal über den USRP und gibt das empfangene
     Basisband-Signal zurück.
 
     Args:
         signal:  Komplexes numpy Array (IQ-Samples, wird zu complex64 konvertiert)
+        channel: Hardware-Kanal fuer 1-D (SISO) Signale (Index, Standard 0)
         verbose: True → Live-Status in der Konsole
 
     Returns:
         Empfangenes komplexes Basisband-Signal als numpy Array (complex64)
     """
     _init()
-    return USRPClient.send(np.asarray(signal, dtype=np.complex64), verbose=verbose)
+    return USRPClient.send(np.asarray(signal, dtype=np.complex64),
+                           channel=channel, verbose=verbose)
 
 
 if __name__ == "__main__":

@@ -234,6 +234,14 @@ class RXDaemon(BaseUSRPDaemon):
             n_ch = len(self.channels)
             rx_signal = np.zeros((n_ch, n_requested_samples), dtype=np.complex64)
 
+            # Timing reference BEFORE the warm-up below. `delay` is relative
+            # to command receipt; the multi-channel warm-up takes a variable
+            # ~0.1-0.5 s, and taking the reference only afterwards shifted the
+            # whole capture window late by the warm-up duration. In MIMO that
+            # silently ate the entire begin-guard: the TX burst sat at sample
+            # 0 of the capture instead of begin_guard seconds in.
+            t_ref = self.usrp.get_time_now().get_real_secs()
+
             # B210 in multi-channel mode needs a streamer "warm-up": the very
             # first stream_cmd issued after creating a new RX streamer is
             # frequently lost, so the next recv() times out without ever
@@ -266,7 +274,20 @@ class RXDaemon(BaseUSRPDaemon):
                     if warmup_md.error_code == RXMetadataErrorCode.timeout:
                         break
 
-            rx_start_time = TimeSpec(self.usrp.get_time_now().get_real_secs() + delay)
+            # Start relative to the pre-warm-up reference so the begin-guard
+            # stays intact. If an unusually slow warm-up already used up the
+            # whole delay budget, fall back to "as soon as possible" rather
+            # than issuing a stream command in the past (late-command error).
+            now = self.usrp.get_time_now().get_real_secs()
+            rx_start = t_ref + delay
+            if rx_start < now + 0.05:
+                logging.warning(
+                    "RX warm-up (%.3fs) consumed the whole delay budget "
+                    "(%.3fs); starting capture immediately - begin guard "
+                    "will be shortened", now - t_ref, delay
+                )
+                rx_start = now + 0.05
+            rx_start_time = TimeSpec(rx_start)
 
             stream_cmd = StreamCMD(StreamMode.num_done)
             stream_cmd.num_samps = n_requested_samples

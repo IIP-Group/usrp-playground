@@ -94,9 +94,11 @@ class USRPClient:
             url = f"http://{cls._base_url()}/info?auth_token={cls._token}"
             with urllib.request.urlopen(url, timeout=5) as resp:
                 cls._info = json.loads(resp.read())
+            return cls._info
         except Exception:
-            cls._info = {}
-        return cls._info
+            # Don't cache the failure - the next call retries, so one
+            # network hiccup doesn't stick as "all values are 0" forever.
+            return {}
 
     @classmethod
     def check(cls) -> bool:
@@ -143,13 +145,17 @@ class USRPClient:
         return cls._fetch_info()
 
     @classmethod
-    def send(cls, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+    def send(cls, signal: np.ndarray, channel: int = 0,
+             verbose: bool = False) -> np.ndarray:
         """Send `signal` to the server and return what came back.
 
-        * 1-D complex array → SISO. Returns 1-D complex64.
+        * 1-D complex array → SISO. Returns 1-D complex64. `channel`
+          selects which hardware channel the test runs over (index into
+          the server's channel list, default 0).
         * 2-D array of shape (n_samples, n_channels) → MIMO. Each column
           is one channel's IQ stream; the returned array has the same
-          shape. The server must have MIMO enabled.
+          shape. The server must have MIMO enabled. `channel` does not
+          apply here - column i always drives channel i.
         """
         arr = np.asarray(signal)
         if arr.ndim == 1:
@@ -158,8 +164,17 @@ class USRPClient:
             raw[0::2] = arr.real
             raw[1::2] = arr.imag
             payload = raw.tobytes()
-            handshake = None
+            if channel:
+                handshake = {"mode": "siso", "channel": int(channel)}
+            else:
+                handshake = None
         elif arr.ndim == 2:
+            if channel:
+                raise ValueError(
+                    "channel= only applies to 1-D (SISO) signals. In MIMO "
+                    "column i always drives channel i; to test one single "
+                    "channel use send_siso(signal, channel=...)."
+                )
             n_samples, n_channels = arr.shape
             payload = _encode_mimo(arr)
             handshake = {"mode": "mimo", "channels": int(n_channels)}
@@ -176,17 +191,160 @@ class USRPClient:
         return raw_out[0::2] + 1j * raw_out[1::2]
 
     @classmethod
-    async def _ws_send(cls, data: bytes, handshake: dict | None = None,
+    def send_siso(cls, signal: np.ndarray, channel: int = 0,
+                  verbose: bool = False) -> np.ndarray:
+        """Send a single-channel (SISO) signal over a selectable channel.
+
+        `signal` must be 1-D (a column/row vector of shape (N,1)/(1,N) is
+        accepted and flattened). `channel` is the index into the server's
+        channel list; the full TX/RX chain of that channel is used and
+        the usual begin/end guard applies. Returns 1-D complex64.
+        """
+        arr = np.asarray(signal)
+        if arr.ndim == 2 and 1 in arr.shape:
+            arr = arr.ravel()
+        if arr.ndim != 1:
+            raise ValueError(
+                f"send_siso expects a 1-D signal, got shape "
+                f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
+            )
+        return cls.send(arr, channel=channel, verbose=verbose)
+
+    @classmethod
+    def send_mimo(cls, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+        """Send a multi-channel (MIMO) signal.
+
+        `signal` must be 2-D with shape (n_samples, n_channels); column i
+        drives channel i. Returns an array of the same shape. To test one
+        single channel use send_siso(signal, channel=...) instead of an
+        all-zero column - SISO configures only that channel.
+        """
+        arr = np.asarray(signal)
+        if arr.ndim != 2:
+            raise ValueError(
+                f"send_mimo expects shape (n_samples, n_channels), got "
+                f"{arr.ndim}-D. For a single channel use send_siso()."
+            )
+        return cls.send(arr, verbose=verbose)
+
+    @classmethod
+    def listen(cls, n_samples: int, channel: int = 0,
+               channels: int | None = None, verbose: bool = False) -> np.ndarray:
+        """Receive only: capture `n_samples` from the radio without
+        transmitting anything, and return the captured IQ vector.
+
+        * channels=None or 1 → SISO listen on `channel` (index into the
+          server's channel list, default 0). Returns 1-D complex64.
+        * channels>=2 → MIMO listen on channels 0..channels-1. Returns
+          shape (n_samples, channels). The server must have MIMO enabled.
+        """
+        n = int(n_samples)
+        if n <= 0:
+            raise ValueError("n_samples must be positive")
+        n_ch = 1 if channels is None else int(channels)
+        if n_ch < 1:
+            raise ValueError("channels must be >= 1")
+        if n_ch > 1:
+            if channel:
+                raise ValueError(
+                    "channel= only applies to SISO listen. MIMO listen "
+                    "always captures channels 0..N-1; to listen on one "
+                    "single channel use listen_siso(n, channel=...)."
+                )
+            handshake = {"mode": "listen", "n_samples": n, "channels": n_ch}
+        else:
+            handshake = {"mode": "listen", "n_samples": n,
+                         "channel": int(channel)}
+
+        result_bytes = _run_async(
+            cls._ws_send(None, handshake=handshake, verbose=verbose)
+        )
+
+        if _is_mimo_blob(result_bytes):
+            return _decode_mimo(result_bytes)
+        raw_out = np.frombuffer(result_bytes, dtype=np.float32)
+        return raw_out[0::2] + 1j * raw_out[1::2]
+
+    @classmethod
+    def listen_siso(cls, n_samples: int, channel: int = 0,
+                    verbose: bool = False) -> np.ndarray:
+        """Capture `n_samples` on one selectable channel (no transmission).
+
+        Returns 1-D complex64 of length n_samples.
+        """
+        return cls.listen(n_samples, channel=channel, verbose=verbose)
+
+    @classmethod
+    def listen_mimo(cls, n_samples: int, channels: int | None = None,
+                    verbose: bool = False) -> np.ndarray:
+        """Capture `n_samples` on all channels at once (no transmission).
+
+        `channels` defaults to the server's mimo_max_channels. Returns
+        shape (n_samples, channels).
+        """
+        if channels is None:
+            channels = int(cls._fetch_info().get("mimo_max_channels", 2) or 2)
+        channels = int(channels)
+        if channels < 2:
+            raise ValueError(
+                "listen_mimo needs channels >= 2. For a single channel "
+                "use listen_siso(n, channel=...)."
+            )
+        return cls.listen(n_samples, channels=channels, verbose=verbose)
+
+    @classmethod
+    async def _ws_send(cls, data: bytes | None, handshake: dict | None = None,
                        verbose: bool = False) -> bytes:
         url = f"ws://{cls._base_url()}/ws/run?auth_token={cls._token}"
+        try:
+            return await cls._ws_session(url, data, handshake, verbose)
+        except websockets.exceptions.ConnectionClosed as e:
+            # Translate an abrupt close into something a student can act on.
+            rcvd = getattr(e, "rcvd", None)
+            code = getattr(rcvd, "code", None)
+            reason = getattr(rcvd, "reason", "") or ""
+            if code == 1013 or "queue" in reason.lower():
+                raise RuntimeError(
+                    "Server busy: the queue is full or you have too many "
+                    "parallel connections. Try again in a moment."
+                ) from None
+            detail = reason or (f"close code {code}" if code else "no reason given")
+            raise RuntimeError(
+                f"Server closed the connection unexpectedly ({detail}). "
+                f"Try again; if it persists the server may be overloaded."
+            ) from None
+        except websockets.exceptions.InvalidHandshake as e:
+            # Rejected before the WebSocket was accepted (queue full /
+            # per-IP cap show up as HTTP 403 here).
+            status = (getattr(getattr(e, "response", None), "status_code", None)
+                      or getattr(e, "status_code", None))
+            if status == 403:
+                raise RuntimeError(
+                    "Server busy: the queue is full or you have too many "
+                    "parallel connections from your IP. Try again in a moment."
+                ) from None
+            raise RuntimeError(
+                "Could not connect to the server"
+                + (f" (HTTP {status})" if status else "")
+                + ". Is it running?"
+            ) from None
+        except OSError as e:
+            raise RuntimeError(
+                f"Could not reach the server at {cls._base_url()}: {e}"
+            ) from None
+
+    @classmethod
+    async def _ws_session(cls, url: str, data: bytes | None,
+                          handshake: dict | None, verbose: bool) -> bytes:
         async with websockets.connect(url, max_size=200 * 1024 * 1024) as ws:
             if handshake is not None:
                 await ws.send(json.dumps(handshake))
                 if verbose:
                     print(f"[handshake] {handshake}")
-            await ws.send(data)
-            if verbose:
-                print(f"[upload] Sent {len(data):,} bytes")
+            if data is not None:
+                await ws.send(data)
+                if verbose:
+                    print(f"[upload] Sent {len(data):,} bytes")
 
             result_size = None
 
@@ -219,6 +377,9 @@ class USRPClient:
                     bw = info.get("bandwidth_hz", 0) / 1e6
                     sr = info.get("sample_rate_hz", 0) / 1e6
                     print(f"[info] USRP | Carrier: {fc:.0f} MHz | BW: {bw:.0f} MHz | Rate: {sr:.0f} MSps")
+
+                elif msg_type == "ack":
+                    print(f"[ack] mode={info.get('mode')} accepted")
 
                 elif msg_type == "queued":
                     pos = info.get("queue_position", 0)

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import Task, ServerState
-from channel import send_and_receive
+from channel import send_and_receive, receive_only
 
 DATA_DIR = Path("/data")
 INPUT_DIR = DATA_DIR / "input"
@@ -32,31 +32,50 @@ def process_f32(task_uid):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     in_dir = INPUT_DIR / task_uid
-    blob = (in_dir / "input.f32").read_bytes()
 
-    # Optional sidecar: which inventory channel a SISO test runs over.
-    channel = 0
+    # Optional sidecar: SISO channel picker + listen (RX-only) config.
+    meta = {}
     meta_path = in_dir / "meta.json"
     if meta_path.exists():
         try:
-            channel = int(json.loads(meta_path.read_text()).get("channel", 0) or 0)
+            meta = json.loads(meta_path.read_text())
         except Exception:
-            channel = 0
+            meta = {}
+    try:
+        channel = int(meta.get("channel", 0) or 0)
+    except Exception:
+        channel = 0
 
-    if is_mimo_blob(blob):
-        signal = decode_mimo(blob)           # shape (n_samples, n_channels)
+    listen_cfg = meta.get("listen")
+    if listen_cfg:
+        # Listen task: no TX signal, just capture n_samples.
+        n_samples = int(listen_cfg.get("n_samples", 0) or 0)
+        if n_samples <= 0 or n_samples > MAX_SAMPLES:
+            raise ValueError(
+                f"Invalid listen request: {n_samples} samples (max {MAX_SAMPLES})"
+            )
+        n_channels = int(listen_cfg.get("channels", 1) or 1)
+        if n_channels > 1:
+            received = receive_only(n_samples, n_channels=n_channels)
+        else:
+            received = receive_only(n_samples, channel=channel)
     else:
-        signal = decode_siso(blob)           # shape (n_samples,)
-    n_samples = signal.shape[0]
+        blob = (in_dir / "input.f32").read_bytes()
 
-    if n_samples > MAX_SAMPLES:
-        raise ValueError(f"Signal too large: {n_samples} samples (max {MAX_SAMPLES})")
+        if is_mimo_blob(blob):
+            signal = decode_mimo(blob)           # shape (n_samples, n_channels)
+        else:
+            signal = decode_siso(blob)           # shape (n_samples,)
+        n_samples = signal.shape[0]
 
-    if signal.ndim == 2:
-        # MIMO already spans channels 0..N-1 - the picker doesn't apply.
-        received = send_and_receive(signal)
-    else:
-        received = send_and_receive(signal, channel=channel)
+        if n_samples > MAX_SAMPLES:
+            raise ValueError(f"Signal too large: {n_samples} samples (max {MAX_SAMPLES})")
+
+        if signal.ndim == 2:
+            # MIMO already spans channels 0..N-1 - the picker doesn't apply.
+            received = send_and_receive(signal)
+        else:
+            received = send_and_receive(signal, channel=channel)
 
     out_path = out_dir / "output.f32"
     if received.ndim == 2:
@@ -100,6 +119,30 @@ def poll_and_process():
         db.close()
 
 
+def recover_stale_tasks():
+    """Mark tasks left in 'R' by a crashed/restarted worker as failed.
+
+    Without this, their clients would poll forever and the tasks would
+    look active even though nobody is processing them."""
+    db = SessionLocal()
+    try:
+        stale = db.query(Task).filter(Task.state == "R").all()
+        for task in stale:
+            task.state = "D"
+            task.done_at = datetime.utcnow()
+            task.error_message = (
+                "The worker was restarted while this task was running. "
+                "Please resubmit."
+            )
+        if stale:
+            db.commit()
+            print(f"[startup] recovered {len(stale)} stale running task(s)")
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def cleanup_old_tasks():
     cutoff = datetime.utcnow() - timedelta(hours=TASK_TTL_HOURS)
     db = SessionLocal()
@@ -120,6 +163,10 @@ def cleanup_old_tasks():
 
 
 def main():
+    try:
+        recover_stale_tasks()
+    except Exception:
+        pass   # DB may not be up yet; the poll loop retries anyway
     counter = 0
     while True:
         try:
