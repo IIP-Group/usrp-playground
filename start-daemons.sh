@@ -46,8 +46,20 @@ mkdir -p "$PID_DIR" "$LOG_DIR" "$SIGNAL_DIR_HOST"
 
 PYTHON="${VENV_DIR}/bin/python"
 
-# Resolve full Python path so UHD (possibly in user site-packages) is found under sudo
-DAEMON_PYTHONPATH=$("$PYTHON" -c "import sys; print(':'.join(p for p in sys.path if p))" 2>/dev/null || true)
+# Resolve full Python path so UHD (possibly in user site-packages) is found
+# under sudo. IMPORTANT: resolve as the REPO OWNER, not the current user -
+# under systemd this script runs as root, and root's user-site does not
+# contain UHD, which would crash the daemons at `import uhd`.
+REPO_OWNER=$(stat -c '%U' "$SCRIPT_DIR" 2>/dev/null || stat -f '%Su' "$SCRIPT_DIR")
+if [ "$(id -un)" = "$REPO_OWNER" ]; then
+    DAEMON_PYTHONPATH=$("$PYTHON" -c "import sys; print(':'.join(p for p in sys.path if p))" 2>/dev/null || true)
+else
+    DAEMON_PYTHONPATH=$(sudo -u "$REPO_OWNER" "$PYTHON" -c "import sys; print(':'.join(p for p in sys.path if p))" 2>/dev/null || true)
+fi
+# Also make sure the repo owner's ~/.local/bin (uhd_find_devices et al.) is
+# reachable for the helper when running as root.
+OWNER_HOME=$(eval echo "~$REPO_OWNER")
+export PATH="$OWNER_HOME/.local/bin:$PATH"
 
 echo "=========================================="
 echo "  Starting USRP Daemons"
