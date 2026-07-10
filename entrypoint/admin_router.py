@@ -528,7 +528,7 @@ def email_send(
         port=int(payload.get("port") or email_sender.DEFAULT_SMTP_PORT),
         sender_email=payload.get("sender_email"),
     )
-    subject = payload.get("subject", "Your USRP Sandbox Token")
+    subject = payload.get("subject", "Your USRP Playground Token")
     body = payload.get("body", "Hi [FIRST_NAME],\n\nYour token: [TOKEN]\n")
     user_ids = payload.get("user_ids") or []
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Hardware - USRP Sandbox</title>
+    <title>Hardware - USRP Playground</title>
     <link rel="stylesheet" href="/css/styles.css">
     <style>
         .inv-tables { display: grid; grid-template-columns: 1fr; gap: 24px; }
@@ -416,7 +416,7 @@ window.addEventListener("beforeunload", e => {
 });
 
 // ---- Daemon control (host agent bridge) -----------------------------------
-const DAEMON_LABELS = { tx: "TX daemon", rx: "RX daemon", inventory: "Inventory helper" };
+const DAEMON_LABELS = { tx: "TX daemon", rx: "RX daemon" };
 
 function renderDaemonStatus(st) {
     const host = document.getElementById("daemon-status");
@@ -428,17 +428,17 @@ function renderDaemonStatus(st) {
         return;
     }
     const parts = [];
-    for (const key of ["tx", "rx", "inventory"]) {
+    for (const key of ["tx", "rx"]) {
         const d = (st.daemons || {})[key];
         let color, text;
         if (!d || !d.running) {
             color = "#f14c4c"; text = "stopped";
         } else if (d.responsive === false) {
             color = "#e5c07b"; text = "running, not responding";
-        } else if (d.responsive === null && key !== "inventory") {
+        } else if (d.responsive === null) {
             color = "#e5c07b"; text = "running (busy)";
         } else {
-            color = "#23d18b"; text = "running" + (d.pid ? ` (PID ${d.pid})` : "");
+            color = "#23d18b"; text = "running";
         }
         parts.push(`<span style="white-space:nowrap; margin-right:18px;">` +
                    `<span style="color:${color}">●</span> ` +
@@ -455,10 +455,27 @@ function renderDaemonStatus(st) {
 
 async function pollDaemons() {
     try {
-        renderDaemonStatus(await apiFetch("/daemons"));
+        const st = await apiFetch("/daemons");
+        renderDaemonStatus(st);
+        return st;
     } catch (e) {
         document.getElementById("daemon-status").textContent =
             "Could not load daemon status: " + e.message;
+        return null;
+    }
+}
+
+// Feedback via button colour: yellow while working, green when done,
+// red on failure - no banner at the top.
+function setBtnState(btn, state) {
+    const colors = { busy: "#e5c07b", ok: "#23d18b", err: "#f14c4c" };
+    if (!state) {
+        btn.style.background = ""; btn.style.borderColor = "";
+        btn.style.color = "";
+    } else {
+        btn.style.background = colors[state];
+        btn.style.borderColor = colors[state];
+        btn.style.color = "#10131a";
     }
 }
 
@@ -467,28 +484,51 @@ async function daemonAction(action) {
         !confirm(`Really ${action} the USRP daemons? Running tasks will fail.`)) {
         return;
     }
-    for (const id of ["start", "stop", "restart"])
-        document.getElementById("btn-daemons-" + id).disabled = true;
-    status(`Daemons: ${action} requested…`);
+    const btn = document.getElementById("btn-daemons-" + action);
+    const allBtns = ["start", "stop", "restart"]
+        .map(id => document.getElementById("btn-daemons-" + id));
+    allBtns.forEach(b => { b.disabled = true; });
+    setBtnState(btn, "busy");
+
+    let ok = false, errMsg = "";
     try {
+        const before = await apiFetch("/daemons");
+        const prevTs = before.last_result ? before.last_result.ts : null;
         const r = await apiFetch("/daemons/" + action, { method: "POST" });
         if (r.status === "agent_offline") {
-            status(r.message, "err");
+            errMsg = r.message || "Daemon agent offline";
         } else if (r.status === "pending") {
-            status(r.message, "warn");
-        } else if (r.ok === false) {
-            status(`${action} failed: ${(r.output || "").slice(-300)}`, "err");
+            // Agent still working (USRP init can take a while) - stay
+            // yellow and wait for the fresh result to appear.
+            const t0 = Date.now();
+            while (Date.now() - t0 < 120000) {
+                await new Promise(res => setTimeout(res, 2000));
+                const st = await pollDaemons();
+                const lr = st && st.last_result;
+                if (lr && lr.ts && lr.ts !== prevTs) {
+                    ok = lr.ok === true;
+                    errMsg = ok ? "" : (lr.output || "failed");
+                    break;
+                }
+            }
+            if (!ok && !errMsg) errMsg = "timed out waiting for the agent";
         } else {
-            status(`Daemons: ${action} done.`, "ok");
-            setTimeout(() => status(""), 2500);
+            ok = r.ok !== false;
+            errMsg = ok ? "" : (r.output || "failed");
         }
     } catch (e) {
-        status(`${action} failed: ` + e.message, "err");
-    } finally {
-        for (const id of ["start", "stop", "restart"])
-            document.getElementById("btn-daemons-" + id).disabled = false;
-        pollDaemons();
+        errMsg = e.message;
     }
+
+    setBtnState(btn, ok ? "ok" : "err");
+    if (!ok && errMsg) {
+        const host = document.getElementById("daemon-status");
+        host.innerHTML += `<div style="margin-top:6px; color:#f14c4c">` +
+                          `${esc(action)} failed: ${esc(String(errMsg).slice(-300))}</div>`;
+    }
+    allBtns.forEach(b => { b.disabled = false; });
+    setTimeout(() => setBtnState(btn, null), ok ? 2500 : 4000);
+    pollDaemons();
 }
 
 for (const action of ["start", "stop", "restart"]) {

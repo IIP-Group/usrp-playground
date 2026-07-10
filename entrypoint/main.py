@@ -16,7 +16,7 @@ import settings_store
 import inventory
 from admin_router import router as admin_router
 
-app = FastAPI(title="USRP Sandbox System")
+app = FastAPI(title="USRP Playground System")
 app.include_router(admin_router)
 
 DATA_DIR = Path("/data")

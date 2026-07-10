@@ -1,6 +1,6 @@
 <p>Hi [FIRST_NAME],</p>
 
-<p>here is your personal token for the USRP Sandbox server:</p>
+<p>here is your personal token for the USRP Playground server:</p>
 
 <pre style="background:#f4f4f4; padding:10px; border-radius:4px;">[TOKEN]</pre>
 

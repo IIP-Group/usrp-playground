@@ -111,12 +111,26 @@ def _systemd_unit_available() -> bool:
         return False
 
 
+def _systemd_unit_active() -> bool:
+    try:
+        r = subprocess.run(["systemctl", "is-active", "--quiet", SYSTEMD_UNIT],
+                           timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def run_action(action: str) -> dict:
     if action not in ("start", "stop", "restart"):
         return {"ok": False, "action": action,
                 "output": f"unknown action '{action}'"}
 
     if _systemd_unit_available():
+        # "start" while the unit is already active would be a no-op even
+        # when an individual daemon has died (oneshot + RemainAfterExit).
+        # Treat it as restart so the Start button always heals the setup.
+        if action == "start" and _systemd_unit_active():
+            action = "restart"
         cmd = ["systemctl", action, SYSTEMD_UNIT]
     else:
         # Fallback for machines without the systemd unit installed.

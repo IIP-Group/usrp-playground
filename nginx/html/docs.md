@@ -1,4 +1,4 @@
-# USRP Sandbox - Student Guide
+# USRP Playground - Student Guide
 
 Welcome! This page has everything you need to test your waveforms over the shared USRP.
 

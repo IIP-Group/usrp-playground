@@ -1,4 +1,4 @@
-# USRP Sandbox System
+# USRP Playground System
 
 A distributed system for sending complex baseband signals over a real USRP/UHD wireless channel. Built for university lab courses where students submit IQ samples and receive the channel-impaired result. Supports single-channel (SISO) and multi-channel (MIMO) transmission, per-test channel selection, and receive-only capture (listen).
 

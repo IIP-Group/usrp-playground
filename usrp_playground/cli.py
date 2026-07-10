@@ -74,7 +74,7 @@ async def run(server, token, input_path, output_path,
 
 
 def main():
-    p = argparse.ArgumentParser(description="USRP Sandbox Client")
+    p = argparse.ArgumentParser(description="USRP Playground Client")
     p.add_argument("-i", "--input", help="Input .f32 file (omit when using --listen)")
     p.add_argument("-o", "--output", default="output.f32", help="Output .f32 file")
     p.add_argument("-s", "--server", default="localhost:8000", help="Server address")

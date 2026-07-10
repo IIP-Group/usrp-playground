@@ -104,7 +104,7 @@ class _hybridmethod:
 
 
 class USRPClient:
-    """Client for the USRP sandbox server.
+    """Client for the USRP Playground server.
 
     Usage:
 
