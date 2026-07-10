@@ -61,6 +61,24 @@ fi
 OWNER_HOME=$(eval echo "~$REPO_OWNER")
 export PATH="$OWNER_HOME/.local/bin:$PATH"
 
+# UHD's Python bindings can live in a system location the venv does NOT
+# include even with --system-site-packages - e.g. a from-source install
+# under /usr/local/lib/pythonX.Y/site-packages. Ask the system python3
+# (which finds uhd) where it lives and prepend that dir, so `import uhd`
+# works inside the venv. Portable: no hard-coded path, works on any machine
+# where uhd is importable. venv and system python3 share the same minor
+# version (the venv is built with `python3 -m venv`), so the ABI matches.
+_uhd_probe='import uhd, os; print(os.path.dirname(os.path.dirname(uhd.__file__)))'
+if [ "$(id -un)" = "$REPO_OWNER" ]; then
+    UHD_SITE=$(python3 -c "$_uhd_probe" 2>/dev/null || true)
+else
+    UHD_SITE=$(sudo -u "$REPO_OWNER" python3 -c "$_uhd_probe" 2>/dev/null || true)
+fi
+if [ -n "$UHD_SITE" ]; then
+    DAEMON_PYTHONPATH="${UHD_SITE}:${DAEMON_PYTHONPATH}"
+    echo "  UHD:      ${UHD_SITE}"
+fi
+
 echo "=========================================="
 echo "  Starting USRP Daemons"
 echo "=========================================="
