@@ -175,9 +175,11 @@ const toneInput = new UnitInput(document.getElementById("bench-tone"), {
         { key: "khz", label: "kHz", mul: 1e3 },
         { key: "mhz", label: "MHz", mul: 1e6 },
     ],
-    defaultUnit: "mhz",
+    defaultUnit: "khz",
 });
-toneInput.setValue(1e6);   // 1 MHz default
+// 100 kHz default: safely below Nyquist even at fs = 1 MHz, and well away
+// from the receiver's DC offset at 0 Hz.
+toneInput.setValue(100e3);
 
 // ---- Status helper ----
 const statusEl = document.getElementById("bench-status");
@@ -208,6 +210,18 @@ const f = {
     },
 };
 
+// Gains live per channel in the Hardware inventory; /info reports channel
+// 0's values (null when no inventory is configured yet).
+function fmtTxPower(inf) {
+    if (inf.tx_power_dbm != null) return Number(inf.tx_power_dbm).toFixed(1) + " dBm";
+    if (inf.tx_gain_db != null)  return inf.tx_gain_db + " dB gain";
+    return "not set (Hardware page)";
+}
+function fmtRxGain(inf) {
+    return inf.rx_gain_db != null ? inf.rx_gain_db + " dB"
+                                  : "not set (Hardware page)";
+}
+
 // ---- Render ----
 function setKV(host, items) {
     host.innerHTML = items.map(([k, v, cls]) =>
@@ -226,12 +240,12 @@ function renderRun(run) {
         ["Carrier",      f.freq(inf.carrier_frequency_hz)],
         ["Sample rate",  f.freq(inf.sample_rate_hz)],
         ["Bandwidth",    f.freq(inf.bandwidth_hz)],
-        ["TX power",    inf.tx_power_dbm != null ? (Number(inf.tx_power_dbm).toFixed(1) + " dBm") : (inf.tx_gain_db + " dB gain")],
-        ["RX gain",     inf.rx_gain_db + " dB"],
+        ["TX power",     fmtTxPower(inf)],
+        ["RX gain",      fmtRxGain(inf)],
         ["Antenna TX",   inf.antenna_tx || "-"],
         ["Antenna RX",   inf.antenna_rx || "-"],
-        ["Begin guard",  (Number(inf.begin_guard_min_sec)*1000).toFixed(1) + " ms"],
-        ["End guard",    (Number(inf.end_guard_min_sec  )*1000).toFixed(1) + " ms"],
+        ["Begin guard",  fmtGuardMs(inf.begin_guard_min_sec, inf.begin_guard_max_sec)],
+        ["End guard",    fmtGuardMs(inf.end_guard_min_sec,   inf.end_guard_max_sec)],
     ]);
 
     // Measurement card
@@ -262,6 +276,11 @@ function renderRun(run) {
                           (run.rx_stats.max_abs > 0.95 ? " - CLIPPING" : ""), clipCls],
         ["RX clipped",    f.n(run.rx_stats.clips) + " samples", run.rx_stats.clips > 0 ? "warn" : ""],
         ["Sample balance", balText, balCls],
+        ...(run.balance.measured_begin_sec != null ? [[
+            "Signal found at",
+            (run.balance.measured_begin_sec * 1000).toFixed(1) + " ms " +
+            "(drawn begin guard)"
+        ]] : []),
         ["Round-trip",    (run.elapsed_ms/1000).toFixed(2) + " s"],
     ]);
 
@@ -319,10 +338,8 @@ async function refreshLiveServerConfig() {
             ["Carrier",      f.freq(inf.carrier_frequency_hz)],
             ["Sample rate",  f.freq(inf.sample_rate_hz)],
             ["Bandwidth",    f.freq(inf.bandwidth_hz)],
-            ["TX power",     inf.tx_power_dbm != null
-                              ? (Number(inf.tx_power_dbm).toFixed(1) + " dBm")
-                              : (inf.tx_gain_db + " dB gain")],
-            ["RX gain",      inf.rx_gain_db + " dB"],
+            ["TX power",     fmtTxPower(inf)],
+            ["RX gain",      fmtRxGain(inf)],
             ["Antenna TX",   inf.antenna_tx || "-"],
             ["Antenna RX",   inf.antenna_rx || "-"],
             ["Begin guard",  fmtGuardMs(inf.begin_guard_min_sec, inf.begin_guard_max_sec)],

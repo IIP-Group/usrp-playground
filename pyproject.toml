@@ -3,8 +3,8 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "usrp-benchmark"
-version = "1.1.0"
+name = "usrp-playground"
+version = "2.0.0"
 description = "Client library for the USRP Benchmark System"
 requires-python = ">=3.9"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-usrp-client = "usrp_benchmark.cli:main"
+usrp-client = "usrp_playground.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["usrp_benchmark*"]
+include = ["usrp_playground*", "usrp_benchmark*"]

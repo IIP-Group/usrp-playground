@@ -192,10 +192,11 @@ class USRPChannel:
     def _configure(self, n_channels: int = 1, channel=None):
         """(Re-)configure both USRPs with current settings.
 
-        Channel routing (antenna port + per-channel gain) comes primarily
-        from the Hardware-Inventory file (`/data/inventory/inventory.json`).
-        If that file is missing or empty, fall back to the legacy
-        ANTENNA_TX / ANTENNA_RX / TX_GAIN_DB / RX_GAIN_DB env vars.
+        Channel routing (antenna port + per-channel gain) comes from the
+        Hardware-Inventory file (`/data/inventory/inventory.json`). Gains
+        MUST be set there - the old TX_GAIN_DB / RX_GAIN_DB fallback
+        settings were removed on purpose. Only the antenna ports still have
+        a legacy env fallback for inventory-less installs.
 
         `channel` (SISO only) selects a single inventory channel by index.
         The index is used both to pick the routing config AND as the physical
@@ -208,10 +209,6 @@ class USRPChannel:
 
         fs = _get_sample_rate()
         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
-        # Legacy fallbacks - used only when the inventory doesn't fully
-        # specify the channel.
-        default_tx_gain   = _get("TX_GAIN_DB", 30.0, float)
-        default_rx_gain   = _get("RX_GAIN_DB", 30.0, float)
         default_tx_power  = _get("TX_POWER_DBM", None, float)
         default_tx_ant    = _get("ANTENNA_TX", "TX/RX0")
         default_rx_ant    = _get("ANTENNA_RX", "RX1")
@@ -219,7 +216,8 @@ class USRPChannel:
         # ---- Pull channel routing from the inventory file ---------------
         inventory_channels = _read_inventory_channels()
         if not inventory_channels:
-            # Legacy fallback: synthesise channels from env-comma-lists.
+            # Antenna-only fallback: synthesise channels from env-comma-lists.
+            # Gains stay None here and trigger the clear error below.
             def _split(raw):
                 return [s.strip() for s in str(raw).split(",") if s.strip()]
             tx_ports = _split(default_tx_ant) or ["TX/RX0"]
@@ -228,10 +226,10 @@ class USRPChannel:
             for i in range(max(n_channels, 1)):
                 inventory_channels.append({
                     "tx": {"port": tx_ports[i] if i < len(tx_ports) else tx_ports[-1],
-                           "gain_db": default_tx_gain,
+                           "gain_db": None,
                            "power_dbm": default_tx_power},
                     "rx": {"port": rx_ports[i] if i < len(rx_ports) else rx_ports[-1],
-                           "gain_db": default_rx_gain},
+                           "gain_db": None},
                 })
 
         # Which physical channel index/indices to drive. A SISO `channel`
@@ -256,20 +254,29 @@ class USRPChannel:
         tx_channels = chan_idx
         rx_channels = chan_idx
 
+        # Gains are per-channel inventory config with NO global fallback -
+        # fail loudly instead of transmitting with a silently guessed gain.
+        for c in chan_idx:
+            if (cfg[c].get("tx") or {}).get("gain_db") is None:
+                raise RuntimeError(
+                    f"Channel {c} has no TX gain configured. Set it on the "
+                    f"Hardware page - there is no global fallback gain."
+                )
+            if (cfg[c].get("rx") or {}).get("gain_db") is None:
+                raise RuntimeError(
+                    f"Channel {c} has no RX gain configured. Set it on the "
+                    f"Hardware page - there is no global fallback gain."
+                )
+
         # Per-channel dicts (string keys, matching the daemon protocol).
         antenna_tx_field = {str(c): (cfg[c]["tx"].get("port") or default_tx_ant)
                             for c in chan_idx}
         antenna_rx_field = {str(c): (cfg[c]["rx"].get("port") or default_rx_ant)
                             for c in chan_idx}
-        g_tx_field = {str(c): float(cfg[c]["tx"].get("gain_db")
-                                    if cfg[c]["tx"].get("gain_db") is not None
-                                    else default_tx_gain)
-                      for c in chan_idx}
+        g_tx_field = {str(c): float(cfg[c]["tx"]["gain_db"]) for c in chan_idx}
         # RX daemon currently takes one scalar gain; broadcast the first
         # channel's value (this is what UHD applies globally on B210).
-        rx_gain_scalar = float(cfg[chan_idx[0]]["rx"].get("gain_db")
-                               if cfg[chan_idx[0]]["rx"].get("gain_db") is not None
-                               else default_rx_gain)
+        rx_gain_scalar = float(cfg[chan_idx[0]]["rx"]["gain_db"])
         # Per-channel TX power overrides - daemon falls back to gain if
         # the device doesn't support set_tx_power_reference.
         p_tx_field = {}
@@ -383,7 +390,9 @@ class USRPChannel:
         import zmq
         import h5py
 
-        sense_samples = _get("LBT_SENSE_SAMPLES", 200000, int)
+        # 50k samples = 50 ms at 1 MHz - plenty to judge channel occupancy,
+        # and it keeps the per-task round-trip short. Admin-tunable.
+        sense_samples = _get("LBT_SENSE_SAMPLES", 50000, int)
         threshold = _get("LBT_THRESHOLD_DBFS", -50.0, float)
         max_retries = _get("LBT_MAX_RETRIES", 10, int)
         backoff = _get("LBT_BACKOFF_SEC", 1.0, float)
@@ -404,7 +413,7 @@ class USRPChannel:
                 "op": "RECEIVE_TO_FILE",
                 "n_samples": sense_samples,
                 "path": host_sense_file,
-                "delay": 0.5,
+                "delay": 0.1,
             })
             resp = self._rx_req.recv_json()
 
@@ -496,7 +505,13 @@ class USRPChannel:
             raise
 
         fs = _get_sample_rate()
-        initial_delay = _get("INITIAL_DELAY", 1.0, float)
+        initial_delay = _get("INITIAL_DELAY", 0.1, float)
+        if n_channels > 1:
+            # The B210 multi-channel RX warm-up eats ~0.1-0.5 s before the
+            # timed capture can start. With a tiny delay the begin guard
+            # would silently shrink (the rx_daemon falls back to "start
+            # now"), so MIMO keeps a floor of 0.5 s.
+            initial_delay = max(initial_delay, 0.5)
         begin_guard, end_guard = _get_guard()
         self.last_guard = (begin_guard, end_guard)
 
@@ -678,7 +693,10 @@ class USRPChannel:
             raise
 
         fs = _get_sample_rate()
-        initial_delay = _get("INITIAL_DELAY", 1.0, float)
+        initial_delay = _get("INITIAL_DELAY", 0.1, float)
+        if n_channels > 1:
+            # Same MIMO warm-up floor as in send_and_receive.
+            initial_delay = max(initial_delay, 0.5)
         duration = n_samples / fs
 
         uid = f"{int(time.time() * 1000)}_{os.getpid()}"

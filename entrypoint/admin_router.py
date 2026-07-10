@@ -693,3 +693,18 @@ def inventory_put(payload: dict, _: dict = Depends(auth.require_admin)):
 def inventory_discover(_: dict = Depends(auth.require_admin)):
     """Trigger uhd_find_devices on the host and wait briefly for the result."""
     return inventory.wait_for_discovery(timeout_s=6.0)
+
+
+@router.get("/daemons")
+def daemons_get(_: dict = Depends(auth.require_admin)):
+    """Liveness of the host-side TX/RX daemons + inventory helper."""
+    return inventory.daemon_status()
+
+
+@router.post("/daemons/{action}")
+def daemons_action(action: str, _: dict = Depends(auth.require_admin)):
+    """Start/stop/restart the daemons via the host agent."""
+    if action not in ("start", "stop", "restart"):
+        raise HTTPException(status_code=400,
+                            detail="action must be start, stop or restart")
+    return inventory.request_daemon_action(action)

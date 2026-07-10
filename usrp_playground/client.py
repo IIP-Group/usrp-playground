@@ -6,6 +6,7 @@ import json
 import struct
 import sys
 import asyncio
+import warnings
 import threading
 import numpy as np
 import websockets
@@ -71,85 +72,157 @@ def _run_async(coro):
     return result["value"]
 
 
+class _hybridmethod:
+    """Instance method that also works when called on the class itself.
+
+    Class-level calls (the legacy `USRPClient.send(...)` style) are routed
+    to the instance created by the last `USRPClient.setup(...)` call and
+    emit a DeprecationWarning. New code should use the instance returned
+    by `setup()`.
+    """
+
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            inst = getattr(objtype, "_default", None)
+            if inst is None:
+                raise RuntimeError(
+                    "Call client = USRPClient.setup(host=..., port=..., "
+                    "token=...) first and use the returned client instance."
+                )
+            warnings.warn(
+                f"Calling USRPClient.{self.func.__name__}(...) on the class "
+                f"is deprecated - use the instance returned by "
+                f"USRPClient.setup(): client = USRPClient.setup(...); "
+                f"client.{self.func.__name__}(...)",
+                DeprecationWarning, stacklevel=2,
+            )
+            return self.func.__get__(inst, objtype)
+        return self.func.__get__(obj, objtype)
+
+
 class USRPClient:
-    _host = None
-    _port = None
-    _token = None
-    _info = None
+    """Client for the USRP sandbox server.
+
+    Usage:
+
+        client = USRPClient.setup(host="1.2.3.4", port=80, token="...")
+        print(client.sample_rate)              # already populated
+        rx = client.send(tx)                   # SISO / MIMO transmit+receive
+        rx = client.listen(100_000)            # receive only
+
+    `setup()` verifies the server is reachable and the token is valid, and
+    pre-fetches the radio info - properties like `sample_rate` are ready
+    immediately. Constructing via `USRPClient(host=..., ...)` does the same.
+    """
+
+    # Legacy compatibility only (see _hybridmethod) - the last instance
+    # created by setup(). New code should not rely on it.
+    _default = None
+
+    def __init__(self, host="localhost", port=8000,
+                 token="default-bench-token-2024"):
+        self._host = host
+        self._port = port
+        self._token = token
+        self._info = {}
+        # Fail fast: an unreachable server or a bad token should surface
+        # here, not at the first send() minutes later.
+        if not self.check():
+            raise RuntimeError(
+                f"Server at {self._base_url()} is not reachable or the "
+                f"token is invalid. Check host, port and token."
+            )
+        self.refresh_info()
 
     @classmethod
-    def setup(cls, host="localhost", port=8000, token="default-bench-token-2024"):
-        cls._host = host
-        cls._port = port
-        cls._token = token
-        cls._info = None
+    def setup(cls, host="localhost", port=8000,
+              token="default-bench-token-2024") -> "USRPClient":
+        """Create a client, verify connectivity, and return the instance."""
+        client = cls(host=host, port=port, token=token)
+        cls._default = client   # legacy class-level call support
+        return client
 
-    @classmethod
-    def _base_url(cls):
-        if cls._host is None:
-            raise RuntimeError("Call USRPClient.setup() first")
-        return f"{cls._host}:{cls._port}"
+    def _base_url(self):
+        return f"{self._host}:{self._port}"
 
-    @classmethod
-    def _fetch_info(cls):
-        if cls._info is not None:
-            return cls._info
+    # ---- Server info -------------------------------------------------------
+
+    def check(self) -> bool:
+        """True when the server is reachable and the token is valid."""
         try:
-            url = f"http://{cls._base_url()}/info?auth_token={cls._token}"
-            with urllib.request.urlopen(url, timeout=5) as resp:
-                cls._info = json.loads(resp.read())
-            return cls._info
-        except Exception:
-            # Don't cache the failure - the next call retries, so one
-            # network hiccup doesn't stick as "all values are 0" forever.
-            return {}
-
-    @classmethod
-    def check(cls) -> bool:
-        try:
-            url = f"http://{cls._base_url()}/health?auth_token={cls._token}"
+            url = f"http://{self._base_url()}/health?auth_token={self._token}"
             with urllib.request.urlopen(url, timeout=5) as resp:
                 data = json.loads(resp.read())
                 return data.get("status") == "ok"
         except Exception:
             return False
 
-    @classmethod
+    def refresh_info(self) -> dict:
+        """Re-fetch the radio info from the server and return it."""
+        url = f"http://{self._base_url()}/info?auth_token={self._token}"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            self._info = json.loads(resp.read())
+        return self._info
+
+    def info(self) -> dict:
+        """The radio info dict (as fetched at setup; see refresh_info())."""
+        return self._info
+
     @property
-    def carrier_frequency(cls) -> int:
-        return cls._fetch_info().get("carrier_frequency_hz", 0)
+    def sample_rate(self) -> int:
+        return self._info.get("sample_rate_hz", 0)
 
-    @classmethod
     @property
-    def sample_rate(cls) -> int:
-        return cls._fetch_info().get("sample_rate_hz", 0)
+    def fs(self) -> int:
+        """Sample rate in Hz (short alias for sample_rate)."""
+        return self.sample_rate
 
-    @classmethod
     @property
-    def bandwidth(cls) -> int:
-        return cls._fetch_info().get("bandwidth_hz", 0)
+    def carrier_frequency(self) -> int:
+        return self._info.get("carrier_frequency_hz", 0)
 
-    @classmethod
     @property
-    def tx_gain(cls) -> int:
-        return cls._fetch_info().get("tx_gain_db", 0)
+    def fc(self) -> int:
+        """Carrier frequency in Hz (short alias for carrier_frequency)."""
+        return self.carrier_frequency
 
-    @classmethod
     @property
-    def rx_gain(cls) -> int:
-        return cls._fetch_info().get("rx_gain_db", 0)
+    def bandwidth(self) -> int:
+        return self._info.get("bandwidth_hz", 0)
 
-    @classmethod
     @property
-    def max_samples(cls) -> int:
-        return cls._fetch_info().get("max_samples", 0)
+    def tx_gain(self):
+        """TX gain of channel 0 in dB (None when not configured)."""
+        return self._info.get("tx_gain_db")
 
-    @classmethod
-    def info(cls) -> dict:
-        return cls._fetch_info()
+    @property
+    def rx_gain(self):
+        """RX gain of channel 0 in dB (None when not configured)."""
+        return self._info.get("rx_gain_db")
 
-    @classmethod
-    def send(cls, signal: np.ndarray, channel: int = 0,
+    @property
+    def max_samples(self) -> int:
+        return self._info.get("max_samples", 0)
+
+    @property
+    def mimo_enabled(self) -> bool:
+        return bool(self._info.get("mimo_enabled", False))
+
+    @property
+    def mimo_max_channels(self) -> int:
+        return int(self._info.get("mimo_max_channels", 2) or 2)
+
+    @property
+    def channels(self) -> list:
+        """Hardware channel list (index, label, per-channel gains)."""
+        return self._info.get("channels", [])
+
+    # ---- Transmit / receive -------------------------------------------------
+
+    def send(self, signal: np.ndarray, channel: int = 0,
              verbose: bool = False) -> np.ndarray:
         """Send `signal` to the server and return what came back.
 
@@ -186,7 +259,7 @@ class USRPClient:
             raise ValueError(f"signal must be 1-D or 2-D, got {arr.ndim}-D")
 
         result_bytes = _run_async(
-            cls._ws_send(payload, handshake=handshake, verbose=verbose)
+            self._ws_send(payload, handshake=handshake, verbose=verbose)
         )
 
         if _is_mimo_blob(result_bytes):
@@ -194,8 +267,7 @@ class USRPClient:
         raw_out = np.frombuffer(result_bytes, dtype=np.float32)
         return raw_out[0::2] + 1j * raw_out[1::2]
 
-    @classmethod
-    def send_siso(cls, signal: np.ndarray, channel: int = 0,
+    def send_siso(self, signal: np.ndarray, channel: int = 0,
                   verbose: bool = False) -> np.ndarray:
         """Send a single-channel (SISO) signal over a selectable channel.
 
@@ -212,10 +284,9 @@ class USRPClient:
                 f"send_siso expects a 1-D signal, got shape "
                 f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
             )
-        return cls.send(arr, channel=channel, verbose=verbose)
+        return self.send(arr, channel=channel, verbose=verbose)
 
-    @classmethod
-    def send_mimo(cls, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+    def send_mimo(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
         """Send a multi-channel (MIMO) signal.
 
         `signal` must be 2-D with shape (n_samples, n_channels); column i
@@ -229,11 +300,10 @@ class USRPClient:
                 f"send_mimo expects shape (n_samples, n_channels), got "
                 f"{arr.ndim}-D. For a single channel use send_siso()."
             )
-        return cls.send(arr, verbose=verbose)
+        return self.send(arr, verbose=verbose)
 
-    @classmethod
-    def listen(cls, n_samples: int, channel: int = 0,
-               channels: int | None = None, verbose: bool = False) -> np.ndarray:
+    def listen(self, n_samples: int, channel: int = 0,
+               channels: int = None, verbose: bool = False) -> np.ndarray:
         """Receive only: capture `n_samples` from the radio without
         transmitting anything, and return the captured IQ vector.
 
@@ -261,7 +331,7 @@ class USRPClient:
                          "channel": int(channel)}
 
         result_bytes = _run_async(
-            cls._ws_send(None, handshake=handshake, verbose=verbose)
+            self._ws_send(None, handshake=handshake, verbose=verbose)
         )
 
         if _is_mimo_blob(result_bytes):
@@ -269,17 +339,15 @@ class USRPClient:
         raw_out = np.frombuffer(result_bytes, dtype=np.float32)
         return raw_out[0::2] + 1j * raw_out[1::2]
 
-    @classmethod
-    def listen_siso(cls, n_samples: int, channel: int = 0,
+    def listen_siso(self, n_samples: int, channel: int = 0,
                     verbose: bool = False) -> np.ndarray:
         """Capture `n_samples` on one selectable channel (no transmission).
 
         Returns 1-D complex64 of length n_samples.
         """
-        return cls.listen(n_samples, channel=channel, verbose=verbose)
+        return self.listen(n_samples, channel=channel, verbose=verbose)
 
-    @classmethod
-    def listen_mimo(cls, n_samples: int, channels: int | None = None,
+    def listen_mimo(self, n_samples: int, channels: int = None,
                     verbose: bool = False) -> np.ndarray:
         """Capture `n_samples` on all channels at once (no transmission).
 
@@ -287,21 +355,22 @@ class USRPClient:
         shape (n_samples, channels).
         """
         if channels is None:
-            channels = int(cls._fetch_info().get("mimo_max_channels", 2) or 2)
+            channels = self.mimo_max_channels
         channels = int(channels)
         if channels < 2:
             raise ValueError(
                 "listen_mimo needs channels >= 2. For a single channel "
                 "use listen_siso(n, channel=...)."
             )
-        return cls.listen(n_samples, channels=channels, verbose=verbose)
+        return self.listen(n_samples, channels=channels, verbose=verbose)
 
-    @classmethod
-    async def _ws_send(cls, data: bytes | None, handshake: dict | None = None,
+    # ---- WebSocket transport -------------------------------------------------
+
+    async def _ws_send(self, data, handshake: dict = None,
                        verbose: bool = False) -> bytes:
-        url = f"ws://{cls._base_url()}/ws/run?auth_token={cls._token}"
+        url = f"ws://{self._base_url()}/ws/run?auth_token={self._token}"
         try:
-            return await cls._ws_session(url, data, handshake, verbose)
+            return await self._ws_session(url, data, handshake, verbose)
         except websockets.exceptions.ConnectionClosed as e:
             # Translate an abrupt close into something a student can act on.
             rcvd = getattr(e, "rcvd", None)
@@ -334,12 +403,11 @@ class USRPClient:
             ) from None
         except OSError as e:
             raise RuntimeError(
-                f"Could not reach the server at {cls._base_url()}: {e}"
+                f"Could not reach the server at {self._base_url()}: {e}"
             ) from None
 
-    @classmethod
-    async def _ws_session(cls, url: str, data: bytes | None,
-                          handshake: dict | None, verbose: bool) -> bytes:
+    async def _ws_session(self, url: str, data, handshake: dict,
+                          verbose: bool) -> bytes:
         async with websockets.connect(url, max_size=200 * 1024 * 1024) as ws:
             if handshake is not None:
                 await ws.send(json.dumps(handshake))
@@ -370,13 +438,13 @@ class USRPClient:
 
                 if not verbose:
                     if info.get("message") == "info":
-                        cls._info = {k: v for k, v in info.items() if k != "message"}
+                        self._info = {k: v for k, v in info.items() if k != "message"}
                     continue
 
                 msg_type = info.get("message")
 
                 if msg_type == "info":
-                    cls._info = {k: v for k, v in info.items() if k != "message"}
+                    self._info = {k: v for k, v in info.items() if k != "message"}
                     fc = info.get("carrier_frequency_hz", 0) / 1e6
                     bw = info.get("bandwidth_hz", 0) / 1e6
                     sr = info.get("sample_rate_hz", 0) / 1e6
@@ -411,3 +479,12 @@ class USRPClient:
 
                 else:
                     print(f"[server] {json.dumps(info)}")
+
+
+# Route legacy class-level calls (`USRPClient.send(...)` after a bare
+# `USRPClient.setup(...)`) through the last setup() instance, with a
+# DeprecationWarning pointing at the new instance API.
+for _name in ("check", "info", "refresh_info", "send", "send_siso",
+              "send_mimo", "listen", "listen_siso", "listen_mimo"):
+    setattr(USRPClient, _name, _hybridmethod(getattr(USRPClient, _name)))
+del _name

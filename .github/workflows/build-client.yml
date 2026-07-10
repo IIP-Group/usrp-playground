@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyinstaller websockets numpy
-      - run: pyinstaller --onefile --name usrp-client-${{ matrix.name }} --hidden-import usrp_benchmark --hidden-import usrp_benchmark.cli --hidden-import usrp_benchmark.client --paths . client.py
+      - run: pyinstaller --onefile --name usrp-client-${{ matrix.name }} --hidden-import usrp_playground --hidden-import usrp_playground.cli --hidden-import usrp_playground.client --paths . client.py
       - uses: actions/upload-artifact@v4
         with:
           name: usrp-client-${{ matrix.name }}

@@ -1,0 +1,27 @@
+# systemd unit for the daemon-control agent: bridges the admin web UI
+# (Hardware page) to the host so the daemons can be started/stopped from
+# the browser and their status is visible.
+#
+# Deliberately SEPARATE from usrp-daemons.service - the agent must keep
+# running while the daemons are stopped, otherwise nobody could start
+# them again from the UI.
+#
+# Installed by deploy/install-daemons-service.sh (fills in __REPO_DIR__).
+
+[Unit]
+Description=USRP daemon-control agent (web UI bridge)
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=__REPO_DIR__
+Environment=DAEMONCTL_WATCH_DIR=__REPO_DIR__/data/inventory
+Environment=REPO_DIR=__REPO_DIR__
+Environment=PID_DIR=__REPO_DIR__/.daemon_pids
+ExecStart=__REPO_DIR__/.venv/bin/python __REPO_DIR__/usrp_testbed_library/daemon_agent.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

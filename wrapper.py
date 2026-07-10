@@ -10,22 +10,21 @@ Benutzung:
     rx = send_and_receive(tx)
 """
 import numpy as np
-from usrp_benchmark import USRPClient
+from usrp_playground import USRPClient
 
 
-_initialized = False
+_client = None
 
 
-def _init():
-    global _initialized
-    if _initialized:
-        return
-    USRPClient.setup(
-        host="localhost",
-        port=8000,
-        token="default-bench-token-2024",
-    )
-    _initialized = True
+def _init() -> USRPClient:
+    global _client
+    if _client is None:
+        _client = USRPClient.setup(
+            host="localhost",
+            port=8000,
+            token="default-bench-token-2024",
+        )
+    return _client
 
 
 def send_and_receive(signal: np.ndarray, channel: int = 0,
@@ -42,9 +41,9 @@ def send_and_receive(signal: np.ndarray, channel: int = 0,
     Returns:
         Empfangenes komplexes Basisband-Signal als numpy Array (complex64)
     """
-    _init()
-    return USRPClient.send(np.asarray(signal, dtype=np.complex64),
-                           channel=channel, verbose=verbose)
+    client = _init()
+    return client.send(np.asarray(signal, dtype=np.complex64),
+                       channel=channel, verbose=verbose)
 
 
 if __name__ == "__main__":

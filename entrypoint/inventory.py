@@ -17,6 +17,13 @@ _DIR = Path(os.environ.get("INVENTORY_DIR", "/data/inventory"))
 _INVENTORY = _DIR / "inventory.json"
 _DISCOVER_REQUEST = _DIR / "discover_request"
 _DISCOVER_RESULT = _DIR / "discover_result.json"
+# Daemon start/stop/status - served by the host-side daemon_agent.py
+# (deploy/usrp-daemon-agent.service), same shared-volume protocol as
+# the discovery helper.
+_DAEMON_STATUS = _DIR / "daemon_status.json"
+_DAEMONCTL_REQUEST = _DIR / "daemonctl_request.json"
+_DAEMONCTL_RESULT = _DIR / "daemonctl_result.json"
+_AGENT_STALE_SEC = 8.0
 _lock = Lock()
 
 # Default empty inventory shape.
@@ -170,3 +177,61 @@ def wait_for_discovery(timeout_s: float = 6.0, poll: float = 0.25) -> dict:
             return latest_discovery()
         time.sleep(poll)
     return latest_discovery()
+
+
+# ---- Daemon control (host agent bridge) ------------------------------------
+
+def daemon_status() -> dict:
+    """Daemon liveness as reported by the host agent, plus agent liveness.
+
+    `agent_online` is False when the status file is missing or stale -
+    that means the usrp-daemon-agent service is not running on the host.
+    """
+    _ensure_dir()
+    try:
+        data = json.loads(_DAEMON_STATUS.read_text())
+    except Exception:
+        data = {"daemons": {}}
+    age = time.time() - float(data.get("agent_ts", 0) or 0)
+    data["agent_online"] = age < _AGENT_STALE_SEC
+    data["status_age_sec"] = round(age, 1)
+    try:
+        data["last_result"] = json.loads(_DAEMONCTL_RESULT.read_text())
+    except Exception:
+        data["last_result"] = None
+    return data
+
+
+def request_daemon_action(action: str, wait_s: float = 20.0,
+                          poll: float = 0.3) -> dict:
+    """Ask the host agent to start/stop/restart the daemons.
+
+    Waits up to `wait_s` for the result; a start can take longer (USRP
+    init), in which case {"status": "pending"} is returned and the UI
+    keeps watching daemon_status().
+    """
+    _ensure_dir()
+    status = daemon_status()
+    if not status.get("agent_online"):
+        return {"status": "agent_offline",
+                "message": "Daemon agent is not running on the host. "
+                           "Install it once with: "
+                           "sudo ./deploy/install-daemons-service.sh"}
+    ts = time.time()
+    tmp = _DAEMONCTL_REQUEST.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"action": action, "ts": ts}))
+    os.replace(tmp, _DAEMONCTL_REQUEST)
+
+    deadline = time.time() + wait_s
+    while time.time() < deadline:
+        try:
+            res = json.loads(_DAEMONCTL_RESULT.read_text())
+            if res.get("request_ts") == ts:
+                res["status"] = "done"
+                return res
+        except Exception:
+            pass
+        time.sleep(poll)
+    return {"status": "pending", "action": action,
+            "message": "Still working (USRP init can take a while) - "
+                       "the status below updates automatically."}

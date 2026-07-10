@@ -1,0 +1,33 @@
+# systemd unit for the USRP TX/RX daemons + inventory helper.
+#
+# Do NOT copy this file by hand - run deploy/install-daemons-service.sh,
+# which fills in the repo path for the machine it runs on and enables the
+# service. That keeps the setup portable to a new machine.
+#
+# Commands:
+#   systemctl status usrp-daemons     state + recent log lines
+#   systemctl restart usrp-daemons    restart all daemons
+#   journalctl -u usrp-daemons        full service log
+# Daemon output still goes to <repo>/logs/*.log as before.
+
+[Unit]
+Description=USRP TX/RX daemons and inventory helper
+# USRPs on USB need the device stack; network USRPs need the NICs up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+WorkingDirectory=__REPO_DIR__
+ExecStart=__REPO_DIR__/start-daemons.sh
+ExecStop=__REPO_DIR__/stop-daemons.sh
+# All processes spawned by start-daemons.sh live in this unit's cgroup, so
+# "systemctl stop" cleans up stragglers even if stop-daemons.sh misses one.
+KillMode=mixed
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

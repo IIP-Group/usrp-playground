@@ -27,6 +27,15 @@ docker compose up -d --build
 
 The server runs on `http://localhost:8000`. The TX/RX daemons run on the host next to the USRPs (`./start-daemons.sh`).
 
+To start the daemons automatically on every boot (recommended; the Docker services already restart on their own via `restart: unless-stopped`):
+
+```bash
+sudo ./deploy/install-daemons-service.sh   # once per machine
+sudo systemctl start usrp-daemons
+```
+
+This is self-contained and portable - on a new machine, clone the repo, run `./setup-daemons.sh`, then the installer. It installs two services: `usrp-daemons` (TX/RX daemons + inventory helper) and `usrp-daemon-agent` (a small always-on bridge so the admin Hardware page can show daemon status and start/stop/restart them from the browser).
+
 ## Client Installation
 
 ### Option A: pip (recommended)
@@ -69,29 +78,29 @@ usrp-client --listen 100000 --channels 2 -o capture.f32 -s localhost:8000 -t you
 ### Python API
 
 ```python
-from usrp_benchmark import USRPClient
+from usrp_playground import USRPClient
 import numpy as np
 
-USRPClient.setup(host="localhost", port=8000, token="your-token")
+client = USRPClient.setup(host="localhost", port=8000, token="your-token")
 
 # Check server
-assert USRPClient.check()
+assert client.check()
 
 # Send complex baseband signal, receive channel-impaired version
 tx = np.array([0.5+0.3j, -0.2+0.8j, 0.7-0.1j], dtype=np.complex64)
-rx = USRPClient.send(tx)
+rx = client.send(tx)
 
 # SISO over a selectable hardware channel
-rx = USRPClient.send(tx, channel=1)          # same as send_siso(tx, channel=1)
+rx = client.send(tx, channel=1)          # same as send_siso(tx, channel=1)
 
 # MIMO: shape (n_samples, n_channels), column i drives channel i
 tx2 = np.stack([tx, 2 * tx], axis=1)
-rx2 = USRPClient.send_mimo(tx2)              # returns (n_rx, n_channels)
+rx2 = client.send_mimo(tx2)              # returns (n_rx, n_channels)
 
 # Receive only - no transmission
-rx  = USRPClient.listen(100_000)                   # channel 0
-rx  = USRPClient.listen_siso(100_000, channel=1)   # specific channel
-rx2 = USRPClient.listen_mimo(100_000)              # all channels, (n, channels)
+rx  = client.listen(100_000)                   # channel 0
+rx  = client.listen_siso(100_000, channel=1)   # specific channel
+rx2 = client.listen_mimo(100_000)              # all channels, (n, channels)
 ```
 
 See `demo/python/api_tour.ipynb` for a runnable tour of the whole API, and the hosted docs page (`/docs.html`) for the student guide.
@@ -193,6 +202,10 @@ Most of these can also be changed at runtime on the admin Settings page; the wor
 ## RF Path
 
 The worker drives two UHD daemons (TX and RX) on the host over ZMQ. Each test transmits the uploaded signal over the real USRP hardware while the RX side captures - including random guard intervals before and after the burst, a duty-cycle quota, and Listen-Before-Talk. Channel routing (antenna ports, gains) comes from the Hardware Inventory page.
+
+### Round-trip latency
+
+For an empty queue the per-task overhead budget is roughly: worker pickup (<=0.2 s, `WORKER_POLL_INTERVAL_SEC`) + LBT sense (~0.4 s, tunable via the LBT settings) + scheduling delay (`INITIAL_DELAY`, default 0.5 s) + guards + signal airtime + result detection (<=0.25 s adaptive status polling). Expect ~2 s plus airtime with defaults. To trim further: disable LBT for cable-only setups, lower `INITIAL_DELAY`, and shrink the guard ranges. Getting below ~1 s end-to-end would additionally need an event-driven task queue (e.g. Postgres LISTEN/NOTIFY) instead of polling - not implemented yet.
 
 ## Health Check
 

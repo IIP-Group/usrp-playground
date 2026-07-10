@@ -18,7 +18,7 @@ DATA_DIR = Path("/data")
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 
-POLL_INTERVAL = 2
+POLL_INTERVAL = float(os.getenv("WORKER_POLL_INTERVAL_SEC", "0.2"))
 TASK_TTL_HOURS = int(os.getenv("TASK_TTL_HOURS", "24"))
 MAX_SAMPLES = int(os.getenv("MAX_SAMPLES", "2500000"))
 

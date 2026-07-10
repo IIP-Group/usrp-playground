@@ -19,7 +19,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
-from usrp_benchmark import USRPClient
+from usrp_playground import USRPClient
 
 HOST = "129.132.24.210"
 PORT = 80
@@ -80,10 +80,10 @@ def main():
     ap.add_argument("--save", help="Plot als PNG speichern statt anzeigen")
     args = ap.parse_args()
 
-    USRPClient.setup(host=HOST, port=PORT, token=TOKEN)
+    client = USRPClient.setup(host=HOST, port=PORT, token=TOKEN)
 
-    print("Server OK:", USRPClient.check())
-    info = USRPClient.info()
+    print("Server OK:", client.check())
+    info = client.info()
     fs = info["sample_rate_hz"]
     n_hw = len(info.get("channels", [])) or 1
     print(f"fs={fs/1e6:.1f} MHz | MIMO={info.get('mimo_enabled')} | "
@@ -95,21 +95,21 @@ def main():
     mimo_tx = np.stack([tone0, tone1], axis=1)
 
     results = []
-    run_test("send() SISO legacy", lambda: USRPClient.send(tone0), results)
+    run_test("send() SISO legacy", lambda: client.send(tone0), results)
     run_test("send_siso(channel=0)",
-             lambda: USRPClient.send_siso(tone0, channel=0), results)
+             lambda: client.send_siso(tone0, channel=0), results)
     if n_hw > 1:
         run_test("send_siso(channel=1)",
-                 lambda: USRPClient.send_siso(tone0, channel=1), results)
+                 lambda: client.send_siso(tone0, channel=1), results)
         run_test("send_mimo() 2 Kanaele (ch0: +100 kHz, ch1: -150 kHz)",
-                 lambda: USRPClient.send_mimo(mimo_tx), results)
+                 lambda: client.send_mimo(mimo_tx), results)
     run_test(f"listen_siso({N_LISTEN}, channel=0)",
-             lambda: USRPClient.listen_siso(N_LISTEN, channel=0), results)
+             lambda: client.listen_siso(N_LISTEN, channel=0), results)
     if n_hw > 1:
         run_test(f"listen_siso({N_LISTEN}, channel=1)",
-                 lambda: USRPClient.listen_siso(N_LISTEN, channel=1), results)
+                 lambda: client.listen_siso(N_LISTEN, channel=1), results)
         run_test(f"listen_mimo({N_LISTEN})",
-                 lambda: USRPClient.listen_mimo(N_LISTEN), results)
+                 lambda: client.listen_mimo(N_LISTEN), results)
 
     # ---- Zusammenfassung -------------------------------------------------
     print("\n=== Zusammenfassung ===")

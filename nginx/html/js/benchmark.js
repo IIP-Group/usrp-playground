@@ -301,6 +301,76 @@ async function sendOverWS({ token, signal, channel, onStatus, onError }) {
     return result;
 }
 
+/** Find where the tone burst starts inside the recording.
+ *
+ *  The guards before/after the burst are drawn RANDOMLY per test, so the
+ *  burst position is unknown - we must detect it. Method: mix the recording
+ *  down by the (known) tone frequency, sum short blocks coherently (short
+ *  enough that a few kHz of LO offset between the two USRPs does not
+ *  matter), and pick the contiguous window with the most narrowband
+ *  energy. Broadband interferers (WiFi bursts) contribute almost nothing
+ *  inside the narrow band, so this stays reliable even when interference
+ *  is stronger than the signal.
+ *  Returns the start index in samples. */
+function findBurstStart(rx, totalSamples, nSamples, toneFreqHz, fs) {
+    const blockLen = Math.max(64, Math.round(fs / 2500));   // ~0.4 ms blocks
+    const nBlocks = Math.floor(totalSamples / blockLen);
+    if (nBlocks < 2 || totalSamples <= nSamples) return 0;
+    const winBlocks = Math.min(nBlocks, Math.max(1, Math.round(nSamples / blockLen)));
+
+    // Pass 1 - frequency: the two USRPs have independent LOs, so the tone
+    // lands a few kHz off its nominal frequency. Pick the offset with the
+    // most total narrowband energy: only at the right offset do the tone
+    // blocks add coherently, while broadband interference (WiFi) scores
+    // the same everywhere, so it cannot skew the choice.
+    let bestEnergy = null, bestTotal = -Infinity;
+    for (let dHz = -5000; dHz <= 5000; dHz += 500) {
+        const w = 2 * Math.PI * (toneFreqHz + dHz) / fs;
+        const energy = new Float64Array(nBlocks);
+        let total = 0;
+        for (let b = 0; b < nBlocks; b++) {
+            let sr = 0, si = 0;
+            const off = b * blockLen;
+            for (let i = 0; i < blockLen; i++) {
+                const n = off + i;
+                const re = rx[2 * n], im = rx[2 * n + 1];
+                const c = Math.cos(w * n), s = -Math.sin(w * n);   // e^{-jwn}
+                sr += re * c - im * s;
+                si += re * s + im * c;
+            }
+            energy[b] = sr * sr + si * si;
+            total += energy[b];
+        }
+        if (total > bestTotal) { bestTotal = total; bestEnergy = energy; }
+    }
+
+    // Pass 2 - position, on the chosen offset only. 3-block smoothing
+    // knocks down single-block noise flukes.
+    const smooth = new Float64Array(nBlocks);
+    for (let b = 0; b < nBlocks; b++) {
+        const a = bestEnergy[Math.max(0, b - 1)];
+        const c = bestEnergy[Math.min(nBlocks - 1, b + 1)];
+        smooth[b] = (a + bestEnergy[b] + c) / 3;
+    }
+    // Log-compress relative to a LOW percentile (noise level even when the
+    // burst fills most of the recording): a short, very strong interferer
+    // (WiFi burst) then contributes barely more per block than the tone
+    // does, so it cannot hijack the window - the tone wins by being
+    // present in MANY blocks, not by raw power.
+    const sorted = Float64Array.from(smooth).sort();
+    const ref = Math.max(sorted[nBlocks >> 2], 1e-30);   // 25th percentile
+    const score = new Float64Array(nBlocks + 1);          // prefix sums
+    for (let b = 0; b < nBlocks; b++) {
+        score[b + 1] = score[b] + Math.log1p(smooth[b] / ref);
+    }
+    let bestScore = -Infinity, bestStart = 0;
+    for (let b = 0; b + winBlocks <= nBlocks; b++) {
+        const sc = score[b + winBlocks] - score[b];
+        if (sc > bestScore) { bestScore = sc; bestStart = b * blockLen; }
+    }
+    return Math.max(0, Math.min(bestStart, totalSamples - nSamples));
+}
+
 // ---- Public entry: run a benchmark and return all the metrics needed ----
 async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) {
     // 1) fetch /info to learn fs / fc / guards
@@ -310,8 +380,17 @@ async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) 
 
     const fs = Number(info.sample_rate_hz);
     const fc = Number(info.carrier_frequency_hz);
-    const guard_s = Number(info.begin_guard_min_sec ?? 0.1);
-    const guard_samples = Math.round(guard_s * fs);
+    if (Math.abs(toneFreqHz) >= fs / 2) {
+        throw new Error(
+            `Tone frequency ${(toneFreqHz / 1e3).toFixed(0)} kHz is at or above ` +
+            `Nyquist (sample rate is ${(fs / 1e6).toFixed(2)} MHz, so the tone ` +
+            `must be below ${(fs / 2e3).toFixed(0)} kHz)`);
+    }
+    if (Math.abs(toneFreqHz) < 1000) {
+        throw new Error(
+            "Tone frequency too close to 0 Hz - it would sit on the receiver's " +
+            "DC offset. Pick something like fs/10.");
+    }
 
     // 2) generate complex sine: tx[n] = exp(j 2π f n / fs)
     const tx = new Float32Array(nSamples * 2);
@@ -328,9 +407,9 @@ async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) 
 
     // 4) split RX
     const totalSamples = rx.length / 2;
-    // Guards may be randomised between min and max - derive the actual
-    // total guard from the recorded sample count and just check it falls
-    // inside the legal [min, max] window.
+    // Guards are randomised between min and max - derive the actual total
+    // guard from the recorded sample count and check it falls inside the
+    // legal [min, max] window.
     const begin_min = Number(info.begin_guard_min_sec ?? 0.1);
     const begin_max = Number(info.begin_guard_max_sec ?? begin_min);
     const end_min   = Number(info.end_guard_min_sec   ?? 0.1);
@@ -340,7 +419,20 @@ async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) 
     const total_recorded_s  = totalSamples / fs;
     const total_guard_s     = total_recorded_s - nSamples / fs;
 
-    // rx_core = rx[guard : guard + nSamples]
+    // Where does the burst start? With fixed guards (min == max) the
+    // position is known - use it directly. Only when the server draws the
+    // guards randomly is the position unknown and has to be detected.
+    // Note this only picks WHICH slice of the recording gets analysed;
+    // the displayed spectrum is always the raw, unfiltered RX data.
+    let guard_samples;
+    if (Math.abs(begin_max - begin_min) < 1e-9) {
+        guard_samples = Math.max(0, Math.min(
+            Math.round(begin_min * fs), totalSamples - nSamples));
+    } else {
+        guard_samples = findBurstStart(rx, totalSamples, nSamples, toneFreqHz, fs);
+    }
+
+    // rx_core = rx[start : start + nSamples]
     const coreRe = new Float32Array(nSamples);
     const coreIm = new Float32Array(nSamples);
     for (let i = 0; i < nSamples; i++) {
@@ -403,6 +495,8 @@ async function runBenchmark({ token, toneFreqHz, nSamples, channel, onStatus }) 
             actual_guard_sec: total_guard_s,
             guard_min_sec:    total_guard_min_s,
             guard_max_sec:    total_guard_max_s,
+            measured_begin_sec: guard_samples / fs,
+            measured_end_sec:   total_guard_s - guard_samples / fs,
             // Tolerate ±2 samples of rounding on each side.
             in_range: total_guard_s >= total_guard_min_s - 2/fs
                    && total_guard_s <= total_guard_max_s + 2/fs,

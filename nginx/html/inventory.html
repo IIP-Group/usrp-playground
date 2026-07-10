@@ -45,6 +45,17 @@
         <div id="status" class="notice" style="display: none; margin-bottom: 14px;"></div>
 
         <div class="inv-section" style="margin-bottom: 24px;">
+            <div class="row" style="margin-bottom: 6px;">
+                <h3 style="margin: 0;">Daemons</h3>
+                <span class="sp"></span>
+                <button id="btn-daemons-start"   class="btn btn-sm">Start</button>
+                <button id="btn-daemons-stop"    class="btn btn-sm">Stop</button>
+                <button id="btn-daemons-restart" class="btn btn-sm">Restart</button>
+            </div>
+            <div id="daemon-status" class="text-dim">Loading daemon status…</div>
+        </div>
+
+        <div class="inv-section" style="margin-bottom: 24px;">
             <h3>Detected on the host</h3>
             <div class="inv-discovered" id="discovered">
                 <div class="text-dim">Click <strong>Discover</strong> to scan.</div>
@@ -403,6 +414,90 @@ document.getElementById("btn-save").addEventListener("click", async () => {
 window.addEventListener("beforeunload", e => {
     if (dirty) { e.preventDefault(); e.returnValue = ""; }
 });
+
+// ---- Daemon control (host agent bridge) -----------------------------------
+const DAEMON_LABELS = { tx: "TX daemon", rx: "RX daemon", inventory: "Inventory helper" };
+
+function renderDaemonStatus(st) {
+    const host = document.getElementById("daemon-status");
+    if (!st || !st.agent_online) {
+        host.innerHTML =
+            `<span style="color:#f14c4c">●</span> Daemon agent not running on the host - ` +
+            `install it once with <code>sudo ./deploy/install-daemons-service.sh</code>, ` +
+            `then this panel can start/stop the daemons.`;
+        return;
+    }
+    const parts = [];
+    for (const key of ["tx", "rx", "inventory"]) {
+        const d = (st.daemons || {})[key];
+        let color, text;
+        if (!d || !d.running) {
+            color = "#f14c4c"; text = "stopped";
+        } else if (d.responsive === false) {
+            color = "#e5c07b"; text = "running, not responding";
+        } else if (d.responsive === null && key !== "inventory") {
+            color = "#e5c07b"; text = "running (busy)";
+        } else {
+            color = "#23d18b"; text = "running" + (d.pid ? ` (PID ${d.pid})` : "");
+        }
+        parts.push(`<span style="white-space:nowrap; margin-right:18px;">` +
+                   `<span style="color:${color}">●</span> ` +
+                   `<strong>${DAEMON_LABELS[key]}</strong>: ${esc(text)}</span>`);
+    }
+    let html = parts.join("");
+    const lr = st.last_result;
+    if (lr && lr.ok === false) {
+        html += `<div class="text-dim" style="margin-top:6px; color:#f14c4c">` +
+                `Last ${esc(lr.action || "action")} failed: ${esc((lr.output || "").slice(-300))}</div>`;
+    }
+    host.innerHTML = html;
+}
+
+async function pollDaemons() {
+    try {
+        renderDaemonStatus(await apiFetch("/daemons"));
+    } catch (e) {
+        document.getElementById("daemon-status").textContent =
+            "Could not load daemon status: " + e.message;
+    }
+}
+
+async function daemonAction(action) {
+    if ((action === "stop" || action === "restart") &&
+        !confirm(`Really ${action} the USRP daemons? Running tasks will fail.`)) {
+        return;
+    }
+    for (const id of ["start", "stop", "restart"])
+        document.getElementById("btn-daemons-" + id).disabled = true;
+    status(`Daemons: ${action} requested…`);
+    try {
+        const r = await apiFetch("/daemons/" + action, { method: "POST" });
+        if (r.status === "agent_offline") {
+            status(r.message, "err");
+        } else if (r.status === "pending") {
+            status(r.message, "warn");
+        } else if (r.ok === false) {
+            status(`${action} failed: ${(r.output || "").slice(-300)}`, "err");
+        } else {
+            status(`Daemons: ${action} done.`, "ok");
+            setTimeout(() => status(""), 2500);
+        }
+    } catch (e) {
+        status(`${action} failed: ` + e.message, "err");
+    } finally {
+        for (const id of ["start", "stop", "restart"])
+            document.getElementById("btn-daemons-" + id).disabled = false;
+        pollDaemons();
+    }
+}
+
+for (const action of ["start", "stop", "restart"]) {
+    document.getElementById("btn-daemons-" + action)
+        .addEventListener("click", () => daemonAction(action));
+}
+
+pollDaemons();
+setInterval(pollDaemons, 3000);
 
 load();
 </script>

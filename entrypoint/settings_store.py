@@ -123,17 +123,12 @@ EDITABLE_KEYS: dict[str, dict] = {
         "label": "Sample Rate",
         "desc": "Derived: bandwidth × ratio.",
         "hidden": True},
-    "TX_GAIN_DB":           {"type": "float", "group": "radio",
-        "label": "TX Gain (dB)",
-        "desc": "Sendeverstärkung. B210: Range 0-89.75 dB. "
-                "Höher = mehr Ausgangsleistung. Bei B210 ist das die einzige "
-                "Möglichkeit, die Leistung zu steuern (keine kalibrierte Power-API)."},
-    "RX_GAIN_DB":           {"type": "float", "group": "radio",
-        "label": "RX Gain (dB)",
-        "desc": "Receive gain. Too high → saturation, too low → noise."},
-    # Antennas and per-channel gains live in the Hardware-Inventory page now.
-    # The legacy ANTENNA_TX / ANTENNA_RX env vars only act as a fallback when
-    # no inventory is configured at all.
+    # TX/RX gains live EXCLUSIVELY in the Hardware-Inventory page, per
+    # channel. The old global TX_GAIN_DB / RX_GAIN_DB fallback settings were
+    # removed on purpose: a global value silently competing with per-channel
+    # hardware config made it unclear which gain actually applies.
+    # Antennas: the legacy ANTENNA_TX / ANTENNA_RX env vars only act as a
+    # fallback when no inventory is configured at all.
 
     # MIMO
     "MIMO_ENABLED":         {"type": "bool",  "group": "radio",

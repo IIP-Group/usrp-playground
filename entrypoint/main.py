@@ -63,13 +63,21 @@ def _radio_info(db: Session) -> dict:
     band = settings_store.srd_band_info()
     default_carrier = (int(band["f_min_hz"]) + int(band["f_max_hz"])) // 2
 
+    # Gains live per channel in the Hardware-Inventory - there is no global
+    # gain setting any more. The top-level tx_gain_db / rx_gain_db keys stay
+    # for client compatibility and report channel 0's values (None when no
+    # inventory is configured).
+    inv_channels = inventory.read_inventory().get("channels", [])
+    ch0 = inv_channels[0] if inv_channels else {}
+
     return {
         "carrier_frequency_hz": int(g("CARRIER_FREQUENCY_HZ", default_carrier)),
         "sample_rate_hz":       int(g("SAMPLE_RATE_HZ", 25_000_000)),
         "bandwidth_hz":         int(g("BANDWIDTH_HZ", 25_000_000)),
-        "tx_gain_db":           float(g("TX_GAIN_DB", 30)),
-        "tx_power_dbm":         g("TX_POWER_DBM", None),
-        "rx_gain_db":           float(g("RX_GAIN_DB", 30)),
+        "tx_gain_db":           (ch0.get("tx") or {}).get("gain_db"),
+        "tx_power_dbm":         (ch0.get("tx") or {}).get("power_dbm",
+                                                          g("TX_POWER_DBM", None)),
+        "rx_gain_db":           (ch0.get("rx") or {}).get("gain_db"),
         "antenna_tx":           g("ANTENNA_TX", "TX/RX0"),
         "antenna_rx":           g("ANTENNA_RX", "RX1"),
         "max_upload_mb":        int(g("MAX_UPLOAD_MB", 200)),
@@ -88,8 +96,12 @@ def _radio_info(db: Session) -> dict:
         # IS the physical channel index the worker drives, so the benchmark
         # page can offer a "test over channel X" picker.
         "channels":             [
-            {"index": i, "id": c.get("id", str(i)), "label": c.get("label") or c.get("id") or str(i)}
-            for i, c in enumerate(inventory.read_inventory().get("channels", []))
+            {"index": i, "id": c.get("id", str(i)),
+             "label": c.get("label") or c.get("id") or str(i),
+             "tx_gain_db": (c.get("tx") or {}).get("gain_db"),
+             "tx_power_dbm": (c.get("tx") or {}).get("power_dbm"),
+             "rx_gain_db": (c.get("rx") or {}).get("gain_db")}
+            for i, c in enumerate(inv_channels)
         ],
     }
 
@@ -462,9 +474,15 @@ async def ws_run(ws: WebSocket):
                        state="PD", queue_position=pos)
 
         # -------- Poll status (short DB session per poll, NOT held across sleep) --------
+        # Adaptive interval: poll fast while the task is running or next in
+        # line (keeps the round-trip snappy), relax to the configured
+        # interval while it sits deep in the queue (keeps DB load low with
+        # many waiting clients).
         db_failures = 0
+        poll_fast = min(0.25, _LIMITS["POLL_INTERVAL_SEC"])
+        interval = poll_fast
         while True:
-            await asyncio.sleep(_LIMITS["POLL_INTERVAL_SEC"])
+            await asyncio.sleep(interval)
             try:
                 with SessionLocal() as db:
                     running = server_state.is_running(db)
@@ -503,6 +521,8 @@ async def ws_run(ws: WebSocket):
                            state=state, queue_position=pos)
             if state == "D":
                 break
+            interval = poll_fast if (state == "R" or pos == 0) \
+                else _LIMITS["POLL_INTERVAL_SEC"]
 
         if error_message:
             with SessionLocal() as db:

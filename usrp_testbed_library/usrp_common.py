@@ -30,7 +30,7 @@ FC_ATOL = 1.0           # Hz
 G_ATOL = 0.05          # dB
 
 # Timeout constants
-DEFAULT_FLUSH_TIMEOUT = 1.0         # seconds
+DEFAULT_FLUSH_TIMEOUT = 0.2         # seconds - stop_cont settle time before the drain loop
 DEFAULT_RX_STREAM_TIMEOUT = 0.5     # seconds
 DEFAULT_TX_TIMEOUT = 2.0            # seconds
 DEFAULT_LOCK_TIMEOUT = 10.0         # seconds for GPSDO lock
