@@ -79,6 +79,21 @@ if [ -n "$UHD_SITE" ]; then
     echo "  UHD:      ${UHD_SITE}"
 fi
 
+# ---- Preflight: refuse to spawn daemons that would crash-loop -------------
+# Verifies the exact interpreter + PYTHONPATH the daemons will get. If this
+# fails we abort with an actionable message instead of writing endless
+# `ModuleNotFoundError` tracebacks into the logs.
+if ! PYTHONPATH="$DAEMON_PYTHONPATH" "$PYTHON" -c "import uhd, zmq, numpy, h5py" 2>/tmp/usrp_preflight_err; then
+    echo ""
+    echo "ERROR: daemon environment is broken - refusing to start."
+    echo "-------------------------------------------------------"
+    cat /tmp/usrp_preflight_err
+    echo "-------------------------------------------------------"
+    echo "Fix:   ./setup-daemons.sh     (repairs the venv + UHD link)"
+    echo "Test:  ${PYTHON} -c 'import uhd'"
+    exit 1
+fi
+
 echo "=========================================="
 echo "  Starting USRP Daemons"
 echo "=========================================="
