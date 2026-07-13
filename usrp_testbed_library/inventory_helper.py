@@ -63,13 +63,21 @@ def _parse_uhd_output(text: str) -> list[dict]:
 
 def discover() -> dict:
     """Run uhd_find_devices and return parsed result. Uses sudo because some
-    USB devices are only enumerable as root."""
+    USB devices are only enumerable as root.
+
+    The scan is bounded by `timeout(1)` INSIDE the sudo, not only by the
+    Python-side timeout: killing the sudo wrapper from Python cannot reach
+    the root-owned uhd_find_devices underneath, which would then linger as
+    an orphan holding the USRP's USB interface ("claim_interface failed"
+    for every daemon start afterwards). `timeout -k` terminates the actual
+    scan process as root, so nothing can get stuck on the device.
+    """
     result = {"timestamp": datetime.now(timezone.utc).isoformat(),
               "devices": [], "error": None, "raw": ""}
     try:
         proc = subprocess.run(
-            ["sudo", "-n", "uhd_find_devices"],
-            capture_output=True, text=True, timeout=30,
+            ["sudo", "-n", "timeout", "-k", "5", "45", "uhd_find_devices"],
+            capture_output=True, text=True, timeout=60,
         )
         result["raw"] = proc.stdout + ("\n" + proc.stderr if proc.stderr else "")
         if proc.returncode != 0 and not proc.stdout.strip():
