@@ -36,6 +36,45 @@ sudo systemctl start usrp-daemons
 
 This is self-contained and portable - on a new machine, clone the repo, run `./setup-daemons.sh`, then the installer. It installs two services: `usrp-daemons` (TX/RX daemons + inventory helper) and `usrp-daemon-agent` (a small always-on bridge so the admin Hardware page can show daemon status and start/stop/restart them from the browser).
 
+## New machine checklist
+
+Everything needed to bring the system up from scratch on a fresh server:
+
+```bash
+# 0. Prerequisites (once)
+#    - Docker + docker compose plugin, and Docker enabled at boot:
+sudo systemctl enable docker
+#    - UHD with Python bindings (apt or from source). Verify:
+python3 -c "import uhd; print(uhd.__version__)"
+uhd_find_devices
+
+# 1. Get the code
+git clone https://github.com/IIP-Group/usrp-playground.git
+cd usrp-playground
+
+# 2. Configure
+cp .env.example .env
+nano .env          # tokens, USRP addresses/serials, USRP_DEVICE_TYPE, ...
+
+# 3. Daemon environment (venv + UHD link + self-check)
+./setup-daemons.sh          # must end with "Venv check: OK"
+
+# 4. Install + enable both systemd services (auto-start on every boot)
+sudo ./deploy/install-daemons-service.sh
+
+# 5. Start everything
+sudo systemctl start usrp-daemons     # daemons now; auto-starts on reboot
+docker compose up -d --build          # web stack; restarts itself on reboot
+
+# 6. Verify
+systemctl status usrp-daemons usrp-daemon-agent
+docker compose ps
+# then open the admin UI -> Hardware page: both daemons green,
+# configure USRPs/channels (incl. TX/RX gains!), run a benchmark.
+```
+
+After a reboot no manual step is needed: Docker brings the containers back (`restart: unless-stopped`), systemd brings the daemons and the agent back. If a daemon ever dies (USB glitch), restart it from the Hardware page or with `sudo systemctl restart usrp-daemons`.
+
 ## Client Installation
 
 ### Option A: pip (recommended)

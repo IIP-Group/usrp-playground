@@ -408,14 +408,30 @@ def main():
     context = zmq.Context.instance()
     reply = context.socket(zmq.REP)
     reply.bind(REP_ADDR)
-    rx_daemon = RXDaemon(
-        usrp_addr=args.usrp_addr,
-        mgmt_addr=args.mgmt_addr,
-        mcr=args.mcr or None,
-        device_type=args.device_type,
-        use_dpdk=args.use_dpdk,
-        buffer_scale=args.buffer_scale,
-    )
+    # Opening the USRP can fail transiently: the device may still be busy
+    # (inventory scan / firmware upload after fresh USB enumeration) or not
+    # yet re-enumerated. Retry with backoff instead of dying instantly.
+    _ATTEMPTS, _BACKOFF_S = 6, 5
+    for _attempt in range(1, _ATTEMPTS + 1):
+        try:
+            rx_daemon = RXDaemon(
+                usrp_addr=args.usrp_addr,
+                mgmt_addr=args.mgmt_addr,
+                mcr=args.mcr or None,
+                device_type=args.device_type,
+                use_dpdk=args.use_dpdk,
+                buffer_scale=args.buffer_scale,
+            )
+            break
+        except RuntimeError as e:
+            if _attempt == _ATTEMPTS:
+                logging.error(
+                    f"Could not open USRP after {_ATTEMPTS} attempts - giving up.")
+                raise
+            logging.warning(
+                f"USRP open failed (attempt {_attempt}/{_ATTEMPTS}): {e} - "
+                f"retrying in {_BACKOFF_S}s")
+            time.sleep(_BACKOFF_S)
 
     logging.info(f"RX Daemon is running. Publishing events on {PUB_ADDR} and listening for commands on {REP_ADDR}")
 

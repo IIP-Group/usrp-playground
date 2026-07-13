@@ -685,15 +685,31 @@ def main():
     reply = context.socket(zmq.REP)
     reply.bind(REP_ADDR)
     daemon_id = f"TX-{get_primary_ip()}"
-    tx_daemon = TXDaemon(
-        usrp_addr=args.usrp_addr,
-        mgmt_addr=args.mgmt_addr,
-        mcr=args.mcr or None,
-        device_type=args.device_type,
-        use_dpdk=args.use_dpdk,
-        buffer_scale=args.buffer_scale,
-        daemon_id=daemon_id,
-    )
+    # Opening the USRP can fail transiently: the device may still be busy
+    # (inventory scan / firmware upload after fresh USB enumeration) or not
+    # yet re-enumerated. Retry with backoff instead of dying instantly.
+    _ATTEMPTS, _BACKOFF_S = 6, 5
+    for _attempt in range(1, _ATTEMPTS + 1):
+        try:
+            tx_daemon = TXDaemon(
+                usrp_addr=args.usrp_addr,
+                mgmt_addr=args.mgmt_addr,
+                mcr=args.mcr or None,
+                device_type=args.device_type,
+                use_dpdk=args.use_dpdk,
+                buffer_scale=args.buffer_scale,
+                daemon_id=daemon_id,
+            )
+            break
+        except RuntimeError as e:
+            if _attempt == _ATTEMPTS:
+                logging.error(
+                    f"Could not open USRP after {_ATTEMPTS} attempts - giving up.")
+                raise
+            logging.warning(
+                f"USRP open failed (attempt {_attempt}/{_ATTEMPTS}): {e} - "
+                f"retrying in {_BACKOFF_S}s")
+            time.sleep(_BACKOFF_S)
 
     logging.info(f"TX Daemon is running. Publishing events on {PUB_ADDR} and listening for commands on {REP_ADDR}")
 
