@@ -400,15 +400,20 @@ def _build_usrp_args(usrp_addr: str,
     network = _is_network_device(dtype)
 
     # --- address prefix ----------------------------------------------------
+    # Inventory identifiers may already be FULL UHD args strings (e.g.
+    # "type=b200,serial=3485538"). Anything containing '=' is passed
+    # through untouched; only bare values get a serial=/addr= prefix.
     addr = (usrp_addr or "").strip()
-    _known_keys = ("serial=", "addr=", "name=", "resource=")
-    if addr and not any(addr.startswith(k) for k in _known_keys):
+    if addr and "=" not in addr:
         addr = f"addr={addr}" if network else f"serial={addr}"
 
     parts: list[str] = []
     if addr:
         parts.append(addr)
-    parts.append(f"type={dtype}")
+    # Never duplicate keys the identifier already carries - UHD rejects
+    # args strings with repeated keys.
+    if "type=" not in addr:
+        parts.append(f"type={dtype}")
 
     # --- network-specific tuning -------------------------------------------
     if network:
@@ -428,7 +433,7 @@ def _build_usrp_args(usrp_addr: str,
             "clock_source=internal",
             "time_source=internal",
         ]
-        if mcr:
+        if mcr and "master_clock_rate=" not in addr:
             parts.append(f"master_clock_rate={int(mcr)}")
         parts += [
             f"send_buff_size={scaled_buff}",
@@ -447,7 +452,7 @@ def _build_usrp_args(usrp_addr: str,
         # USB device (B210, B200, B200mini, …)
         # No Ethernet frame/buffer tuning, no DPDK.  Pass MCR only if the
         # caller explicitly set one (0 / None → let UHD choose).
-        if mcr:
+        if mcr and "master_clock_rate=" not in addr:
             parts.append(f"master_clock_rate={int(mcr)}")
 
     return ",".join(parts)
