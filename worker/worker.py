@@ -23,6 +23,26 @@ TASK_TTL_HOURS = int(os.getenv("TASK_TTL_HOURS", "24"))
 MAX_SAMPLES = int(os.getenv("MAX_SAMPLES", "2500000"))
 
 
+def _with_rf_retry(fn, attempts=3, backoff_s=0.5):
+    """Retry transient RF-stream errors (USB overflow / sequence glitches
+    on stream start, mostly B210 multi-channel). Failed captures are
+    discarded entirely, so a retry can never mix corrupted data in.
+    Config errors etc. are NOT retried - they would fail identically."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except RuntimeError as e:
+            msg = str(e)
+            transient = ("OVERFLOW" in msg or "Out of sequence" in msg
+                         or "ERROR_CODE_LATE" in msg)
+            if not transient or attempt == attempts:
+                raise
+            print(f"[rf-retry] transient RF error "
+                  f"(attempt {attempt}/{attempts}): {msg.strip()[-160:]}",
+                  flush=True)
+            time.sleep(backoff_s)
+
+
 def process_f32(task_uid):
     from usrp_testbed_library.mimo_format import (
         is_mimo_blob, decode_mimo, decode_siso, encode_siso, encode_mimo,
@@ -56,9 +76,11 @@ def process_f32(task_uid):
             )
         n_channels = int(listen_cfg.get("channels", 1) or 1)
         if n_channels > 1:
-            received = receive_only(n_samples, n_channels=n_channels)
+            received = _with_rf_retry(
+                lambda: receive_only(n_samples, n_channels=n_channels))
         else:
-            received = receive_only(n_samples, channel=channel)
+            received = _with_rf_retry(
+                lambda: receive_only(n_samples, channel=channel))
     else:
         blob = (in_dir / "input.f32").read_bytes()
 
@@ -73,9 +95,10 @@ def process_f32(task_uid):
 
         if signal.ndim == 2:
             # MIMO already spans channels 0..N-1 - the picker doesn't apply.
-            received = send_and_receive(signal)
+            received = _with_rf_retry(lambda: send_and_receive(signal))
         else:
-            received = send_and_receive(signal, channel=channel)
+            received = _with_rf_retry(
+                lambda: send_and_receive(signal, channel=channel))
 
     out_path = out_dir / "output.f32"
     if received.ndim == 2:

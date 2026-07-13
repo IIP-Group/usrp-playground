@@ -78,13 +78,16 @@ DTYPE_KEY=$(echo "$DTYPE" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
 _mcr_specific="MASTER_CLOCK_RATE_${DTYPE_KEY}"
 MCR="${!_mcr_specific:-${MASTER_CLOCK_RATE:-0}}"
 
-# Pin each daemon to its own core (2, 3, 4, ...) with RT priority.
+# Pin each daemon to TWO dedicated cores with RT priority - the combined
+# daemon runs a TX and an RX thread; a single core can starve the RX
+# stream on multi-channel start (USB overflow / out-of-sequence errors).
 NPROC=$(nproc 2>/dev/null || echo 4)
-CPU=$(( (2 + INDEX) % NPROC ))
+CPU_A=$(( (2 + 2 * INDEX) % NPROC ))
+CPU_B=$(( (CPU_A + 1) % NPROC ))
 
-echo "Starting daemon for USRP '$USRP_ID' ($IDENTIFIER, roles=$ROLES, type=$DTYPE, cpu=$CPU)"
+echo "Starting daemon for USRP '$USRP_ID' ($IDENTIFIER, roles=$ROLES, type=$DTYPE, cpus=$CPU_A,$CPU_B)"
 exec sudo PYTHONPATH="$DAEMON_PYTHONPATH" \
-    taskset -c "$CPU" chrt -f 80 \
+    taskset -c "$CPU_A,$CPU_B" chrt -f 80 \
     "$PYTHON" "${DAEMON_DIR}/usrp_daemon.py" \
     --usrp-id "$USRP_ID" \
     --usrp-addr "$IDENTIFIER" \
