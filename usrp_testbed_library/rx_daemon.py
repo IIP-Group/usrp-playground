@@ -196,6 +196,11 @@ class RXDaemon(BaseUSRPDaemon):
                 st = uhd.usrp.StreamArgs("fc32", "sc16")
                 st.channels = requested_channels
                 self.rx_streamer = self.usrp.get_rx_stream(st)
+                # The FIRST timed stream_cmd on a fresh streamer is
+                # frequently lost on B2xx (capture then times out with
+                # 0 samples) - request a warm-up before the next capture,
+                # regardless of channel count.
+                self._needs_warmup = True
 
             # Update current configuration state
             self.current_config = new_config.copy()
@@ -250,7 +255,7 @@ class RXDaemon(BaseUSRPDaemon):
             # producing samples. Kicking off a tiny start_cont / stop_cont
             # cycle first makes the AD9361 path reliably honour the timed
             # num_done request that follows.
-            if n_ch > 1:
+            if n_ch > 1 or getattr(self, "_needs_warmup", False):
                 warmup_cmd = StreamCMD(StreamMode.start_cont)
                 warmup_cmd.stream_now = False
                 warmup_cmd.time_spec = TimeSpec(
@@ -275,6 +280,7 @@ class RXDaemon(BaseUSRPDaemon):
                     self.rx_streamer.recv(warmup_buf, warmup_md, 0.05)
                     if warmup_md.error_code == RXMetadataErrorCode.timeout:
                         break
+                self._needs_warmup = False
 
             # Start relative to the pre-warm-up reference so the begin-guard
             # stays intact. If an unusually slow warm-up already used up the

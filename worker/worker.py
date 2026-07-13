@@ -34,7 +34,8 @@ def _with_rf_retry(fn, attempts=3, backoff_s=0.5):
         except RuntimeError as e:
             msg = str(e)
             transient = ("OVERFLOW" in msg or "Out of sequence" in msg
-                         or "ERROR_CODE_LATE" in msg)
+                         or "ERROR_CODE_LATE" in msg
+                         or "RX stream timeout" in msg)
             if not transient or attempt == attempts:
                 raise
             print(f"[rf-retry] transient RF error "
