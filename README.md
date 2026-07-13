@@ -240,7 +240,17 @@ Most of these can also be changed at runtime on the admin Settings page; the wor
 
 ## RF Path
 
-The worker drives two UHD daemons (TX and RX) on the host over ZMQ. Each test transmits the uploaded signal over the real USRP hardware while the RX side captures - including random guard intervals before and after the burst, a duty-cycle quota, and Listen-Before-Talk. Channel routing (antenna ports, gains) comes from the Hardware Inventory page.
+The worker drives UHD daemons on the host over ZMQ. Each test transmits the uploaded signal over the real USRP hardware while the RX side captures - including random guard intervals before and after the burst, a duty-cycle quota, and Listen-Before-Talk. Channel routing (antenna ports, gains) comes from the Hardware Inventory page.
+
+### One daemon per USRP
+
+Every USRP in the hardware inventory gets ONE daemon process (`usrp_testbed_library/usrp_daemon.py`) that serves the device's TX role and/or RX role on two ZMQ endpoints (ports derive from the inventory position, see `usrp_testbed_library/endpoints.py`). This supports any number of devices:
+
+- **1 USRP** with role `txrx`: the single daemon transmits and receives full-duplex on the same device (TX and RX then share one LO - no carrier offset).
+- **2 USRPs** (classic): one `tx` device, one `rx` device - independent LOs, realistic CFO.
+- **3+ USRPs**: add them on the Hardware page; each channel row picks which TX device/port maps to which RX device/port. One test (including MIMO) always runs within a single TX/RX device pair.
+
+The Hardware page shows a status dot and Start/Stop per USRP; the daemons are started/stopped per device or all at once (systemd unit `usrp-daemons` at boot).
 
 ### Round-trip latency
 

@@ -1,4 +1,10 @@
 #!/bin/bash
+# Start the USRP daemons: one combined daemon per USRP in the hardware
+# inventory (see usrp_testbed_library/usrp_daemon.py), plus the inventory
+# helper. Idempotent: already-running daemons are skipped.
+#
+#   ./start-daemons.sh            start everything
+#   ./start-daemons.sh <usrp-id>  start only that USRP's daemon
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -6,6 +12,7 @@ VENV_DIR="${SCRIPT_DIR}/.venv"
 DAEMON_DIR="${SCRIPT_DIR}/usrp_testbed_library"
 PID_DIR="${SCRIPT_DIR}/.daemon_pids"
 LOG_DIR="${SCRIPT_DIR}/logs"
+ONLY_USRP="$1"
 
 if [ ! -d "$VENV_DIR" ]; then
     echo "Error: .venv not found. Run ./setup-daemons.sh first."
@@ -17,22 +24,6 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
     source "${SCRIPT_DIR}/.env"
     set +a
 fi
-
-DEVICE_TYPE="${USRP_DEVICE_TYPE:-x4xx}"
-
-# Per-device-type address and MCR overrides.
-# If USRP_TX_ADDR_B200 / USRP_TX_ADDR_X4XX etc. are set in .env,
-# use those; otherwise fall back to the generic USRP_TX_ADDR.
-DTYPE_KEY=$(echo "$DEVICE_TYPE" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-
-_tx_specific="USRP_TX_ADDR_${DTYPE_KEY}"
-_rx_specific="USRP_RX_ADDR_${DTYPE_KEY}"
-_mcr_specific="MASTER_CLOCK_RATE_${DTYPE_KEY}"
-
-USRP_TX_ADDR="${!_tx_specific:-${USRP_TX_ADDR:-192.168.10.2}}"
-USRP_RX_ADDR="${!_rx_specific:-${USRP_RX_ADDR:-192.168.20.2}}"
-MCR="${!_mcr_specific:-${MASTER_CLOCK_RATE:-0}}"
-BUFFER_SCALE="${DAEMON_BUFFER_SCALE:-1.0}"
 
 # Resolve SIGNAL_DIR_HOST to absolute path
 if [ -n "$SIGNAL_DIR_HOST" ]; then
@@ -53,30 +44,17 @@ PYTHON="${VENV_DIR}/bin/python"
 REPO_OWNER=$(stat -c '%U' "$SCRIPT_DIR" 2>/dev/null || stat -f '%Su' "$SCRIPT_DIR")
 if [ "$(id -un)" = "$REPO_OWNER" ]; then
     DAEMON_PYTHONPATH=$("$PYTHON" -c "import sys; print(':'.join(p for p in sys.path if p))" 2>/dev/null || true)
+    UHD_SITE=$(python3 -c 'import uhd, os; print(os.path.dirname(os.path.dirname(uhd.__file__)))' 2>/dev/null || true)
 else
     DAEMON_PYTHONPATH=$(sudo -u "$REPO_OWNER" "$PYTHON" -c "import sys; print(':'.join(p for p in sys.path if p))" 2>/dev/null || true)
+    UHD_SITE=$(sudo -u "$REPO_OWNER" python3 -c 'import uhd, os; print(os.path.dirname(os.path.dirname(uhd.__file__)))' 2>/dev/null || true)
 fi
 # Also make sure the repo owner's ~/.local/bin (uhd_find_devices et al.) is
 # reachable for the helper when running as root.
 OWNER_HOME=$(eval echo "~$REPO_OWNER")
 export PATH="$OWNER_HOME/.local/bin:$PATH"
-
-# UHD's Python bindings can live in a system location the venv does NOT
-# include even with --system-site-packages - e.g. a from-source install
-# under /usr/local/lib/pythonX.Y/site-packages. Ask the system python3
-# (which finds uhd) where it lives and prepend that dir, so `import uhd`
-# works inside the venv. Portable: no hard-coded path, works on any machine
-# where uhd is importable. venv and system python3 share the same minor
-# version (the venv is built with `python3 -m venv`), so the ABI matches.
-_uhd_probe='import uhd, os; print(os.path.dirname(os.path.dirname(uhd.__file__)))'
-if [ "$(id -un)" = "$REPO_OWNER" ]; then
-    UHD_SITE=$(python3 -c "$_uhd_probe" 2>/dev/null || true)
-else
-    UHD_SITE=$(sudo -u "$REPO_OWNER" python3 -c "$_uhd_probe" 2>/dev/null || true)
-fi
 if [ -n "$UHD_SITE" ]; then
     DAEMON_PYTHONPATH="${UHD_SITE}:${DAEMON_PYTHONPATH}"
-    echo "  UHD:      ${UHD_SITE}"
 fi
 
 # ---- Preflight: refuse to spawn daemons that would crash-loop -------------
@@ -94,25 +72,38 @@ if ! PYTHONPATH="$DAEMON_PYTHONPATH" "$PYTHON" -c "import uhd, zmq, numpy, h5py"
     exit 1
 fi
 
+INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
+INVENTORY_FILE="${INVENTORY_DIR}/inventory.json"
+
+# USRP ids from the inventory (one daemon per USRP).
+USRP_IDS=""
+if [ -f "$INVENTORY_FILE" ]; then
+    USRP_IDS=$(PYTHONPATH="$DAEMON_PYTHONPATH" "$PYTHON" -c "
+import json, sys
+inv = json.load(open(sys.argv[1]))
+for u in inv.get('usrps', []):
+    uid = str(u.get('id', '')).strip()
+    if uid:
+        print(uid)
+" "$INVENTORY_FILE")
+fi
+
 echo "=========================================="
 echo "  Starting USRP Daemons"
 echo "=========================================="
-echo "  TX USRP:  ${USRP_TX_ADDR}"
-echo "  RX USRP:  ${USRP_RX_ADDR}"
-echo "  Type:     ${DEVICE_TYPE}"
-echo "  MCR:      ${MCR} Hz (0 = UHD auto)"
-echo "  Buffer:   ${BUFFER_SCALE}x"
-echo "  Signals:  ${SIGNAL_DIR_HOST}"
+echo "  Inventory: ${INVENTORY_FILE}"
+echo "  USRPs:     $(echo $USRP_IDS | tr '\n' ' ')"
+[ -n "$UHD_SITE" ] && echo "  UHD:       ${UHD_SITE}"
+echo "  Signals:   ${SIGNAL_DIR_HOST}"
 echo "=========================================="
 
 # ---- Inventory helper (BEFORE daemons so its initial scan sees all USRPs) -
 # Watches the shared /data/inventory volume for discovery triggers from the
 # entrypoint container and responds with uhd_find_devices output. We boot
-# this first so the very first scan happens before any TX/RX daemon claims
-# a USRP - otherwise claimed devices stay invisible.
-INVENTORY_DIR="${SIGNAL_DIR_HOST%/signals}/inventory"
+# this first so the very first scan happens before any daemon claims a
+# USRP - otherwise claimed devices stay invisible.
 sudo mkdir -p "$INVENTORY_DIR"
-sudo chown "$(id -u):$(id -g)" "$INVENTORY_DIR"
+sudo chown "$(id -u):$(id -g)" "$INVENTORY_DIR" 2>/dev/null || true
 sudo chmod 0775 "$INVENTORY_DIR"
 if [ -f "${PID_DIR}/inventory.pid" ] && kill -0 "$(cat ${PID_DIR}/inventory.pid)" 2>/dev/null; then
     echo "Inventory helper already running (PID $(cat ${PID_DIR}/inventory.pid))"
@@ -129,39 +120,31 @@ else
     sleep 5
 fi
 
-if [ -f "${PID_DIR}/tx.pid" ] && sudo kill -0 "$(cat ${PID_DIR}/tx.pid)" 2>/dev/null; then
-    echo "TX daemon already running (PID $(cat ${PID_DIR}/tx.pid))"
-else
-    echo "Starting TX daemon ..."
-    sudo PYTHONPATH="$DAEMON_PYTHONPATH" \
-        taskset -c 2 chrt -f 80 \
-        "$PYTHON" "${DAEMON_DIR}/tx_daemon.py" \
-        --usrp-addr "$USRP_TX_ADDR" \
-        --device-type "$DEVICE_TYPE" \
-        --mcr "$MCR" \
-        --buffer-scale "$BUFFER_SCALE" \
-        >> "${LOG_DIR}/tx_daemon.log" 2>&1 &
-    TX_PID=$!
-    echo "$TX_PID" > "${PID_DIR}/tx.pid"
-    echo "TX daemon started (PID ${TX_PID}), log: ${LOG_DIR}/tx_daemon.log"
+if [ -z "$USRP_IDS" ]; then
+    echo ""
+    echo "No USRPs in the inventory yet - only the inventory helper is running."
+    echo "Add USRPs + channels on the Hardware page, then run this again"
+    echo "(or press Start there)."
+    exit 0
 fi
 
-if [ -f "${PID_DIR}/rx.pid" ] && sudo kill -0 "$(cat ${PID_DIR}/rx.pid)" 2>/dev/null; then
-    echo "RX daemon already running (PID $(cat ${PID_DIR}/rx.pid))"
-else
-    echo "Starting RX daemon ..."
-    sudo PYTHONPATH="$DAEMON_PYTHONPATH" \
-        taskset -c 3 chrt -f 80 \
-        "$PYTHON" "${DAEMON_DIR}/rx_daemon.py" \
-        --usrp-addr "$USRP_RX_ADDR" \
-        --device-type "$DEVICE_TYPE" \
-        --mcr "$MCR" \
-        --buffer-scale "$BUFFER_SCALE" \
-        >> "${LOG_DIR}/rx_daemon.log" 2>&1 &
-    RX_PID=$!
-    echo "$RX_PID" > "${PID_DIR}/rx.pid"
-    echo "RX daemon started (PID ${RX_PID}), log: ${LOG_DIR}/rx_daemon.log"
-fi
+# ---- One daemon per USRP ---------------------------------------------------
+for UID_ in $USRP_IDS; do
+    if [ -n "$ONLY_USRP" ] && [ "$UID_" != "$ONLY_USRP" ]; then
+        continue
+    fi
+    PID_FILE="${PID_DIR}/usrp_${UID_}.pid"
+    if [ -f "$PID_FILE" ] && sudo kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        echo "Daemon for USRP '$UID_' already running (PID $(cat "$PID_FILE"))"
+        continue
+    fi
+    echo "Starting daemon for USRP '$UID_' ..."
+    "${SCRIPT_DIR}/run-daemon.sh" "$UID_" \
+        >> "${LOG_DIR}/daemon_${UID_}.log" 2>&1 &
+    D_PID=$!
+    echo "$D_PID" > "$PID_FILE"
+    echo "Daemon for '$UID_' started (PID ${D_PID}), log: ${LOG_DIR}/daemon_${UID_}.log"
+done
 
 echo ""
-echo "Stop with: ./stop-daemons.sh"
+echo "Stop with: ./stop-daemons.sh [usrp-id]"

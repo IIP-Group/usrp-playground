@@ -702,9 +702,13 @@ def daemons_get(_: dict = Depends(auth.require_admin)):
 
 
 @router.post("/daemons/{action}")
-def daemons_action(action: str, _: dict = Depends(auth.require_admin)):
-    """Start/stop/restart the daemons via the host agent."""
+def daemons_action(action: str, usrp: str = None,
+                   _: dict = Depends(auth.require_admin)):
+    """Start/stop/restart daemons via the host agent.
+
+    Optional query parameter `usrp=<id>` targets a single device's daemon;
+    without it the action applies to all daemons."""
     if action not in ("start", "stop", "restart"):
         raise HTTPException(status_code=400,
                             detail="action must be start, stop or restart")
-    return inventory.request_daemon_action(action)
+    return inventory.request_daemon_action(action, usrp=usrp)

@@ -22,6 +22,9 @@ Environment=PID_DIR=__REPO_DIR__/.daemon_pids
 ExecStart=__REPO_DIR__/.venv/bin/python __REPO_DIR__/usrp_testbed_library/daemon_agent.py
 Restart=always
 RestartSec=3
+# Per-USRP starts from the web UI spawn daemons as children of this agent.
+# Only kill the agent itself on stop/restart - never those daemons.
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target

@@ -34,8 +34,10 @@ RX_STREAM_TIMEOUT = DEFAULT_RX_STREAM_TIMEOUT
 
 class RXDaemon(BaseUSRPDaemon):
     def __init__(self, usrp_addr, mgmt_addr=None, mcr=None,
-                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0):
-        super().__init__(usrp_addr, mgmt_addr, mcr, device_type, use_dpdk, buffer_scale)
+                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0,
+                 usrp=None, pub_addr=None):
+        super().__init__(usrp_addr, mgmt_addr, mcr, device_type, use_dpdk,
+                         buffer_scale, usrp=usrp)
 
         self.channels = None
         self.rx_streamer = None
@@ -52,7 +54,7 @@ class RXDaemon(BaseUSRPDaemon):
         self.channel_configs = {}
 
         self._publisher = self._context.socket(zmq.PUB)
-        self._publisher.bind(PUB_ADDR)
+        self._publisher.bind(pub_addr or PUB_ADDR)
         self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
         self._heartbeat_thread.start()
 
@@ -438,123 +440,128 @@ def main():
     try:
         while True:
             request = reply.recv_json()
-            try:
-                op = request.get("op", None)
-
-                if op == "PING":
-                    reply.send_json({"status": "OK"})
-
-                elif op == "GET_TIME":
-                    reply.send_json({"status": "OK", "device_time": rx_daemon.get_device_time()})
-
-                elif op == "CONFIGURE_USRP":
-                    required_params = ["fs", "fc", "channels", "G_RX"]
-                    missing_params = [p for p in required_params if p not in request]
-                    if missing_params:
-                        error_msg = f"Missing parameters: {missing_params}"
-                        logging.error(f"CONFIGURE_USRP failed: {error_msg}")
-                        reply.send_json({"status":"ERROR", "error":error_msg})
-                        continue
-                    
-                    fs_req  = positive_float(request["fs"])
-                    fc_req  = positive_float(request["fc"])
-                    g_req   = not_negative_float(request["G_RX"])
-                    ch_req  = int_list(request["channels"], non_negative=True)
-                    ant_req = request.get("antenna", "RX1")
-
-                    actual_settings = rx_daemon.configure_usrp(
-                        fs=fs_req, fc=fc_req, G_RX=g_req, requested_channels=ch_req, antenna=ant_req
-                    )
-
-                    requested_params = {
-                        "fs": fs_req,
-                        "fc": fc_req,
-                        "G_RX": g_req,
-                        "antenna": ant_req
-                    }
-                    mismatches = check_settings_mismatch(actual_settings, requested_params)
-
-                    if mismatches:
-                        reply.send_json({"status": "MISMATCH", "settings": actual_settings, "mismatches": mismatches})
-                    else:
-                        reply.send_json({"status": "OK", "settings": actual_settings})
-
-                elif op == "FLUSH_RX":
-                    rx_daemon.flush_rx_stream()
-                    reply.send_json({"status": "OK"})
-
-                elif op == "RECEIVE_TO_FILE":
-                    required_params = ["n_samples", "delay", "path"]
-                    missing_params = [p for p in required_params if p not in request]
-                    if missing_params:
-                        error_msg = f"Missing parameters: {missing_params}"
-                        logging.error(f"RECEIVE_TO_FILE failed: {error_msg}")
-                        reply.send_json({"status": "ERROR", "error": error_msg})
-                        continue
-                    n_samples = positive_int(request["n_samples"])
-                    delay   = not_negative_float(request["delay"])
-                    timeout = positive_float(request.get("timeout", RX_STREAM_TIMEOUT))
-                    path    = str(request["path"])
-
-                    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-                    data, n_recv = rx_daemon.receive_with_delay(delay, n_samples, timeout=timeout)
-                    if n_recv != n_samples:
-                        error_msg = f"Received {n_recv} samples, expected {n_samples}"
-                        logging.error(f"RECEIVE_TO_FILE failed: {error_msg}")
-                        reply.send_json({"status": "ERROR", "error": error_msg})
-                    else:
-                        with h5py.File(path, "w") as f:
-                            # Save RX signal as native complex64 (Python-friendly format)
-                            f.create_dataset("rx_signal", data=data, compression=None)
-
-                            ch0 = rx_daemon.channels[0]
-                            f["rx_signal"].attrs.update({
-                                "fs": rx_daemon.usrp.get_rx_rate(ch0),
-                                "fc": rx_daemon.usrp.get_rx_freq(ch0),
-                                "gain_dB": rx_daemon.usrp.get_rx_gain(ch0),
-                                "otw": "sc16",
-                                "cpu": "fc32",
-                                "channels": rx_daemon.channels,
-                                "n_channels": len(rx_daemon.channels),
-                                "description": "Multi-channel RX signal (native complex64)"
-                            })
-                        reply.send_json({"status": "OK", "samples_received": n_recv, "path": path})
-
-                elif op == "CHANGE_REFERENCE":
-                    if "source" not in request:
-                        error_msg = "Missing parameter: source"
-                        logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
-                        reply.send_json({"status": "ERROR", "error": error_msg})
-                        continue
-                    src = str(request["source"]).lower()
-                    if src not in ["internal", "gpsdo"]:
-                        error_msg = "Unsupported source: must be 'internal' or 'gpsdo'"
-                        logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
-                        reply.send_json({"status": "ERROR", "error": error_msg})
-                        continue
-                    lock_timeout = positive_float(request.get("timeout", DEFAULT_LOCK_TIMEOUT))
-                    poll_period  = positive_float(request.get("poll_period", DEFAULT_POLL_PERIOD))
-                    mboard       = int(request.get("mboard", 0))
-
-                    rx_daemon.change_time_and_clock_source(
-                        mboard=mboard, source=src, lock_timeout=lock_timeout, poll_period=poll_period
-                    )
-                    reply.send_json({"status": "OK"})
-
-                else:
-                    error_msg = f"Invalid operation: {op}"
-                    logging.error(f"Request failed: {error_msg}")
-                    reply.send_json({"status": "ERROR", "error": error_msg})
-
-            except Exception as e:
-                error_msg = str(e)
-                logging.error(f"Request failed with exception: {error_msg}")
-                reply.send_json({"status": "ERROR", "error": error_msg})
+            reply.send_json(handle_request(rx_daemon, request))
     except KeyboardInterrupt:
         pass
     finally:
         rx_daemon.close()
         reply.close(linger=0)
+
+
+def handle_request(rx_daemon, request) -> dict:
+    """Handle one RX-role request and return the response dict.
+
+    Shared between the legacy standalone RX daemon and the combined
+    per-device daemon (usrp_daemon.py).
+    """
+    try:
+        op = request.get("op", None)
+
+        if op == "PING":
+            return {"status": "OK"}
+
+        elif op == "GET_TIME":
+            return {"status": "OK", "device_time": rx_daemon.get_device_time()}
+
+        elif op == "CONFIGURE_USRP":
+            required_params = ["fs", "fc", "channels", "G_RX"]
+            missing_params = [p for p in required_params if p not in request]
+            if missing_params:
+                error_msg = f"Missing parameters: {missing_params}"
+                logging.error(f"CONFIGURE_USRP failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+
+            fs_req  = positive_float(request["fs"])
+            fc_req  = positive_float(request["fc"])
+            g_req   = not_negative_float(request["G_RX"])
+            ch_req  = int_list(request["channels"], non_negative=True)
+            ant_req = request.get("antenna", "RX1")
+
+            actual_settings = rx_daemon.configure_usrp(
+                fs=fs_req, fc=fc_req, G_RX=g_req, requested_channels=ch_req, antenna=ant_req
+            )
+
+            requested_params = {
+                "fs": fs_req,
+                "fc": fc_req,
+                "G_RX": g_req,
+                "antenna": ant_req
+            }
+            mismatches = check_settings_mismatch(actual_settings, requested_params)
+
+            if mismatches:
+                return {"status": "MISMATCH", "settings": actual_settings,
+                        "mismatches": mismatches}
+            return {"status": "OK", "settings": actual_settings}
+
+        elif op == "FLUSH_RX":
+            rx_daemon.flush_rx_stream()
+            return {"status": "OK"}
+
+        elif op == "RECEIVE_TO_FILE":
+            required_params = ["n_samples", "delay", "path"]
+            missing_params = [p for p in required_params if p not in request]
+            if missing_params:
+                error_msg = f"Missing parameters: {missing_params}"
+                logging.error(f"RECEIVE_TO_FILE failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+            n_samples = positive_int(request["n_samples"])
+            delay   = not_negative_float(request["delay"])
+            timeout = positive_float(request.get("timeout", RX_STREAM_TIMEOUT))
+            path    = str(request["path"])
+
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            data, n_recv = rx_daemon.receive_with_delay(delay, n_samples, timeout=timeout)
+            if n_recv != n_samples:
+                error_msg = f"Received {n_recv} samples, expected {n_samples}"
+                logging.error(f"RECEIVE_TO_FILE failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+            with h5py.File(path, "w") as f:
+                # Save RX signal as native complex64 (Python-friendly format)
+                f.create_dataset("rx_signal", data=data, compression=None)
+
+                ch0 = rx_daemon.channels[0]
+                f["rx_signal"].attrs.update({
+                    "fs": rx_daemon.usrp.get_rx_rate(ch0),
+                    "fc": rx_daemon.usrp.get_rx_freq(ch0),
+                    "gain_dB": rx_daemon.usrp.get_rx_gain(ch0),
+                    "otw": "sc16",
+                    "cpu": "fc32",
+                    "channels": rx_daemon.channels,
+                    "n_channels": len(rx_daemon.channels),
+                    "description": "Multi-channel RX signal (native complex64)"
+                })
+            return {"status": "OK", "samples_received": n_recv, "path": path}
+
+        elif op == "CHANGE_REFERENCE":
+            if "source" not in request:
+                error_msg = "Missing parameter: source"
+                logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+            src = str(request["source"]).lower()
+            if src not in ["internal", "gpsdo"]:
+                error_msg = "Unsupported source: must be 'internal' or 'gpsdo'"
+                logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+            lock_timeout = positive_float(request.get("timeout", DEFAULT_LOCK_TIMEOUT))
+            poll_period  = positive_float(request.get("poll_period", DEFAULT_POLL_PERIOD))
+            mboard       = int(request.get("mboard", 0))
+
+            rx_daemon.change_time_and_clock_source(
+                mboard=mboard, source=src, lock_timeout=lock_timeout, poll_period=poll_period
+            )
+            return {"status": "OK"}
+
+        else:
+            error_msg = f"Invalid operation: {op}"
+            logging.error(f"Request failed: {error_msg}")
+            return {"status": "ERROR", "error": error_msg}
+
+    except Exception as e:
+        error_msg = str(e)
+        logging.error(f"Request failed with exception: {error_msg}")
+        return {"status": "ERROR", "error": error_msg}
+
 
 if __name__ == "__main__":
     main()

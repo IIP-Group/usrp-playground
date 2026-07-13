@@ -50,9 +50,12 @@ def get_primary_ip(remote_host="8.8.8.8", remote_port=80):
 
 class TXDaemon(BaseUSRPDaemon):
     def __init__(self, usrp_addr, mgmt_addr=None, mcr=None,
-                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0, daemon_id=None):
-        super().__init__(usrp_addr, mgmt_addr, mcr, device_type, use_dpdk, buffer_scale)
+                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0,
+                 daemon_id=None, usrp=None, pub_addr=None):
+        super().__init__(usrp_addr, mgmt_addr, mcr, device_type, use_dpdk,
+                         buffer_scale, usrp=usrp)
         self.daemon_id = daemon_id or f"TX-{get_primary_ip()}"
+        self._pub_addr = pub_addr or PUB_ADDR
 
         self.sync_channels = None
         self.intf_channels = None
@@ -81,7 +84,7 @@ class TXDaemon(BaseUSRPDaemon):
         self.tx_streamer = None
 
         self._publisher = self._context.socket(zmq.PUB)
-        self._publisher.bind(PUB_ADDR)
+        self._publisher.bind(self._pub_addr)
         self._async_thread = threading.Thread(target=self._async_loop, daemon=True)
         self._async_thread.start()
 
@@ -716,157 +719,143 @@ def main():
     try:
         while True:
             request = reply.recv_json()
-            
-            try:
-                op = request.get("op", None)
-                
-                if op == "PING":
-                    reply.send_json({"status":"OK"})
-                    
-                elif op == "GET_TIME":
-                    reply.send_json({"status":"OK", "device_time":tx_daemon.get_device_time()})
-                    
-                elif op == "CONFIGURE_USRP":
-
-                    required_params = ["fs", "fc", "G_TX"]
-                    missing_params = [p for p in required_params if p not in request]
-                    if missing_params:
-                        error_msg = f"Missing parameters: {missing_params}"
-                        logging.error(f"CONFIGURE_USRP failed: {error_msg}")
-                        reply.send_json({"status":"ERROR", "error":error_msg})
-                        continue
-
-                    fs_req  = positive_float(request["fs"])
-                    fc_req  = positive_float(request["fc"])
-                    sc_req  = int_list(request["sync_channels"], non_negative=True, allow_empty=True) if "sync_channels" in request else []
-                    ic_req  = int_list(request["intf_channels"], non_negative=True, allow_empty=True) if "intf_channels" in request else []
-
-                    # Validate G_TX as a dictionary with required channels
-                    all_channels = sc_req + ic_req
-                    g_tx = validate_gain_dict(request["G_TX"], all_channels)
-
-                    ant_req = request.get("antenna", "TX/RX0")
-
-                    # Optional power-reference targets in dBm. Caller sends a
-                    # dict {channel: dbm} via P_TX_DBM. If present, the daemon
-                    # uses set_tx_power_reference() (calibrated) instead of
-                    # set_tx_gain() (relative) for those channels.
-                    p_tx_dbm = None
-                    if "P_TX_DBM" in request and request["P_TX_DBM"] is not None:
-                        raw = request["P_TX_DBM"]
-                        if isinstance(raw, dict):
-                            p_tx_dbm = {int(k): float(v) for k, v in raw.items()}
-                        else:
-                            p_tx_dbm = {ch: float(raw) for ch in all_channels}
-
-                    actual_settings = tx_daemon.configure_usrp(
-                        fs=fs_req, fc=fc_req, sync_channels=sc_req, intf_channels=ic_req,
-                        channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm
-                    )
-
-                    requested_params = {
-                        "fs": fs_req,
-                        "fc": fc_req,
-                        "sync_channels": sc_req,
-                        "intf_channels": ic_req,
-                        "G_TX": g_tx,
-                        "antenna": ant_req
-                    }
-                    mismatches = check_settings_mismatch(actual_settings, requested_params)
-
-                    if mismatches:
-                        reply.send_json({
-                            "status": "MISMATCH",
-                            "settings": actual_settings,
-                            "mismatches": mismatches
-                        })
-                    else:
-                        reply.send_json({
-                            "status": "OK",
-                            "settings": actual_settings
-                        })
-                    
-                    
-                elif op == "LOAD_SIGNAL":
-
-                    # Check that at least one signal path is provided
-                    if "sync_signal_path" not in request and "intf_signal_path" not in request:
-                        error_msg = "Must provide either sync_signal_path or intf_signal_path (or both)"
-                        logging.error(f"LOAD_SIGNAL failed: {error_msg}")
-                        reply.send_json({"status":"ERROR", "error":error_msg})
-                        continue
-
-                    sync_signal_path = str(request["sync_signal_path"]) if "sync_signal_path" in request else None
-                    intf_signal_path = str(request["intf_signal_path"]) if "intf_signal_path" in request else None
-
-                    signal_info = tx_daemon.load_signal(
-                        sync_signal_path=sync_signal_path,
-                        intf_signal_path=intf_signal_path
-                    )
-
-                    reply.send_json({
-                        "status": "OK",
-                        "signal_info": signal_info
-                    })
-                    
-                elif op == "TRANSMIT_BURST":
-
-                    if "delay" not in request:
-                        error_msg = "Missing parameter: delay"
-                        logging.error(f"TRANSMIT_BURST failed: {error_msg}")
-                        reply.send_json({"status":"ERROR", "error":error_msg})
-                        continue
-
-                    # Use provided timeout or let the method calculate it automatically
-                    timeout_param = request.get("timeout")
-                    timeout = positive_float(timeout_param) if timeout_param is not None else None
-
-                    sent = tx_daemon.transmit_with_delay(
-                        delay=not_negative_float(request["delay"]),
-                        timeout=timeout
-                    )
-                    reply.send_json({"status":"OK", "samples_sent":sent})
-
-                elif op == "CHANGE_REFERENCE":
-                    if "source" not in request:
-                        error_msg = "Missing parameter: source"
-                        logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
-                        reply.send_json({"status":"ERROR", "error":error_msg})
-                        continue
-                    source = str(request["source"]).lower()
-                    if source not in ["internal", "gpsdo"]:
-                        error_msg = "Unsupported source: must be 'internal' or 'gpsdo'"
-                        logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
-                        reply.send_json({"status":"ERROR", "error":error_msg})
-                        continue
-                    
-                    lock_timeout = positive_float(request.get("timeout", DEFAULT_LOCK_TIMEOUT))
-                    poll_period = positive_float(request.get("poll_period", DEFAULT_POLL_PERIOD))
-                    mboard = int(request.get("mboard", 0))    
-                
-        
-                    tx_daemon.change_time_and_clock_source(
-                        mboard=mboard,
-                        source=source,
-                        lock_timeout=lock_timeout,
-                        poll_period=poll_period)
-                    
-                    reply.send_json({"status":"OK"})
-                    
-                else:
-                    error_msg = f"Invalid operation: {op}"
-                    logging.error(f"Request failed: {error_msg}")
-                    reply.send_json({"status":"ERROR", "error":error_msg})
-            except Exception as e:
-                error_msg = str(e)
-                logging.error(f"Request failed with exception: {error_msg}")
-                reply.send_json({"status":"ERROR", "error":error_msg})
+            reply.send_json(handle_request(tx_daemon, request))
     except KeyboardInterrupt:
-        pass   
+        pass
     finally:
         tx_daemon.close()
-        reply.close(linger=0)     
-                    
-                    
+        reply.close(linger=0)
+
+
+def handle_request(tx_daemon, request) -> dict:
+    """Handle one TX-role request and return the response dict.
+
+    Shared between the legacy standalone TX daemon and the combined
+    per-device daemon (usrp_daemon.py).
+    """
+    try:
+        op = request.get("op", None)
+
+        if op == "PING":
+            return {"status": "OK"}
+
+        elif op == "GET_TIME":
+            return {"status": "OK", "device_time": tx_daemon.get_device_time()}
+
+        elif op == "CONFIGURE_USRP":
+            required_params = ["fs", "fc", "G_TX"]
+            missing_params = [p for p in required_params if p not in request]
+            if missing_params:
+                error_msg = f"Missing parameters: {missing_params}"
+                logging.error(f"CONFIGURE_USRP failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+
+            fs_req  = positive_float(request["fs"])
+            fc_req  = positive_float(request["fc"])
+            sc_req  = int_list(request["sync_channels"], non_negative=True, allow_empty=True) if "sync_channels" in request else []
+            ic_req  = int_list(request["intf_channels"], non_negative=True, allow_empty=True) if "intf_channels" in request else []
+
+            # Validate G_TX as a dictionary with required channels
+            all_channels = sc_req + ic_req
+            g_tx = validate_gain_dict(request["G_TX"], all_channels)
+
+            ant_req = request.get("antenna", "TX/RX0")
+
+            # Optional power-reference targets in dBm. Caller sends a
+            # dict {channel: dbm} via P_TX_DBM. If present, the daemon
+            # uses set_tx_power_reference() (calibrated) instead of
+            # set_tx_gain() (relative) for those channels.
+            p_tx_dbm = None
+            if "P_TX_DBM" in request and request["P_TX_DBM"] is not None:
+                raw = request["P_TX_DBM"]
+                if isinstance(raw, dict):
+                    p_tx_dbm = {int(k): float(v) for k, v in raw.items()}
+                else:
+                    p_tx_dbm = {ch: float(raw) for ch in all_channels}
+
+            actual_settings = tx_daemon.configure_usrp(
+                fs=fs_req, fc=fc_req, sync_channels=sc_req, intf_channels=ic_req,
+                channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm
+            )
+
+            requested_params = {
+                "fs": fs_req,
+                "fc": fc_req,
+                "sync_channels": sc_req,
+                "intf_channels": ic_req,
+                "G_TX": g_tx,
+                "antenna": ant_req
+            }
+            mismatches = check_settings_mismatch(actual_settings, requested_params)
+
+            if mismatches:
+                return {"status": "MISMATCH", "settings": actual_settings,
+                        "mismatches": mismatches}
+            return {"status": "OK", "settings": actual_settings}
+
+        elif op == "LOAD_SIGNAL":
+            # Check that at least one signal path is provided
+            if "sync_signal_path" not in request and "intf_signal_path" not in request:
+                error_msg = "Must provide either sync_signal_path or intf_signal_path (or both)"
+                logging.error(f"LOAD_SIGNAL failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+
+            sync_signal_path = str(request["sync_signal_path"]) if "sync_signal_path" in request else None
+            intf_signal_path = str(request["intf_signal_path"]) if "intf_signal_path" in request else None
+
+            signal_info = tx_daemon.load_signal(
+                sync_signal_path=sync_signal_path,
+                intf_signal_path=intf_signal_path
+            )
+            return {"status": "OK", "signal_info": signal_info}
+
+        elif op == "TRANSMIT_BURST":
+            if "delay" not in request:
+                error_msg = "Missing parameter: delay"
+                logging.error(f"TRANSMIT_BURST failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+
+            # Use provided timeout or let the method calculate it automatically
+            timeout_param = request.get("timeout")
+            timeout = positive_float(timeout_param) if timeout_param is not None else None
+
+            sent = tx_daemon.transmit_with_delay(
+                delay=not_negative_float(request["delay"]),
+                timeout=timeout
+            )
+            return {"status": "OK", "samples_sent": sent}
+
+        elif op == "CHANGE_REFERENCE":
+            if "source" not in request:
+                error_msg = "Missing parameter: source"
+                logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+            source = str(request["source"]).lower()
+            if source not in ["internal", "gpsdo"]:
+                error_msg = "Unsupported source: must be 'internal' or 'gpsdo'"
+                logging.error(f"CHANGE_REFERENCE failed: {error_msg}")
+                return {"status": "ERROR", "error": error_msg}
+
+            lock_timeout = positive_float(request.get("timeout", DEFAULT_LOCK_TIMEOUT))
+            poll_period = positive_float(request.get("poll_period", DEFAULT_POLL_PERIOD))
+            mboard = int(request.get("mboard", 0))
+
+            tx_daemon.change_time_and_clock_source(
+                mboard=mboard,
+                source=source,
+                lock_timeout=lock_timeout,
+                poll_period=poll_period)
+            return {"status": "OK"}
+
+        else:
+            error_msg = f"Invalid operation: {op}"
+            logging.error(f"Request failed: {error_msg}")
+            return {"status": "ERROR", "error": error_msg}
+    except Exception as e:
+        error_msg = str(e)
+        logging.error(f"Request failed with exception: {error_msg}")
+        return {"status": "ERROR", "error": error_msg}
+
+
 if __name__ == "__main__":
     main()

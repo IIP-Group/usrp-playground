@@ -454,28 +454,38 @@ def _build_usrp_args(usrp_addr: str,
 
 
 class BaseUSRPDaemon:
-    """Base class for USRP daemons with common functionality."""
+    """Base class for USRP daemons with common functionality.
+
+    Pass `usrp=` to reuse an already-open device handle. This is how the
+    combined per-device daemon (usrp_daemon.py) shares ONE MultiUSRP
+    between its TX and RX role - a USRP can only be claimed by a single
+    process, so both roles must live in that process.
+    """
 
     def __init__(self, usrp_addr, mgmt_addr=None, mcr=None,
-                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0):
+                 device_type="x4xx", use_dpdk=False, buffer_scale=1.0,
+                 usrp=None):
 
-        usrp_args = _build_usrp_args(
-            usrp_addr=usrp_addr,
-            device_type=device_type,
-            mcr=mcr or 0,
-            buffer_scale=buffer_scale,
-            mgmt_addr=mgmt_addr,
-            use_dpdk=use_dpdk,
-        )
+        if usrp is not None:
+            self.usrp = usrp
+        else:
+            usrp_args = _build_usrp_args(
+                usrp_addr=usrp_addr,
+                device_type=device_type,
+                mcr=mcr or 0,
+                buffer_scale=buffer_scale,
+                mgmt_addr=mgmt_addr,
+                use_dpdk=use_dpdk,
+            )
 
-        logging.info(f"Opening USRP with args: {usrp_args}")
+            logging.info(f"Opening USRP with args: {usrp_args}")
 
-        try:
-            self.usrp = uhd.usrp.MultiUSRP(usrp_args)
-            logging.info("USRP device opened successfully")
-        except Exception as e:
-            logging.error("Failed to open USRP device. Error: %s", e)
-            raise
+            try:
+                self.usrp = uhd.usrp.MultiUSRP(usrp_args)
+                logging.info("USRP device opened successfully")
+            except Exception as e:
+                logging.error("Failed to open USRP device. Error: %s", e)
+                raise
 
         self._op_lock = threading.Lock()
         self._stop = threading.Event()

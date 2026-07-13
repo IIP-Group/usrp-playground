@@ -81,6 +81,7 @@
                             <th style="width: 90px;">Type</th>
                             <th style="width: 80px;">Role</th>
                             <th>Ports</th>
+                            <th style="width: 190px;">Daemon</th>
                             <th class="actions"></th>
                         </tr>
                     </thead>
@@ -170,6 +171,7 @@ function renderUsrps() {
                 </select>
             </td>
             <td><input value="${esc(portsValue)}" data-field="ports" placeholder="TX/RX, RX2"></td>
+            <td class="daemon-cell" data-usrp="${esc(u.id)}"><span class="text-dim">…</span></td>
             <td class="actions">
                 <button class="btn btn-sm btn-ghost" data-action="del-usrp">✕</button>
             </td>
@@ -186,6 +188,7 @@ function renderUsrps() {
         });
         tbody.appendChild(tr);
     });
+    updateDaemonCells();
 }
 
 function updateUsrp(idx, el) {
@@ -416,41 +419,84 @@ window.addEventListener("beforeunload", e => {
 });
 
 // ---- Daemon control (host agent bridge) -----------------------------------
-const DAEMON_LABELS = { tx: "TX daemon", rx: "RX daemon" };
+// One daemon per USRP. The global buttons act on all of them; each USRP
+// row in the table gets its own status dot + Start/Stop.
+let DAEMON_STATUS = null;
+const pendingUsrps = new Set();
+
+function daemonStateOf(uid) {
+    if (!DAEMON_STATUS || !DAEMON_STATUS.agent_online) return null;
+    return (DAEMON_STATUS.usrps || {})[uid] || { running: false };
+}
+
+function updateDaemonCells() {
+    document.querySelectorAll("#tbl-usrps .daemon-cell").forEach(cell => {
+        const uid = cell.dataset.usrp;
+        if (pendingUsrps.has(uid)) {
+            cell.innerHTML = `<span style="color:#e5c07b">●</span> working…`;
+            return;
+        }
+        const d = daemonStateOf(uid);
+        if (d === null) {
+            cell.innerHTML = `<span class="text-dim">agent offline</span>`;
+            return;
+        }
+        let color, text;
+        if (!d.running) {
+            color = "#f14c4c"; text = "stopped";
+        } else if (d.tx_responsive === false || d.rx_responsive === false) {
+            color = "#e5c07b"; text = "not responding";
+        } else if (d.tx_responsive === null && d.rx_responsive === null && d.role !== "txrx") {
+            color = "#e5c07b"; text = "running (busy)";
+        } else {
+            color = "#23d18b"; text = "running";
+        }
+        const btn = d.running
+            ? `<button class="btn btn-sm" data-action="daemon-toggle" data-cmd="stop"  data-usrp="${esc(uid)}">Stop</button>`
+            : `<button class="btn btn-sm" data-action="daemon-toggle" data-cmd="start" data-usrp="${esc(uid)}">Start</button>`;
+        cell.innerHTML =
+            `<span style="color:${color}">●</span> ${esc(text)} ` + btn;
+    });
+}
+
+// Delegation: ueberlebt das staendige Neu-Rendern der Zellen.
+document.querySelector("#tbl-usrps").addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.dataset && t.dataset.action === "daemon-toggle") {
+        daemonAction(t.dataset.cmd, t.dataset.usrp);
+    }
+});
 
 function renderDaemonStatus(st) {
+    DAEMON_STATUS = st;
     const host = document.getElementById("daemon-status");
     if (!st || !st.agent_online) {
         host.innerHTML =
             `<span style="color:#f14c4c">●</span> Daemon agent not running on the host - ` +
             `install it once with <code>sudo ./deploy/install-daemons-service.sh</code>, ` +
             `then this panel can start/stop the daemons.`;
+        updateDaemonCells();
         return;
     }
-    const parts = [];
-    for (const key of ["tx", "rx"]) {
-        const d = (st.daemons || {})[key];
-        let color, text;
-        if (!d || !d.running) {
-            color = "#f14c4c"; text = "stopped";
-        } else if (d.responsive === false) {
-            color = "#e5c07b"; text = "running, not responding";
-        } else if (d.responsive === null) {
-            color = "#e5c07b"; text = "running (busy)";
-        } else {
-            color = "#23d18b"; text = "running";
-        }
-        parts.push(`<span style="white-space:nowrap; margin-right:18px;">` +
-                   `<span style="color:${color}">●</span> ` +
-                   `<strong>${DAEMON_LABELS[key]}</strong>: ${esc(text)}</span>`);
+    const usrps = st.usrps || {};
+    const ids = Object.keys(usrps);
+    const up = ids.filter(id => usrps[id].running).length;
+    let html;
+    if (!ids.length) {
+        html = `<span class="text-dim">No USRPs in the inventory yet - add one below, save, then press Start.</span>`;
+    } else {
+        const color = up === ids.length ? "#23d18b" : (up > 0 ? "#e5c07b" : "#f14c4c");
+        html = `<span style="color:${color}">●</span> ${up}/${ids.length} daemons running ` +
+               `<span class="text-dim">(per-device controls in the USRP table below)</span>`;
     }
-    let html = parts.join("");
     const lr = st.last_result;
     if (lr && lr.ok === false) {
         html += `<div class="text-dim" style="margin-top:6px; color:#f14c4c">` +
-                `Last ${esc(lr.action || "action")} failed: ${esc((lr.output || "").slice(-300))}</div>`;
+                `Last ${esc(lr.action || "action")}${lr.usrp ? " (" + esc(lr.usrp) + ")" : ""} failed: ` +
+                `${esc((lr.output || "").slice(-300))}</div>`;
     }
     host.innerHTML = html;
+    updateDaemonCells();
 }
 
 async function pollDaemons() {
@@ -479,27 +525,33 @@ function setBtnState(btn, state) {
     }
 }
 
-async function daemonAction(action) {
-    if ((action === "stop" || action === "restart") &&
-        !confirm(`Really ${action} the USRP daemons? Running tasks will fail.`)) {
+async function daemonAction(action, usrpId = null) {
+    if (!usrpId && (action === "stop" || action === "restart") &&
+        !confirm(`Really ${action} ALL USRP daemons? Running tasks will fail.`)) {
         return;
     }
-    const btn = document.getElementById("btn-daemons-" + action);
+    const globalBtn = usrpId ? null : document.getElementById("btn-daemons-" + action);
     const allBtns = ["start", "stop", "restart"]
         .map(id => document.getElementById("btn-daemons-" + id));
-    allBtns.forEach(b => { b.disabled = true; });
-    setBtnState(btn, "busy");
+    if (!usrpId) {
+        allBtns.forEach(b => { b.disabled = true; });
+        setBtnState(globalBtn, "busy");
+    } else {
+        pendingUsrps.add(usrpId);
+        updateDaemonCells();
+    }
 
     let ok = false, errMsg = "";
     try {
         const before = await apiFetch("/daemons");
         const prevTs = before.last_result ? before.last_result.ts : null;
-        const r = await apiFetch("/daemons/" + action, { method: "POST" });
+        const url = "/daemons/" + action + (usrpId ? "?usrp=" + encodeURIComponent(usrpId) : "");
+        const r = await apiFetch(url, { method: "POST" });
         if (r.status === "agent_offline") {
             errMsg = r.message || "Daemon agent offline";
         } else if (r.status === "pending") {
-            // Agent still working (USRP init can take a while) - stay
-            // yellow and wait for the fresh result to appear.
+            // Agent still working (USRP init can take a while) - wait for
+            // the fresh result to appear.
             const t0 = Date.now();
             while (Date.now() - t0 < 120000) {
                 await new Promise(res => setTimeout(res, 2000));
@@ -520,14 +572,19 @@ async function daemonAction(action) {
         errMsg = e.message;
     }
 
-    setBtnState(btn, ok ? "ok" : "err");
+    if (!usrpId) {
+        setBtnState(globalBtn, ok ? "ok" : "err");
+        allBtns.forEach(b => { b.disabled = false; });
+        setTimeout(() => setBtnState(globalBtn, null), ok ? 2500 : 4000);
+    } else {
+        pendingUsrps.delete(usrpId);
+    }
     if (!ok && errMsg) {
         const host = document.getElementById("daemon-status");
         host.innerHTML += `<div style="margin-top:6px; color:#f14c4c">` +
-                          `${esc(action)} failed: ${esc(String(errMsg).slice(-300))}</div>`;
+                          `${esc(action)}${usrpId ? " (" + esc(usrpId) + ")" : ""} failed: ` +
+                          `${esc(String(errMsg).slice(-300))}</div>`;
     }
-    allBtns.forEach(b => { b.disabled = false; });
-    setTimeout(() => setBtnState(btn, null), ok ? 2500 : 4000);
     pollDaemons();
 }
 

@@ -103,6 +103,18 @@ def write_inventory(data: dict) -> dict:
         except (TypeError, ValueError):
             return default
 
+    def _chan(value):
+        """Optional device channel index (0/1 on a B210). Empty = auto."""
+        if value in ("", None):
+            return None
+        try:
+            iv = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Device channel index must be an integer, got {value!r}.")
+        if iv < 0:
+            raise ValueError(f"Device channel index must be >= 0, got {iv}.")
+        return iv
+
     for c in channels:
         cid = str(c.get("id", "")).strip()
         if not cid:
@@ -123,18 +135,34 @@ def write_inventory(data: dict) -> dict:
                 raise ValueError(
                     f"Channel {cid!r}: port {port!r} not declared on USRP {uid!r}."
                 )
+            # Role check: a channel may only transmit over a USRP whose
+            # daemon serves the TX role, and receive over one serving RX
+            # (empty role = txrx = both).
+            role = (usrp_index[uid].get("role") or "").strip().lower()
+            if side == "tx" and role == "rx":
+                raise ValueError(
+                    f"Channel {cid!r}: USRP {uid!r} has role 'rx' and "
+                    f"cannot be used as TX side."
+                )
+            if side == "rx" and role == "tx":
+                raise ValueError(
+                    f"Channel {cid!r}: USRP {uid!r} has role 'tx' and "
+                    f"cannot be used as RX side."
+                )
         cleaned_channels.append({
             "id":    cid,
             "label": str(c.get("label", cid)).strip(),
             "tx":    {
                 "usrp":      tx_id,
                 "port":      tx_port,
+                "chan":      _chan(tx.get("chan")),
                 "gain_db":   _num(tx.get("gain_db")),
                 "power_dbm": _num(tx.get("power_dbm")),
             },
             "rx":    {
                 "usrp":    rx_id,
                 "port":    rx_port,
+                "chan":    _chan(rx.get("chan")),
                 "gain_db": _num(rx.get("gain_db")),
             },
         })
@@ -202,13 +230,14 @@ def daemon_status() -> dict:
     return data
 
 
-def request_daemon_action(action: str, wait_s: float = 20.0,
-                          poll: float = 0.3) -> dict:
-    """Ask the host agent to start/stop/restart the daemons.
+def request_daemon_action(action: str, usrp: str = None,
+                          wait_s: float = 20.0, poll: float = 0.3) -> dict:
+    """Ask the host agent to start/stop/restart daemons.
 
-    Waits up to `wait_s` for the result; a start can take longer (USRP
-    init), in which case {"status": "pending"} is returned and the UI
-    keeps watching daemon_status().
+    `usrp=None` targets ALL daemons; a USRP id targets only that device's
+    daemon. Waits up to `wait_s` for the result; a start can take longer
+    (USRP init), in which case {"status": "pending"} is returned and the
+    UI keeps watching daemon_status().
     """
     _ensure_dir()
     status = daemon_status()
@@ -219,7 +248,7 @@ def request_daemon_action(action: str, wait_s: float = 20.0,
                            "sudo ./deploy/install-daemons-service.sh"}
     ts = time.time()
     tmp = _DAEMONCTL_REQUEST.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"action": action, "ts": ts}))
+    tmp.write_text(json.dumps({"action": action, "usrp": usrp, "ts": ts}))
     os.replace(tmp, _DAEMONCTL_REQUEST)
 
     deadline = time.time() + wait_s

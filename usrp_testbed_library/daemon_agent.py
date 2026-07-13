@@ -1,5 +1,5 @@
 """Host-side agent: lets the admin web UI start/stop the USRP daemons and
-see whether they are alive.
+see whether they are alive - globally and per USRP.
 
 Runs as its own systemd service (deploy/usrp-daemon-agent.service) so it
 keeps working while the daemons themselves are stopped - it must never be
@@ -7,20 +7,21 @@ part of usrp-daemons.service.
 
 Protocol (same shared-volume style as inventory_helper):
     * Entrypoint writes ${WATCH_DIR}/daemonctl_request.json:
-        {"action": "start"|"stop"|"restart", "ts": <epoch>}
-    * Agent executes the action (systemctl usrp-daemons when installed,
-      otherwise the repo's start/stop scripts) and writes
-      ${WATCH_DIR}/daemonctl_result.json:
-        {"ok": bool, "action": ..., "output": "...", "ts": <epoch>}
+        {"action": "start"|"stop"|"restart", "usrp": <id>|null, "ts": <epoch>}
+      usrp=null targets ALL daemons (systemctl usrp-daemons); a USRP id
+      targets only that device's daemon (start/stop scripts).
+    * Agent executes and writes ${WATCH_DIR}/daemonctl_result.json:
+        {"ok": bool, "action": ..., "usrp": ..., "output": "...", "ts": ...}
     * Every STATUS_INTERVAL seconds the agent refreshes
       ${WATCH_DIR}/daemon_status.json:
-        {"agent_ts": <epoch>, "daemons": {
-            "tx":        {"running": bool, "pid": int|null, "responsive": bool|null},
-            "rx":        {...},
-            "inventory": {"running": bool, "pid": int|null, "responsive": null}}}
+        {"agent_ts": <epoch>,
+         "usrps": {<id>: {"running": bool, "pid": int|null, "role": "txrx",
+                          "tx_responsive": bool|null,
+                          "rx_responsive": bool|null}, ...},
+         "inventory_helper": {"running": bool, "pid": int|null}}
       "running" = PID file exists and the process is alive.
-      "responsive" = the daemon answered a ZMQ PING within a short timeout
-      (null while it is busy with a long operation - that is normal).
+      "*_responsive" = the endpoint answered a ZMQ PING within a short
+      timeout (null while busy with a long operation - that is normal).
 """
 from __future__ import annotations
 
@@ -29,6 +30,11 @@ import os
 import subprocess
 import time
 from pathlib import Path
+
+try:
+    from .endpoints import endpoints_from_inventory
+except ImportError:
+    from endpoints import endpoints_from_inventory
 
 WATCH_DIR = Path(os.environ.get("DAEMONCTL_WATCH_DIR",
                                 os.environ.get("INVENTORY_WATCH_DIR",
@@ -43,8 +49,7 @@ PING_TIMEOUT_MS = int(os.environ.get("PING_TIMEOUT_MS", "400"))
 REQUEST_FILE = WATCH_DIR / "daemonctl_request.json"
 RESULT_FILE = WATCH_DIR / "daemonctl_result.json"
 STATUS_FILE = WATCH_DIR / "daemon_status.json"
-
-DAEMON_PORTS = {"tx": 5557, "rx": 5555}
+INVENTORY_FILE = WATCH_DIR / "inventory.json"
 
 
 def _write_atomic(path: Path, payload: dict) -> None:
@@ -53,8 +58,14 @@ def _write_atomic(path: Path, payload: dict) -> None:
     tmp.replace(path)
 
 
-def _pid_running(name: str):
-    pid_file = PID_DIR / f"{name}.pid"
+def _read_inventory() -> dict:
+    try:
+        return json.loads(INVENTORY_FILE.read_text())
+    except Exception:
+        return {"usrps": [], "channels": []}
+
+
+def _pid_running(pid_file: Path):
     try:
         pid = int(pid_file.read_text().strip())
     except (FileNotFoundError, ValueError):
@@ -67,8 +78,9 @@ def _pid_running(name: str):
 
 
 def _ping(port: int):
-    """PING the daemon's ZMQ REP socket. Returns True/False, or None when
-    the socket connects but does not answer in time (daemon busy)."""
+    """PING a daemon REP socket. True/False, or None when the socket does
+    not answer in time (daemon busy with a long op, or just gone - the PID
+    check decides which)."""
     try:
         import zmq
     except ImportError:
@@ -83,7 +95,7 @@ def _ping(port: int):
         sock.send_json({"op": "PING"})
         return sock.recv_json().get("status") == "OK"
     except zmq.error.Again:
-        return None          # alive but busy, or gone - PID check decides
+        return None
     except Exception:
         return False
     finally:
@@ -91,15 +103,24 @@ def _ping(port: int):
 
 
 def refresh_status() -> None:
-    daemons = {}
-    for name in ("tx", "rx", "inventory"):
-        running, pid = _pid_running(name)
-        responsive = None
-        if running and name in DAEMON_PORTS:
-            responsive = _ping(DAEMON_PORTS[name])
-        daemons[name] = {"running": running, "pid": pid,
-                         "responsive": responsive}
-    _write_atomic(STATUS_FILE, {"agent_ts": time.time(), "daemons": daemons})
+    eps = endpoints_from_inventory(_read_inventory())
+    usrps = {}
+    for uid, ep in eps.items():
+        running, pid = _pid_running(PID_DIR / f"usrp_{uid}.pid")
+        tx_resp = rx_resp = None
+        if running:
+            if ep["role"] in ("tx", "txrx"):
+                tx_resp = _ping(ep["tx_rep"])
+            if ep["role"] in ("rx", "txrx"):
+                rx_resp = _ping(ep["rx_rep"])
+        usrps[uid] = {"running": running, "pid": pid, "role": ep["role"],
+                      "tx_responsive": tx_resp, "rx_responsive": rx_resp}
+    inv_running, inv_pid = _pid_running(PID_DIR / "inventory.pid")
+    _write_atomic(STATUS_FILE, {
+        "agent_ts": time.time(),
+        "usrps": usrps,
+        "inventory_helper": {"running": inv_running, "pid": inv_pid},
+    })
 
 
 def _systemd_unit_available() -> bool:
@@ -120,38 +141,56 @@ def _systemd_unit_active() -> bool:
         return False
 
 
-def run_action(action: str) -> dict:
-    if action not in ("start", "stop", "restart"):
-        return {"ok": False, "action": action,
-                "output": f"unknown action '{action}'"}
-
-    if _systemd_unit_available():
-        # "start" while the unit is already active would be a no-op even
-        # when an individual daemon has died (oneshot + RemainAfterExit).
-        # Treat it as restart so the Start button always heals the setup.
-        if action == "start" and _systemd_unit_active():
-            action = "restart"
-        cmd = ["systemctl", action, SYSTEMD_UNIT]
-    else:
-        # Fallback for machines without the systemd unit installed.
-        script = {"start": "start-daemons.sh", "stop": "stop-daemons.sh"}
-        if action == "restart":
-            r1 = run_action("stop")
-            r2 = run_action("start")
-            return {"ok": r1["ok"] and r2["ok"], "action": "restart",
-                    "output": r1["output"] + "\n" + r2["output"]}
-        cmd = [str(REPO_DIR / script[action])]
-
+def _run(cmd) -> dict:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
                            cwd=str(REPO_DIR))
         out = (r.stdout or "") + (r.stderr or "")
-        return {"ok": r.returncode == 0, "action": action,
-                "output": out[-4000:]}
+        return {"ok": r.returncode == 0, "output": out[-4000:]}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "action": action, "output": "timed out"}
+        return {"ok": False, "output": "timed out"}
     except Exception as e:
-        return {"ok": False, "action": action, "output": str(e)}
+        return {"ok": False, "output": str(e)}
+
+
+def run_action(action: str, usrp: str = None) -> dict:
+    if action not in ("start", "stop", "restart"):
+        return {"ok": False, "action": action, "usrp": usrp,
+                "output": f"unknown action '{action}'"}
+
+    if usrp:
+        # Per-USRP: use the scripts directly. The agent's systemd unit runs
+        # with KillMode=process, so daemons it spawns survive agent
+        # restarts; the next global restart re-homes them into the
+        # usrp-daemons unit anyway.
+        uid = str(usrp)
+        if action in ("stop", "restart"):
+            res = _run([str(REPO_DIR / "stop-daemons.sh"), uid])
+            if action == "stop":
+                return {"action": action, "usrp": uid, **res}
+        res = _run([str(REPO_DIR / "start-daemons.sh"), uid])
+        return {"action": action, "usrp": uid, **res}
+
+    # Global: via systemd when installed, otherwise the scripts.
+    if _systemd_unit_available():
+        # "start" while the unit is already active would be a no-op even
+        # when individual daemons have died (oneshot + RemainAfterExit).
+        # Treat it as restart so the Start button always heals the setup.
+        if action == "start" and _systemd_unit_active():
+            action_cmd = "restart"
+        else:
+            action_cmd = action
+        res = _run(["systemctl", action_cmd, SYSTEMD_UNIT])
+        return {"action": action, "usrp": None, **res}
+
+    if action == "restart":
+        r1 = _run([str(REPO_DIR / "stop-daemons.sh")])
+        r2 = _run([str(REPO_DIR / "start-daemons.sh")])
+        return {"ok": r1["ok"] and r2["ok"], "action": action, "usrp": None,
+                "output": r1["output"] + "\n" + r2["output"]}
+    script = "start-daemons.sh" if action == "start" else "stop-daemons.sh"
+    res = _run([str(REPO_DIR / script)])
+    return {"action": action, "usrp": None, **res}
 
 
 def handle_request() -> None:
@@ -162,12 +201,13 @@ def handle_request() -> None:
         return
     REQUEST_FILE.unlink(missing_ok=True)
     action = str(req.get("action", ""))
-    print(f"[daemonctl] executing '{action}'", flush=True)
-    result = run_action(action)
+    usrp = req.get("usrp") or None
+    print(f"[daemonctl] executing '{action}' (usrp={usrp})", flush=True)
+    result = run_action(action, usrp=usrp)
     result["ts"] = time.time()
     result["request_ts"] = req.get("ts")
     _write_atomic(RESULT_FILE, result)
-    print(f"[daemonctl] {action}: ok={result['ok']}", flush=True)
+    print(f"[daemonctl] {action}: ok={result.get('ok')}", flush=True)
 
 
 def main() -> None:
