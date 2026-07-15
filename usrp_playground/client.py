@@ -286,6 +286,25 @@ class USRPClient:
             )
         return self.send(arr, channel=channel, verbose=verbose)
 
+    def send_siso_am(self, signal: np.ndarray, channel: int = 0,
+                  verbose: bool = False) -> np.ndarray:
+        """Send a single-channel (SISO) signal over a selectable channel using Amplitude Modulation.
+
+        `signal` must be 1-D (a column/row vector of shape (N,1)/(1,N) is
+        accepted and flattened). `channel` is the index into the server's
+        channel list; the full TX/RX chain of that channel is used and
+        the usual begin/end guard applies. Returns 1-D complex64.
+        """
+        arr = np.asarray(signal)
+        if arr.ndim == 2 and 1 in arr.shape:
+            arr = arr.ravel()
+        if arr.ndim != 1:
+            raise ValueError(
+                f"send_siso expects a 1-D signal, got shape "
+                f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
+            )
+        return np.real(self.send(np.real(arr), channel=channel, verbose=verbose))
+
     def send_mimo(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
         """Send a multi-channel (MIMO) signal.
 
@@ -301,6 +320,22 @@ class USRPClient:
                 f"{arr.ndim}-D. For a single channel use send_siso()."
             )
         return self.send(arr, verbose=verbose)
+
+    def send_mimo_am(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+        """Send a multi-channel (MIMO) signal using Amplitude Modulation.
+
+        `signal` must be 2-D with shape (n_samples, n_channels); column i
+        drives channel i. Returns an array of the same shape. To test one
+        single channel use send_siso(signal, channel=...) instead of an
+        all-zero column - SISO configures only that channel.
+        """
+        arr = np.asarray(signal)
+        if arr.ndim != 2:
+            raise ValueError(
+                f"send_mimo expects shape (n_samples, n_channels), got "
+                f"{arr.ndim}-D. For a single channel use send_siso()."
+            )
+        return np.real(self.send(np.real(arr), verbose=verbose))
 
     def listen(self, n_samples: int, channel: int = 0,
                channels: int = None, verbose: bool = False) -> np.ndarray:
