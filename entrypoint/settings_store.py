@@ -37,7 +37,11 @@ def _parse_env_file(path: str) -> dict:
                 # strip inline comment (only when preceded by whitespace)
                 if " #" in rest:
                     rest = rest[:rest.index(" #")]
-                result[key] = rest.strip()
+                rest = rest.strip()
+                # values may be quoted so shells can source the file
+                if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
+                    rest = rest[1:-1]
+                result[key] = rest
     except FileNotFoundError:
         pass
     return result

@@ -547,14 +547,29 @@ def check_settings_mismatch(actual_settings, requested_params):
 
         # Handle different gain parameter names and values per channel
         if "G_RX" in settings:
+            # RX gain may be requested as a single float (broadcast) or a
+            # per-channel dict - resolve to this channel's value first.
             requested_gain = requested_params["G_RX"]
+            if isinstance(requested_gain, dict):
+                requested_gain = requested_gain.get(ch, requested_gain.get(str(ch)))
             if requested_gain is not None and not np.isclose(settings["G_RX"], requested_gain, rtol=0, atol=G_ATOL):
                 differences["G_RX"] = (settings["G_RX"], requested_gain)
         elif "G_TX" in settings:
-            # TX gain: use dict with channel as key
-            requested_gain = requested_params["G_TX"].get(ch)
-            if requested_gain is not None and not np.isclose(settings["G_TX"], requested_gain, rtol=0, atol=G_ATOL):
-                differences["G_TX"] = (settings["G_TX"], requested_gain)
+            if settings.get("P_TX_DBM") is not None:
+                # Power-reference mode: the calibrated output power is the
+                # authoritative request; the hardware gain UHD picked to hit
+                # it legitimately differs from the nominal G_TX, so comparing
+                # gains here would flag a false mismatch on every test.
+                requested_power = (requested_params.get("P_TX_DBM") or {}).get(
+                    ch, (requested_params.get("P_TX_DBM") or {}).get(str(ch)))
+                if requested_power is not None and not np.isclose(
+                        settings["P_TX_DBM"], requested_power, rtol=0, atol=0.5):
+                    differences["P_TX_DBM"] = (settings["P_TX_DBM"], requested_power)
+            else:
+                # TX gain: use dict with channel as key
+                requested_gain = requested_params["G_TX"].get(ch)
+                if requested_gain is not None and not np.isclose(settings["G_TX"], requested_gain, rtol=0, atol=G_ATOL):
+                    differences["G_TX"] = (settings["G_TX"], requested_gain)
 
         # Antenna may have been requested as a single string (broadcast to
         # every channel) or a per-channel dict. Resolve to the value that

@@ -42,7 +42,11 @@ def _parse_env_file(path: str) -> dict:
                 key = key.strip()
                 if " #" in rest:
                     rest = rest[:rest.index(" #")]
-                result[key] = rest.strip()
+                rest = rest.strip()
+                # values may be quoted so shells can source the file
+                if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
+                    rest = rest[1:-1]
+                result[key] = rest
     except FileNotFoundError:
         pass
     return result
@@ -280,6 +284,7 @@ class USRPChannel:
 
         fs = _get_sample_rate()
         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
+        bw = _get("BANDWIDTH_HZ", None, float)
         default_tx_power = _get("TX_POWER_DBM", None, float)
         default_tx_ant   = _get("ANTENNA_TX", "TX/RX")
         default_rx_ant   = _get("ANTENNA_RX", "RX2")
@@ -356,6 +361,8 @@ class USRPChannel:
                 "G_TX": g_tx_field,
                 "antenna": antenna_tx_field,
             }
+            if bw:
+                tx_cmd["bw"] = bw
             if p_tx_field:
                 tx_cmd["P_TX_DBM"] = p_tx_field
             tx_sock.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
@@ -388,17 +395,22 @@ class USRPChannel:
                             for ch, p in zip(rx_chans, picked)}
         if len(rx_chans) == 1:
             antenna_rx_field = antenna_rx_field[str(rx_chans[0])]
-        # RX daemon takes one scalar gain; broadcast the first channel's
-        # value (this is what UHD applies globally on B210).
-        rx_gain_scalar = float(picked[0]["rx_gain"])
+        # Per-channel RX gains from the inventory; collapse SISO to a plain
+        # float to stay compatible with the scalar wire format.
+        rx_gain_field = {str(ch): float(p["rx_gain"])
+                         for ch, p in zip(rx_chans, picked)}
+        if len(rx_chans) == 1:
+            rx_gain_field = rx_gain_field[str(rx_chans[0])]
 
         rx_cmd = {
             "op": "CONFIGURE_USRP",
             "fs": fs, "fc": fc,
             "channels": rx_chans,
-            "G_RX": rx_gain_scalar,
+            "G_RX": rx_gain_field,
             "antenna": antenna_rx_field,
         }
+        if bw:
+            rx_cmd["bw"] = bw
         rx_sock.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
         rx_sock.send_json(rx_cmd)
         resp = rx_sock.recv_json()

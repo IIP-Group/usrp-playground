@@ -93,7 +93,7 @@ class RXDaemon(BaseUSRPDaemon):
             logging.warning(f"Could not read RX hardware state: {e}")
             # Continue with empty state - first configure will set everything
 
-    def configure_usrp(self, fs, fc, requested_channels, G_RX, antenna="RX1"):
+    def configure_usrp(self, fs, fc, requested_channels, G_RX, antenna="RX1", bw=None):
 
         with self._op_guard("configure_usrp"):
             def _antenna_for(ch):
@@ -101,18 +101,29 @@ class RXDaemon(BaseUSRPDaemon):
                     return antenna.get(ch, antenna.get(str(ch)))
                 return antenna
 
+            # `G_RX` may be a single float (applied to every channel) or a
+            # dict {ch: gain} for per-channel gains (MIMO with different
+            # RX gains per port).
+            def _gain_for(ch):
+                if isinstance(G_RX, dict):
+                    return G_RX.get(ch, G_RX.get(str(ch)))
+                return G_RX
+
             n_channels = self.usrp.get_rx_num_channels()
             available_channels = list(range(n_channels))
 
             if any(ch not in available_channels for ch in requested_channels):
                 raise ValueError(f"Invalid channels {requested_channels}. Available channels: {available_channels}")
 
+            if any(_gain_for(ch) is None for ch in requested_channels):
+                raise ValueError(f"Must provide RX gain for all requested channels: {requested_channels}")
+
             # Check what has changed to minimize USRP reconfigurations
             new_config = {
                 'fs': fs,
                 'fc': fc,
                 'channels': sorted(requested_channels),
-                'G_RX': G_RX,
+                'G_RX': {ch: float(_gain_for(ch)) for ch in requested_channels},
                 'antenna': antenna
             }
 
@@ -120,7 +131,9 @@ class RXDaemon(BaseUSRPDaemon):
             fs_changed = self.current_config['fs'] is None or not np.isclose(self.current_config['fs'], new_config['fs'], atol=FS_ATOL, rtol=0)
             fc_changed = self.current_config['fc'] is None or not np.isclose(self.current_config['fc'], new_config['fc'], atol=FC_ATOL, rtol=0)
             channels_changed = self.current_config['channels'] != new_config['channels']
-            gain_changed = self.current_config['G_RX'] is None or not np.isclose(self.current_config['G_RX'], new_config['G_RX'], atol=G_ATOL, rtol=0)
+            old_gains = self.current_config['G_RX']
+            gain_changed = (not isinstance(old_gains, dict) or old_gains.keys() != new_config['G_RX'].keys() or
+                            any(not np.isclose(old_gains[ch], new_config['G_RX'][ch], atol=G_ATOL, rtol=0) for ch in old_gains))
             antenna_changed = self.current_config['antenna'] != new_config['antenna']
 
             logging.info(f"RX Configuration changes: fs={fs_changed}, fc={fc_changed}, channels={channels_changed}, gain={gain_changed}, antenna={antenna_changed}")
@@ -130,7 +143,7 @@ class RXDaemon(BaseUSRPDaemon):
             validate_sampling_rate(self.usrp, fs, is_tx=False)
             for ch in requested_channels:
                 validate_carrier_frequency(self.usrp, fc, ch, is_tx=False)
-                validate_gain(self.usrp, G_RX, ch, is_tx=False)
+                validate_gain(self.usrp, _gain_for(ch), ch, is_tx=False)
                 validate_antenna(self.usrp, _antenna_for(ch), ch, is_tx=False)
 
             # Update channel assignments
@@ -138,13 +151,26 @@ class RXDaemon(BaseUSRPDaemon):
 
             actual_settings = {}
 
-            # Only update sampling rate if it changed
+            # Only update sampling rate if it changed. No channel argument:
+            # set_rx_rate(fs) applies the rate to ALL channels - setting it
+            # on a single channel leaves the other channels of a MIMO test
+            # at their old rate.
             if fs_changed:
-                self.usrp.set_rx_rate(fs, requested_channels[0])
-            actual_fs = self.usrp.get_rx_rate(requested_channels[0])
+                self.usrp.set_rx_rate(fs)
+            # Heal channels that still run at a different rate (e.g. after a
+            # per-channel configuration by another tool).
+            if any(not np.isclose(self.usrp.get_rx_rate(ch), fs, atol=FS_ATOL, rtol=0)
+                   for ch in requested_channels):
+                self.usrp.set_rx_rate(fs)
 
             # Update per-channel settings with per-channel change detection
             for ch in requested_channels:
+
+                ch_gain_req = float(_gain_for(ch))
+
+                # Per-channel rate readback so the mismatch checker catches a
+                # channel whose rate did not apply (not just channel 0).
+                actual_fs = self.usrp.get_rx_rate(ch)
 
                 # Get previous channel config
                 prev_ch_config = self.channel_configs.get(ch, {})
@@ -153,7 +179,7 @@ class RXDaemon(BaseUSRPDaemon):
                 prev_fc = prev_ch_config.get('fc')
                 prev_gain = prev_ch_config.get('gain')
                 ch_fc_changed = prev_fc is None or not np.isclose(prev_fc, fc, atol=FC_ATOL, rtol=0)
-                ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, G_RX, atol=G_ATOL, rtol=0)
+                ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, ch_gain_req, atol=G_ATOL, rtol=0)
                 ch_antenna_changed = prev_ch_config.get('antenna') != _antenna_for(ch)
 
                 # Only set frequency if it changed for this channel
@@ -164,7 +190,7 @@ class RXDaemon(BaseUSRPDaemon):
 
                 # Only set gain if it changed for this channel
                 if ch_gain_changed:
-                    self.usrp.set_rx_gain(G_RX, ch)
+                    self.usrp.set_rx_gain(ch_gain_req, ch)
                 actual_gain = self.usrp.get_rx_gain(ch)
 
                 # Only set antenna if it changed for this channel
@@ -172,10 +198,28 @@ class RXDaemon(BaseUSRPDaemon):
                     self.usrp.set_rx_antenna(_antenna_for(ch), ch)
                 actual_antenna = self.usrp.get_rx_antenna(ch)
 
+                # Analog front-end filter bandwidth, per channel. Best-effort:
+                # hardware quantises the analog filter, so log deviations
+                # instead of failing the whole configure.
+                actual_bw = None
+                if bw is not None:
+                    try:
+                        prev_bw = prev_ch_config.get('bw')
+                        if prev_bw is None or not np.isclose(prev_bw, bw, atol=1.0, rtol=0):
+                            self.usrp.set_rx_bandwidth(bw, ch)
+                        actual_bw = self.usrp.get_rx_bandwidth(ch)
+                        if not np.isclose(actual_bw, bw, rtol=0.05, atol=0):
+                            logging.warning(
+                                f"RX ch {ch}: analog bandwidth quantised to "
+                                f"{actual_bw/1e6:.3f} MHz (requested {bw/1e6:.3f} MHz)")
+                    except Exception as e:
+                        logging.warning(f"Could not set RX bandwidth on ch {ch}: {e}")
+
                 # Update per-channel config state
                 self.channel_configs[ch] = {
                     'fc': fc,
-                    'gain': G_RX,
+                    'gain': ch_gain_req,
+                    'bw': bw,
                     'antenna': _antenna_for(ch)
                 }
 
@@ -183,6 +227,7 @@ class RXDaemon(BaseUSRPDaemon):
                     "fs": actual_fs,
                     "fc": actual_fc,
                     "G_RX": actual_gain,
+                    "bw": actual_bw,
                     "antenna": actual_antenna
                 }
 
@@ -479,12 +524,20 @@ def handle_request(rx_daemon, request) -> dict:
 
             fs_req  = positive_float(request["fs"])
             fc_req  = positive_float(request["fc"])
-            g_req   = not_negative_float(request["G_RX"])
             ch_req  = int_list(request["channels"], non_negative=True)
+            # G_RX: single float (broadcast) or {channel: gain} dict for
+            # per-channel MIMO gains.
+            raw_g = request["G_RX"]
+            if isinstance(raw_g, dict):
+                g_req = {int(k): not_negative_float(v) for k, v in raw_g.items()}
+            else:
+                g_req = not_negative_float(raw_g)
             ant_req = request.get("antenna", "RX1")
+            bw_req  = positive_float(request["bw"]) if request.get("bw") else None
 
             actual_settings = rx_daemon.configure_usrp(
-                fs=fs_req, fc=fc_req, G_RX=g_req, requested_channels=ch_req, antenna=ant_req
+                fs=fs_req, fc=fc_req, G_RX=g_req, requested_channels=ch_req,
+                antenna=ant_req, bw=bw_req
             )
 
             requested_params = {

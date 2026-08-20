@@ -124,7 +124,7 @@ class TXDaemon(BaseUSRPDaemon):
             logging.warning(f"Could not read hardware state: {e}")
             # Continue with empty state - first configure will set everything
 
-    def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0", channel_powers=None):
+    def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0", channel_powers=None, bw=None):
 
         with self._op_guard("configure_usrp"):
             # `antenna` may be a single string (applied to every channel) or
@@ -222,10 +222,18 @@ class TXDaemon(BaseUSRPDaemon):
 
             actual_settings = {}
 
-            # Only update sampling rate if it changed
+            # Only update sampling rate if it changed. No channel argument:
+            # set_tx_rate(fs) applies the rate to ALL channels - setting it
+            # on a single channel leaves the other channels of a MIMO test
+            # at their old rate.
             if fs_changed:
-                self.usrp.set_tx_rate(fs, requested_channels[0])
-            actual_fs = self.usrp.get_tx_rate(requested_channels[0])
+                self.usrp.set_tx_rate(fs)
+            # Heal channels that still run at a different rate (e.g. after a
+            # per-channel configuration by another tool): one ALL-channel set
+            # is enough, then trust the per-channel readback below.
+            if any(not np.isclose(self.usrp.get_tx_rate(ch), fs, atol=FS_ATOL, rtol=0)
+                   for ch in requested_channels):
+                self.usrp.set_tx_rate(fs)
 
             # Update per-channel settings with per-channel change detection
             for ch in requested_channels:
@@ -233,12 +241,17 @@ class TXDaemon(BaseUSRPDaemon):
                 role = "synchronization" if sync_channels and ch in sync_channels else "interference"
                 expected_gain = channel_gains.get(ch, None)
 
+                # Per-channel rate readback so the mismatch checker catches a
+                # channel whose rate did not apply (not just channel 0).
+                actual_fs = self.usrp.get_tx_rate(ch)
+
                 # Get previous channel config
                 prev_ch_config = self.channel_configs.get(ch, {})
 
                 # Detect per-channel changes (use tolerances for float comparisons)
                 prev_fc = prev_ch_config.get('fc')
                 prev_gain = prev_ch_config.get('gain')
+                prev_power = prev_ch_config.get('power_dbm')
                 ch_fc_changed = prev_fc is None or not np.isclose(prev_fc, fc, atol=FC_ATOL, rtol=0)
                 ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, expected_gain, atol=G_ATOL, rtol=0)
                 ch_antenna_changed = prev_ch_config.get('antenna') != _antenna_for(ch)
@@ -255,11 +268,14 @@ class TXDaemon(BaseUSRPDaemon):
                 # if no power was supplied OR if the firmware/cal table does
                 # not support the power API.
                 expected_power_dbm = (channel_powers or {}).get(ch)
+                ch_power_changed = expected_power_dbm is not None and (
+                    prev_power is None
+                    or not np.isclose(prev_power, expected_power_dbm, atol=0.01, rtol=0))
                 actual_power_dbm = None
                 used_power_api = False
                 if expected_power_dbm is not None:
                     try:
-                        if ch_gain_changed:
+                        if ch_power_changed:
                             self.usrp.set_tx_power_reference(float(expected_power_dbm), ch)
                         actual_power_dbm = self.usrp.get_tx_power_reference(ch)
                         used_power_api = True
@@ -277,12 +293,29 @@ class TXDaemon(BaseUSRPDaemon):
                     self.usrp.set_tx_antenna(_antenna_for(ch), ch)
                 actual_antenna = self.usrp.get_tx_antenna(ch)
 
+                # Analog front-end filter bandwidth, per channel. Best-effort:
+                # hardware quantises the analog filter, so log deviations
+                # instead of failing the whole configure.
+                actual_bw = None
+                if bw is not None:
+                    try:
+                        prev_bw = prev_ch_config.get('bw')
+                        if prev_bw is None or not np.isclose(prev_bw, bw, atol=1.0, rtol=0):
+                            self.usrp.set_tx_bandwidth(bw, ch)
+                        actual_bw = self.usrp.get_tx_bandwidth(ch)
+                        if not np.isclose(actual_bw, bw, rtol=0.05, atol=0):
+                            logging.warning(
+                                f"TX ch {ch}: analog bandwidth quantised to "
+                                f"{actual_bw/1e6:.3f} MHz (requested {bw/1e6:.3f} MHz)")
+                    except Exception as e:
+                        logging.warning(f"Could not set TX bandwidth on ch {ch}: {e}")
 
                 # Update per-channel config state
                 self.channel_configs[ch] = {
                     'fc': fc,
                     'gain': expected_gain,
                     'power_dbm': expected_power_dbm,
+                    'bw': bw,
                     'antenna': _antenna_for(ch),
                     'role': role
                 }
@@ -293,6 +326,7 @@ class TXDaemon(BaseUSRPDaemon):
                     "fc": actual_fc,
                     "G_TX": actual_gain,
                     "P_TX_DBM": actual_power_dbm,
+                    "bw": actual_bw,
                     "antenna": actual_antenna
                 }
 
@@ -773,9 +807,12 @@ def handle_request(tx_daemon, request) -> dict:
                 else:
                     p_tx_dbm = {ch: float(raw) for ch in all_channels}
 
+            bw_req = positive_float(request["bw"]) if request.get("bw") else None
+
             actual_settings = tx_daemon.configure_usrp(
                 fs=fs_req, fc=fc_req, sync_channels=sc_req, intf_channels=ic_req,
-                channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm
+                channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm,
+                bw=bw_req
             )
 
             requested_params = {
@@ -784,6 +821,7 @@ def handle_request(tx_daemon, request) -> dict:
                 "sync_channels": sc_req,
                 "intf_channels": ic_req,
                 "G_TX": g_tx,
+                "P_TX_DBM": p_tx_dbm,
                 "antenna": ant_req
             }
             mismatches = check_settings_mismatch(actual_settings, requested_params)

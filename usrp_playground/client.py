@@ -223,7 +223,7 @@ class USRPClient:
     # ---- Transmit / receive -------------------------------------------------
 
     def send(self, signal: np.ndarray, channel: int = 0,
-             verbose: bool = False) -> np.ndarray:
+             verbose: bool = False, pad_zeros: int = 16) -> np.ndarray:
         """Send `signal` to the server and return what came back.
 
         * 1-D complex array → SISO. Returns 1-D complex64. `channel`
@@ -233,10 +233,23 @@ class USRPClient:
           is one channel's IQ stream; the returned array has the same
           shape. The server must have MIMO enabled. `channel` does not
           apply here - column i always drives channel i.
+
+        `pad_zeros` zero samples are prepended AND appended to the
+        transmitted burst (default 16, on every channel). The DAC/DUC
+        filter chain of the USRP rings for a few samples at burst start
+        and end - without the padding the first and last samples of the
+        actual signal get clipped/distorted. Set pad_zeros=0 to send the
+        signal exactly as given.
         """
         arr = np.asarray(signal)
+        pad = int(pad_zeros)
+        if pad < 0:
+            raise ValueError("pad_zeros must be >= 0")
         if arr.ndim == 1:
             arr = arr.astype(np.complex64)
+            if pad:
+                z = np.zeros(pad, dtype=np.complex64)
+                arr = np.concatenate([z, arr, z])
             raw = np.empty(arr.size * 2, dtype=np.float32)
             raw[0::2] = arr.real
             raw[1::2] = arr.imag
@@ -252,6 +265,10 @@ class USRPClient:
                     "column i always drives channel i; to test one single "
                     "channel use send_siso(signal, channel=...)."
                 )
+            arr = arr.astype(np.complex64)
+            if pad:
+                z = np.zeros((pad, arr.shape[1]), dtype=np.complex64)
+                arr = np.vstack([z, arr, z])
             n_samples, n_channels = arr.shape
             payload = _encode_mimo(arr)
             handshake = {"mode": "mimo", "channels": int(n_channels)}
@@ -268,7 +285,7 @@ class USRPClient:
         return raw_out[0::2] + 1j * raw_out[1::2]
 
     def send_siso(self, signal: np.ndarray, channel: int = 0,
-                  verbose: bool = False) -> np.ndarray:
+                  verbose: bool = False, pad_zeros: int = 16) -> np.ndarray:
         """Send a single-channel (SISO) signal over a selectable channel.
 
         `signal` must be 1-D (a column/row vector of shape (N,1)/(1,N) is
@@ -284,10 +301,11 @@ class USRPClient:
                 f"send_siso expects a 1-D signal, got shape "
                 f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
             )
-        return self.send(arr, channel=channel, verbose=verbose)
+        return self.send(arr, channel=channel, verbose=verbose,
+                         pad_zeros=pad_zeros)
 
     def send_siso_am(self, signal: np.ndarray, channel: int = 0,
-                  verbose: bool = False) -> np.ndarray:
+                  verbose: bool = False, pad_zeros: int = 16) -> np.ndarray:
         """Send a single-channel (SISO) signal over a selectable channel using Amplitude Modulation.
 
         `signal` must be 1-D (a column/row vector of shape (N,1)/(1,N) is
@@ -303,9 +321,11 @@ class USRPClient:
                 f"send_siso expects a 1-D signal, got shape "
                 f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
             )
-        return np.real(self.send(np.real(arr), channel=channel, verbose=verbose))
+        return np.real(self.send(np.real(arr), channel=channel, verbose=verbose,
+                                 pad_zeros=pad_zeros))
 
-    def send_mimo(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+    def send_mimo(self, signal: np.ndarray, verbose: bool = False,
+                  pad_zeros: int = 16) -> np.ndarray:
         """Send a multi-channel (MIMO) signal.
 
         `signal` must be 2-D with shape (n_samples, n_channels); column i
@@ -319,9 +339,10 @@ class USRPClient:
                 f"send_mimo expects shape (n_samples, n_channels), got "
                 f"{arr.ndim}-D. For a single channel use send_siso()."
             )
-        return self.send(arr, verbose=verbose)
+        return self.send(arr, verbose=verbose, pad_zeros=pad_zeros)
 
-    def send_mimo_am(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
+    def send_mimo_am(self, signal: np.ndarray, verbose: bool = False,
+                     pad_zeros: int = 16) -> np.ndarray:
         """Send a multi-channel (MIMO) signal using Amplitude Modulation.
 
         `signal` must be 2-D with shape (n_samples, n_channels); column i
@@ -335,7 +356,8 @@ class USRPClient:
                 f"send_mimo expects shape (n_samples, n_channels), got "
                 f"{arr.ndim}-D. For a single channel use send_siso()."
             )
-        return np.real(self.send(np.real(arr), verbose=verbose))
+        return np.real(self.send(np.real(arr), verbose=verbose,
+                                 pad_zeros=pad_zeros))
 
     def listen(self, n_samples: int, channel: int = 0,
                channels: int = None, verbose: bool = False) -> np.ndarray:

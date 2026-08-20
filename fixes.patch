@@ -1,0 +1,718 @@
+diff --git a/.env.example b/.env.example
+index 4d277eb..40ae4fc 100644
+--- a/.env.example
++++ b/.env.example
+@@ -125,8 +125,8 @@ TASK_TTL_HOURS=24
+ # ── 2.4 GHz SRD operating envelope (RIR1008-11 / EN 300 440) ────────────────
+ # Non-specific SRD: 2400-2483.5 MHz, 10 mW EIRP max, license-exempt, no duty
+ # cycle, no LBT required. These values feed the Settings info banner.
+-SRD_BAND_LABEL=2.4 GHz SRD — RIR1008-11 (Non-specific SRD)
++SRD_BAND_LABEL="2.4 GHz SRD — RIR1008-11 (Non-specific SRD)"
+ SRD_BAND_F_MIN_HZ=2400000000
+ SRD_BAND_F_MAX_HZ=2483500000
+ SRD_MAX_EIRP_DBM=10
+-SRD_NOTE=License-exempt, NIB/NPB. Stay within 2400-2483.5 MHz, ≤10 mW EIRP. No duty cycle, no LBT. EIRP = USRP_TX_Output - cable_loss + antenna_gain.
++SRD_NOTE="License-exempt, NIB/NPB. Stay within 2400-2483.5 MHz, ≤10 mW EIRP. No duty cycle, no LBT. EIRP = USRP_TX_Output - cable_loss + antenna_gain."
+diff --git a/entrypoint/main.py b/entrypoint/main.py
+index 95b970f..9a2b5c6 100644
+--- a/entrypoint/main.py
++++ b/entrypoint/main.py
+@@ -58,6 +58,18 @@ def _radio_info(db: Session) -> dict:
+     def g(key, default):
+         return settings_store.get(db, key, default)
+ 
++    def effective_sample_rate():
++        """Mirror the worker's per-device-type sample-rate resolution
++        (worker/channel.py:_get_sample_rate) so /info reports the rate the
++        hardware actually runs at, not just the global SAMPLE_RATE_HZ."""
++        dtype = str(g("USRP_DEVICE_TYPE", "x4xx")).lower()
++        dtype_key = dtype.upper().replace("-", "_")
++        specific = g(f"SAMPLE_RATE_HZ_{dtype_key}", None)
++        if specific:
++            return int(float(specific))
++        default = 16_000_000 if dtype.startswith("b2") else 25_000_000
++        return int(float(g("SAMPLE_RATE_HZ", default)))
++
+     # Default carrier = centre of the SRD band, so that
+     # carrier ± bandwidth/2 always sits inside the legal range.
+     band = settings_store.srd_band_info()
+@@ -72,7 +84,7 @@ def _radio_info(db: Session) -> dict:
+ 
+     return {
+         "carrier_frequency_hz": int(g("CARRIER_FREQUENCY_HZ", default_carrier)),
+-        "sample_rate_hz":       int(g("SAMPLE_RATE_HZ", 25_000_000)),
++        "sample_rate_hz":       effective_sample_rate(),
+         "bandwidth_hz":         int(g("BANDWIDTH_HZ", 25_000_000)),
+         "tx_gain_db":           (ch0.get("tx") or {}).get("gain_db"),
+         "tx_power_dbm":         (ch0.get("tx") or {}).get("power_dbm",
+diff --git a/entrypoint/settings_store.py b/entrypoint/settings_store.py
+index d6bd821..809fbc9 100644
+--- a/entrypoint/settings_store.py
++++ b/entrypoint/settings_store.py
+@@ -37,7 +37,11 @@ def _parse_env_file(path: str) -> dict:
+                 # strip inline comment (only when preceded by whitespace)
+                 if " #" in rest:
+                     rest = rest[:rest.index(" #")]
+-                result[key] = rest.strip()
++                rest = rest.strip()
++                # values may be quoted so shells can source the file
++                if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
++                    rest = rest[1:-1]
++                result[key] = rest
+     except FileNotFoundError:
+         pass
+     return result
+diff --git a/nginx/nginx.conf.template b/nginx/nginx.conf.template
+index dcab13d..b238232 100644
+--- a/nginx/nginx.conf.template
++++ b/nginx/nginx.conf.template
+@@ -1,6 +1,8 @@
+-upstream backend {
+-    server ${BACKEND_HOST}:${BACKEND_PORT};
+-}
++# NOTE: no static `upstream` block. proxy_pass goes through a variable so
++# nginx re-resolves the backend name through Docker's embedded DNS at
++# request time instead of pinning the container IP it saw at startup.
++# Without this, recreating the entrypoint container (deploy/rebuild)
++# leaves nginx answering 502 until it is restarted too.
+ 
+ # WebSocket upgrade map
+ map $http_upgrade $connection_upgrade {
+@@ -12,6 +14,11 @@ server {
+     listen 80 default_server;
+     server_name _;
+ 
++    # Docker embedded DNS; short TTL so backend container restarts are
++    # picked up without an nginx restart.
++    resolver 127.0.0.11 valid=10s ipv6=off;
++    set $backend_addr ${BACKEND_HOST}:${BACKEND_PORT};
++
+     # Max body for CSV/file upload
+     client_max_body_size 300M;
+ 
+@@ -21,7 +28,7 @@ server {
+ 
+     # --- WebSocket: /ws/run (student data path) ---
+     location /ws/run {
+-        proxy_pass http://backend;
++        proxy_pass http://$backend_addr;
+         proxy_http_version 1.1;
+         proxy_set_header Upgrade $http_upgrade;
+         proxy_set_header Connection $connection_upgrade;
+@@ -34,7 +41,7 @@ server {
+ 
+     # --- Admin API ---
+     location /admin/api/ {
+-        proxy_pass http://backend;
++        proxy_pass http://$backend_addr;
+         proxy_http_version 1.1;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+@@ -44,7 +51,7 @@ server {
+ 
+     # --- Public HTTP endpoints (/health, /info, /api/status) ---
+     location ~ ^/(health|info|api/status)$ {
+-        proxy_pass http://backend;
++        proxy_pass http://$backend_addr;
+         proxy_http_version 1.1;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+diff --git a/setup-daemons.sh b/setup-daemons.sh
+index 7daafc8..a220286 100755
+--- a/setup-daemons.sh
++++ b/setup-daemons.sh
+@@ -21,7 +21,7 @@ link_uhd_into_venv() {
+         echo ""
+         echo "ERROR: the system python3 cannot import uhd."
+         echo "       Install UHD with Python bindings first (apt or from source),"
+-        echo "       verify with:  python3 -c 'import uhd; print(uhd.__version__)'"
++        echo "       verify with:  python3 -c 'import uhd; print(uhd.__file__)'"
+         echo "       then re-run this script."
+         return 1
+     fi
+@@ -33,7 +33,8 @@ link_uhd_into_venv() {
+ verify_venv() {
+     if "${VENV_DIR}/bin/python" - <<'PYEOF'
+ import uhd, zmq, numpy, h5py
+-print(f"  uhd {uhd.__version__} | zmq | numpy | h5py: all importable")
++ver = getattr(uhd, "__version__", None) or "unknown-version"
++print(f"  uhd {ver} | zmq | numpy | h5py: all importable")
+ PYEOF
+     then
+         echo "Venv check: OK"
+diff --git a/usrp_playground/cli.py b/usrp_playground/cli.py
+index ca46a6b..a55640e 100644
+--- a/usrp_playground/cli.py
++++ b/usrp_playground/cli.py
+@@ -5,8 +5,32 @@ import argparse
+ import websockets
+ 
+ 
++def _pad_blob(data: bytes, pad: int) -> bytes:
++    """Prepend and append `pad` zero IQ samples to an upload blob.
++
++    The DAC/DUC filter chain of the USRP rings for a few samples at burst
++    start and end - without the padding the first and last samples of the
++    signal get clipped/distorted. Works for plain SISO blobs and for MIMO
++    blobs (each channel is padded, the header sample count is adjusted).
++    """
++    import struct
++    if pad <= 0:
++        return data
++    zeros = b"\x00" * (pad * 8)     # one complex64 sample = 8 bytes
++    if data[:8] == b"MIMO\x00\x00\x00\x00":
++        n_ch, n_s = struct.unpack("<II", data[8:16])
++        body = data[16:]
++        chunks = []
++        for ch in range(n_ch):
++            seg = body[ch * n_s * 8:(ch + 1) * n_s * 8]
++            chunks.append(zeros + seg + zeros)
++        header = b"MIMO\x00\x00\x00\x00" + struct.pack("<II", n_ch, n_s + 2 * pad)
++        return header + b"".join(chunks)
++    return zeros + data + zeros
++
++
+ async def run(server, token, input_path, output_path,
+-              channel=0, listen=None, channels=1):
++              channel=0, listen=None, channels=1, pad_zeros=16):
+     url = f"ws://{server}/ws/run?auth_token={token}"
+     async with websockets.connect(url, max_size=200 * 1024 * 1024) as ws:
+         if listen is not None:
+@@ -29,6 +53,7 @@ async def run(server, token, input_path, output_path,
+                 print("[error] --channel only applies to SISO (1-D) files; "
+                       "in MIMO files column i always drives channel i")
+                 sys.exit(1)
++            data = _pad_blob(data, int(pad_zeros))
+             if channel:
+                 await ws.send(json.dumps({"mode": "siso",
+                                           "channel": int(channel)}))
+@@ -85,6 +110,10 @@ def main():
+                    help="Receive only: capture N samples without transmitting")
+     p.add_argument("--channels", type=int, default=1,
+                    help="With --listen: capture this many channels at once (MIMO)")
++    p.add_argument("--pad-zeros", type=int, default=16,
++                   help="Zero samples prepended and appended to the signal so "
++                        "the USRP filter transients don't clip it (default 16; "
++                        "0 disables)")
+     args = p.parse_args()
+     if args.listen is None and not args.input:
+         p.error("either -i/--input or -l/--listen is required")
+@@ -95,7 +124,7 @@ def main():
+                 "--channels captures channels 0..N-1")
+     asyncio.run(run(args.server, args.token, args.input, args.output,
+                     channel=args.channel, listen=args.listen,
+-                    channels=args.channels))
++                    channels=args.channels, pad_zeros=args.pad_zeros))
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/usrp_playground/client.py b/usrp_playground/client.py
+index 6ea93c3..e9d1fb7 100644
+--- a/usrp_playground/client.py
++++ b/usrp_playground/client.py
+@@ -223,7 +223,7 @@ class USRPClient:
+     # ---- Transmit / receive -------------------------------------------------
+ 
+     def send(self, signal: np.ndarray, channel: int = 0,
+-             verbose: bool = False) -> np.ndarray:
++             verbose: bool = False, pad_zeros: int = 16) -> np.ndarray:
+         """Send `signal` to the server and return what came back.
+ 
+         * 1-D complex array → SISO. Returns 1-D complex64. `channel`
+@@ -233,10 +233,23 @@ class USRPClient:
+           is one channel's IQ stream; the returned array has the same
+           shape. The server must have MIMO enabled. `channel` does not
+           apply here - column i always drives channel i.
++
++        `pad_zeros` zero samples are prepended AND appended to the
++        transmitted burst (default 16, on every channel). The DAC/DUC
++        filter chain of the USRP rings for a few samples at burst start
++        and end - without the padding the first and last samples of the
++        actual signal get clipped/distorted. Set pad_zeros=0 to send the
++        signal exactly as given.
+         """
+         arr = np.asarray(signal)
++        pad = int(pad_zeros)
++        if pad < 0:
++            raise ValueError("pad_zeros must be >= 0")
+         if arr.ndim == 1:
+             arr = arr.astype(np.complex64)
++            if pad:
++                z = np.zeros(pad, dtype=np.complex64)
++                arr = np.concatenate([z, arr, z])
+             raw = np.empty(arr.size * 2, dtype=np.float32)
+             raw[0::2] = arr.real
+             raw[1::2] = arr.imag
+@@ -252,6 +265,10 @@ class USRPClient:
+                     "column i always drives channel i; to test one single "
+                     "channel use send_siso(signal, channel=...)."
+                 )
++            arr = arr.astype(np.complex64)
++            if pad:
++                z = np.zeros((pad, arr.shape[1]), dtype=np.complex64)
++                arr = np.vstack([z, arr, z])
+             n_samples, n_channels = arr.shape
+             payload = _encode_mimo(arr)
+             handshake = {"mode": "mimo", "channels": int(n_channels)}
+@@ -268,7 +285,7 @@ class USRPClient:
+         return raw_out[0::2] + 1j * raw_out[1::2]
+ 
+     def send_siso(self, signal: np.ndarray, channel: int = 0,
+-                  verbose: bool = False) -> np.ndarray:
++                  verbose: bool = False, pad_zeros: int = 16) -> np.ndarray:
+         """Send a single-channel (SISO) signal over a selectable channel.
+ 
+         `signal` must be 1-D (a column/row vector of shape (N,1)/(1,N) is
+@@ -284,10 +301,11 @@ class USRPClient:
+                 f"send_siso expects a 1-D signal, got shape "
+                 f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
+             )
+-        return self.send(arr, channel=channel, verbose=verbose)
++        return self.send(arr, channel=channel, verbose=verbose,
++                         pad_zeros=pad_zeros)
+ 
+     def send_siso_am(self, signal: np.ndarray, channel: int = 0,
+-                  verbose: bool = False) -> np.ndarray:
++                  verbose: bool = False, pad_zeros: int = 16) -> np.ndarray:
+         """Send a single-channel (SISO) signal over a selectable channel using Amplitude Modulation.
+ 
+         `signal` must be 1-D (a column/row vector of shape (N,1)/(1,N) is
+@@ -303,9 +321,11 @@ class USRPClient:
+                 f"send_siso expects a 1-D signal, got shape "
+                 f"{np.asarray(signal).shape}. For multi-channel use send_mimo()."
+             )
+-        return np.real(self.send(np.real(arr), channel=channel, verbose=verbose))
++        return np.real(self.send(np.real(arr), channel=channel, verbose=verbose,
++                                 pad_zeros=pad_zeros))
+ 
+-    def send_mimo(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
++    def send_mimo(self, signal: np.ndarray, verbose: bool = False,
++                  pad_zeros: int = 16) -> np.ndarray:
+         """Send a multi-channel (MIMO) signal.
+ 
+         `signal` must be 2-D with shape (n_samples, n_channels); column i
+@@ -319,9 +339,10 @@ class USRPClient:
+                 f"send_mimo expects shape (n_samples, n_channels), got "
+                 f"{arr.ndim}-D. For a single channel use send_siso()."
+             )
+-        return self.send(arr, verbose=verbose)
++        return self.send(arr, verbose=verbose, pad_zeros=pad_zeros)
+ 
+-    def send_mimo_am(self, signal: np.ndarray, verbose: bool = False) -> np.ndarray:
++    def send_mimo_am(self, signal: np.ndarray, verbose: bool = False,
++                     pad_zeros: int = 16) -> np.ndarray:
+         """Send a multi-channel (MIMO) signal using Amplitude Modulation.
+ 
+         `signal` must be 2-D with shape (n_samples, n_channels); column i
+@@ -335,7 +356,8 @@ class USRPClient:
+                 f"send_mimo expects shape (n_samples, n_channels), got "
+                 f"{arr.ndim}-D. For a single channel use send_siso()."
+             )
+-        return np.real(self.send(np.real(arr), verbose=verbose))
++        return np.real(self.send(np.real(arr), verbose=verbose,
++                                 pad_zeros=pad_zeros))
+ 
+     def listen(self, n_samples: int, channel: int = 0,
+                channels: int = None, verbose: bool = False) -> np.ndarray:
+diff --git a/usrp_testbed_library/rx_daemon.py b/usrp_testbed_library/rx_daemon.py
+index c4ff6a4..d674b0a 100644
+--- a/usrp_testbed_library/rx_daemon.py
++++ b/usrp_testbed_library/rx_daemon.py
+@@ -93,7 +93,7 @@ class RXDaemon(BaseUSRPDaemon):
+             logging.warning(f"Could not read RX hardware state: {e}")
+             # Continue with empty state - first configure will set everything
+ 
+-    def configure_usrp(self, fs, fc, requested_channels, G_RX, antenna="RX1"):
++    def configure_usrp(self, fs, fc, requested_channels, G_RX, antenna="RX1", bw=None):
+ 
+         with self._op_guard("configure_usrp"):
+             def _antenna_for(ch):
+@@ -101,18 +101,29 @@ class RXDaemon(BaseUSRPDaemon):
+                     return antenna.get(ch, antenna.get(str(ch)))
+                 return antenna
+ 
++            # `G_RX` may be a single float (applied to every channel) or a
++            # dict {ch: gain} for per-channel gains (MIMO with different
++            # RX gains per port).
++            def _gain_for(ch):
++                if isinstance(G_RX, dict):
++                    return G_RX.get(ch, G_RX.get(str(ch)))
++                return G_RX
++
+             n_channels = self.usrp.get_rx_num_channels()
+             available_channels = list(range(n_channels))
+ 
+             if any(ch not in available_channels for ch in requested_channels):
+                 raise ValueError(f"Invalid channels {requested_channels}. Available channels: {available_channels}")
+ 
++            if any(_gain_for(ch) is None for ch in requested_channels):
++                raise ValueError(f"Must provide RX gain for all requested channels: {requested_channels}")
++
+             # Check what has changed to minimize USRP reconfigurations
+             new_config = {
+                 'fs': fs,
+                 'fc': fc,
+                 'channels': sorted(requested_channels),
+-                'G_RX': G_RX,
++                'G_RX': {ch: float(_gain_for(ch)) for ch in requested_channels},
+                 'antenna': antenna
+             }
+ 
+@@ -120,7 +131,9 @@ class RXDaemon(BaseUSRPDaemon):
+             fs_changed = self.current_config['fs'] is None or not np.isclose(self.current_config['fs'], new_config['fs'], atol=FS_ATOL, rtol=0)
+             fc_changed = self.current_config['fc'] is None or not np.isclose(self.current_config['fc'], new_config['fc'], atol=FC_ATOL, rtol=0)
+             channels_changed = self.current_config['channels'] != new_config['channels']
+-            gain_changed = self.current_config['G_RX'] is None or not np.isclose(self.current_config['G_RX'], new_config['G_RX'], atol=G_ATOL, rtol=0)
++            old_gains = self.current_config['G_RX']
++            gain_changed = (not isinstance(old_gains, dict) or old_gains.keys() != new_config['G_RX'].keys() or
++                            any(not np.isclose(old_gains[ch], new_config['G_RX'][ch], atol=G_ATOL, rtol=0) for ch in old_gains))
+             antenna_changed = self.current_config['antenna'] != new_config['antenna']
+ 
+             logging.info(f"RX Configuration changes: fs={fs_changed}, fc={fc_changed}, channels={channels_changed}, gain={gain_changed}, antenna={antenna_changed}")
+@@ -130,7 +143,7 @@ class RXDaemon(BaseUSRPDaemon):
+             validate_sampling_rate(self.usrp, fs, is_tx=False)
+             for ch in requested_channels:
+                 validate_carrier_frequency(self.usrp, fc, ch, is_tx=False)
+-                validate_gain(self.usrp, G_RX, ch, is_tx=False)
++                validate_gain(self.usrp, _gain_for(ch), ch, is_tx=False)
+                 validate_antenna(self.usrp, _antenna_for(ch), ch, is_tx=False)
+ 
+             # Update channel assignments
+@@ -138,14 +151,27 @@ class RXDaemon(BaseUSRPDaemon):
+ 
+             actual_settings = {}
+ 
+-            # Only update sampling rate if it changed
++            # Only update sampling rate if it changed. No channel argument:
++            # set_rx_rate(fs) applies the rate to ALL channels - setting it
++            # on a single channel leaves the other channels of a MIMO test
++            # at their old rate.
+             if fs_changed:
+-                self.usrp.set_rx_rate(fs, requested_channels[0])
+-            actual_fs = self.usrp.get_rx_rate(requested_channels[0])
++                self.usrp.set_rx_rate(fs)
++            # Heal channels that still run at a different rate (e.g. after a
++            # per-channel configuration by another tool).
++            if any(not np.isclose(self.usrp.get_rx_rate(ch), fs, atol=FS_ATOL, rtol=0)
++                   for ch in requested_channels):
++                self.usrp.set_rx_rate(fs)
+ 
+             # Update per-channel settings with per-channel change detection
+             for ch in requested_channels:
+ 
++                ch_gain_req = float(_gain_for(ch))
++
++                # Per-channel rate readback so the mismatch checker catches a
++                # channel whose rate did not apply (not just channel 0).
++                actual_fs = self.usrp.get_rx_rate(ch)
++
+                 # Get previous channel config
+                 prev_ch_config = self.channel_configs.get(ch, {})
+ 
+@@ -153,7 +179,7 @@ class RXDaemon(BaseUSRPDaemon):
+                 prev_fc = prev_ch_config.get('fc')
+                 prev_gain = prev_ch_config.get('gain')
+                 ch_fc_changed = prev_fc is None or not np.isclose(prev_fc, fc, atol=FC_ATOL, rtol=0)
+-                ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, G_RX, atol=G_ATOL, rtol=0)
++                ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, ch_gain_req, atol=G_ATOL, rtol=0)
+                 ch_antenna_changed = prev_ch_config.get('antenna') != _antenna_for(ch)
+ 
+                 # Only set frequency if it changed for this channel
+@@ -164,7 +190,7 @@ class RXDaemon(BaseUSRPDaemon):
+ 
+                 # Only set gain if it changed for this channel
+                 if ch_gain_changed:
+-                    self.usrp.set_rx_gain(G_RX, ch)
++                    self.usrp.set_rx_gain(ch_gain_req, ch)
+                 actual_gain = self.usrp.get_rx_gain(ch)
+ 
+                 # Only set antenna if it changed for this channel
+@@ -172,10 +198,28 @@ class RXDaemon(BaseUSRPDaemon):
+                     self.usrp.set_rx_antenna(_antenna_for(ch), ch)
+                 actual_antenna = self.usrp.get_rx_antenna(ch)
+ 
++                # Analog front-end filter bandwidth, per channel. Best-effort:
++                # hardware quantises the analog filter, so log deviations
++                # instead of failing the whole configure.
++                actual_bw = None
++                if bw is not None:
++                    try:
++                        prev_bw = prev_ch_config.get('bw')
++                        if prev_bw is None or not np.isclose(prev_bw, bw, atol=1.0, rtol=0):
++                            self.usrp.set_rx_bandwidth(bw, ch)
++                        actual_bw = self.usrp.get_rx_bandwidth(ch)
++                        if not np.isclose(actual_bw, bw, rtol=0.05, atol=0):
++                            logging.warning(
++                                f"RX ch {ch}: analog bandwidth quantised to "
++                                f"{actual_bw/1e6:.3f} MHz (requested {bw/1e6:.3f} MHz)")
++                    except Exception as e:
++                        logging.warning(f"Could not set RX bandwidth on ch {ch}: {e}")
++
+                 # Update per-channel config state
+                 self.channel_configs[ch] = {
+                     'fc': fc,
+-                    'gain': G_RX,
++                    'gain': ch_gain_req,
++                    'bw': bw,
+                     'antenna': _antenna_for(ch)
+                 }
+ 
+@@ -183,6 +227,7 @@ class RXDaemon(BaseUSRPDaemon):
+                     "fs": actual_fs,
+                     "fc": actual_fc,
+                     "G_RX": actual_gain,
++                    "bw": actual_bw,
+                     "antenna": actual_antenna
+                 }
+ 
+@@ -479,12 +524,20 @@ def handle_request(rx_daemon, request) -> dict:
+ 
+             fs_req  = positive_float(request["fs"])
+             fc_req  = positive_float(request["fc"])
+-            g_req   = not_negative_float(request["G_RX"])
+             ch_req  = int_list(request["channels"], non_negative=True)
++            # G_RX: single float (broadcast) or {channel: gain} dict for
++            # per-channel MIMO gains.
++            raw_g = request["G_RX"]
++            if isinstance(raw_g, dict):
++                g_req = {int(k): not_negative_float(v) for k, v in raw_g.items()}
++            else:
++                g_req = not_negative_float(raw_g)
+             ant_req = request.get("antenna", "RX1")
++            bw_req  = positive_float(request["bw"]) if request.get("bw") else None
+ 
+             actual_settings = rx_daemon.configure_usrp(
+-                fs=fs_req, fc=fc_req, G_RX=g_req, requested_channels=ch_req, antenna=ant_req
++                fs=fs_req, fc=fc_req, G_RX=g_req, requested_channels=ch_req,
++                antenna=ant_req, bw=bw_req
+             )
+ 
+             requested_params = {
+diff --git a/usrp_testbed_library/tx_daemon.py b/usrp_testbed_library/tx_daemon.py
+index 1b8cc35..aa0b155 100644
+--- a/usrp_testbed_library/tx_daemon.py
++++ b/usrp_testbed_library/tx_daemon.py
+@@ -124,7 +124,7 @@ class TXDaemon(BaseUSRPDaemon):
+             logging.warning(f"Could not read hardware state: {e}")
+             # Continue with empty state - first configure will set everything
+ 
+-    def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0", channel_powers=None):
++    def configure_usrp(self, fs, fc, sync_channels, intf_channels, channel_gains, antenna="TX/RX0", channel_powers=None, bw=None):
+ 
+         with self._op_guard("configure_usrp"):
+             # `antenna` may be a single string (applied to every channel) or
+@@ -222,10 +222,18 @@ class TXDaemon(BaseUSRPDaemon):
+ 
+             actual_settings = {}
+ 
+-            # Only update sampling rate if it changed
++            # Only update sampling rate if it changed. No channel argument:
++            # set_tx_rate(fs) applies the rate to ALL channels - setting it
++            # on a single channel leaves the other channels of a MIMO test
++            # at their old rate.
+             if fs_changed:
+-                self.usrp.set_tx_rate(fs, requested_channels[0])
+-            actual_fs = self.usrp.get_tx_rate(requested_channels[0])
++                self.usrp.set_tx_rate(fs)
++            # Heal channels that still run at a different rate (e.g. after a
++            # per-channel configuration by another tool): one ALL-channel set
++            # is enough, then trust the per-channel readback below.
++            if any(not np.isclose(self.usrp.get_tx_rate(ch), fs, atol=FS_ATOL, rtol=0)
++                   for ch in requested_channels):
++                self.usrp.set_tx_rate(fs)
+ 
+             # Update per-channel settings with per-channel change detection
+             for ch in requested_channels:
+@@ -233,12 +241,17 @@ class TXDaemon(BaseUSRPDaemon):
+                 role = "synchronization" if sync_channels and ch in sync_channels else "interference"
+                 expected_gain = channel_gains.get(ch, None)
+ 
++                # Per-channel rate readback so the mismatch checker catches a
++                # channel whose rate did not apply (not just channel 0).
++                actual_fs = self.usrp.get_tx_rate(ch)
++
+                 # Get previous channel config
+                 prev_ch_config = self.channel_configs.get(ch, {})
+ 
+                 # Detect per-channel changes (use tolerances for float comparisons)
+                 prev_fc = prev_ch_config.get('fc')
+                 prev_gain = prev_ch_config.get('gain')
++                prev_power = prev_ch_config.get('power_dbm')
+                 ch_fc_changed = prev_fc is None or not np.isclose(prev_fc, fc, atol=FC_ATOL, rtol=0)
+                 ch_gain_changed = prev_gain is None or not np.isclose(prev_gain, expected_gain, atol=G_ATOL, rtol=0)
+                 ch_antenna_changed = prev_ch_config.get('antenna') != _antenna_for(ch)
+@@ -255,11 +268,14 @@ class TXDaemon(BaseUSRPDaemon):
+                 # if no power was supplied OR if the firmware/cal table does
+                 # not support the power API.
+                 expected_power_dbm = (channel_powers or {}).get(ch)
++                ch_power_changed = expected_power_dbm is not None and (
++                    prev_power is None
++                    or not np.isclose(prev_power, expected_power_dbm, atol=0.01, rtol=0))
+                 actual_power_dbm = None
+                 used_power_api = False
+                 if expected_power_dbm is not None:
+                     try:
+-                        if ch_gain_changed:
++                        if ch_power_changed:
+                             self.usrp.set_tx_power_reference(float(expected_power_dbm), ch)
+                         actual_power_dbm = self.usrp.get_tx_power_reference(ch)
+                         used_power_api = True
+@@ -277,12 +293,29 @@ class TXDaemon(BaseUSRPDaemon):
+                     self.usrp.set_tx_antenna(_antenna_for(ch), ch)
+                 actual_antenna = self.usrp.get_tx_antenna(ch)
+ 
++                # Analog front-end filter bandwidth, per channel. Best-effort:
++                # hardware quantises the analog filter, so log deviations
++                # instead of failing the whole configure.
++                actual_bw = None
++                if bw is not None:
++                    try:
++                        prev_bw = prev_ch_config.get('bw')
++                        if prev_bw is None or not np.isclose(prev_bw, bw, atol=1.0, rtol=0):
++                            self.usrp.set_tx_bandwidth(bw, ch)
++                        actual_bw = self.usrp.get_tx_bandwidth(ch)
++                        if not np.isclose(actual_bw, bw, rtol=0.05, atol=0):
++                            logging.warning(
++                                f"TX ch {ch}: analog bandwidth quantised to "
++                                f"{actual_bw/1e6:.3f} MHz (requested {bw/1e6:.3f} MHz)")
++                    except Exception as e:
++                        logging.warning(f"Could not set TX bandwidth on ch {ch}: {e}")
+ 
+                 # Update per-channel config state
+                 self.channel_configs[ch] = {
+                     'fc': fc,
+                     'gain': expected_gain,
+                     'power_dbm': expected_power_dbm,
++                    'bw': bw,
+                     'antenna': _antenna_for(ch),
+                     'role': role
+                 }
+@@ -293,6 +326,7 @@ class TXDaemon(BaseUSRPDaemon):
+                     "fc": actual_fc,
+                     "G_TX": actual_gain,
+                     "P_TX_DBM": actual_power_dbm,
++                    "bw": actual_bw,
+                     "antenna": actual_antenna
+                 }
+ 
+@@ -773,9 +807,12 @@ def handle_request(tx_daemon, request) -> dict:
+                 else:
+                     p_tx_dbm = {ch: float(raw) for ch in all_channels}
+ 
++            bw_req = positive_float(request["bw"]) if request.get("bw") else None
++
+             actual_settings = tx_daemon.configure_usrp(
+                 fs=fs_req, fc=fc_req, sync_channels=sc_req, intf_channels=ic_req,
+-                channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm
++                channel_gains=g_tx, antenna=ant_req, channel_powers=p_tx_dbm,
++                bw=bw_req
+             )
+ 
+             requested_params = {
+@@ -784,6 +821,7 @@ def handle_request(tx_daemon, request) -> dict:
+                 "sync_channels": sc_req,
+                 "intf_channels": ic_req,
+                 "G_TX": g_tx,
++                "P_TX_DBM": p_tx_dbm,
+                 "antenna": ant_req
+             }
+             mismatches = check_settings_mismatch(actual_settings, requested_params)
+diff --git a/usrp_testbed_library/usrp_common.py b/usrp_testbed_library/usrp_common.py
+index 6441728..32e7bb4 100644
+--- a/usrp_testbed_library/usrp_common.py
++++ b/usrp_testbed_library/usrp_common.py
+@@ -547,14 +547,29 @@ def check_settings_mismatch(actual_settings, requested_params):
+ 
+         # Handle different gain parameter names and values per channel
+         if "G_RX" in settings:
++            # RX gain may be requested as a single float (broadcast) or a
++            # per-channel dict - resolve to this channel's value first.
+             requested_gain = requested_params["G_RX"]
++            if isinstance(requested_gain, dict):
++                requested_gain = requested_gain.get(ch, requested_gain.get(str(ch)))
+             if requested_gain is not None and not np.isclose(settings["G_RX"], requested_gain, rtol=0, atol=G_ATOL):
+                 differences["G_RX"] = (settings["G_RX"], requested_gain)
+         elif "G_TX" in settings:
+-            # TX gain: use dict with channel as key
+-            requested_gain = requested_params["G_TX"].get(ch)
+-            if requested_gain is not None and not np.isclose(settings["G_TX"], requested_gain, rtol=0, atol=G_ATOL):
+-                differences["G_TX"] = (settings["G_TX"], requested_gain)
++            if settings.get("P_TX_DBM") is not None:
++                # Power-reference mode: the calibrated output power is the
++                # authoritative request; the hardware gain UHD picked to hit
++                # it legitimately differs from the nominal G_TX, so comparing
++                # gains here would flag a false mismatch on every test.
++                requested_power = (requested_params.get("P_TX_DBM") or {}).get(
++                    ch, (requested_params.get("P_TX_DBM") or {}).get(str(ch)))
++                if requested_power is not None and not np.isclose(
++                        settings["P_TX_DBM"], requested_power, rtol=0, atol=0.5):
++                    differences["P_TX_DBM"] = (settings["P_TX_DBM"], requested_power)
++            else:
++                # TX gain: use dict with channel as key
++                requested_gain = requested_params["G_TX"].get(ch)
++                if requested_gain is not None and not np.isclose(settings["G_TX"], requested_gain, rtol=0, atol=G_ATOL):
++                    differences["G_TX"] = (settings["G_TX"], requested_gain)
+ 
+         # Antenna may have been requested as a single string (broadcast to
+         # every channel) or a per-channel dict. Resolve to the value that
+diff --git a/worker/channel.py b/worker/channel.py
+index 4fd6387..4b6ffcf 100644
+--- a/worker/channel.py
++++ b/worker/channel.py
+@@ -42,7 +42,11 @@ def _parse_env_file(path: str) -> dict:
+                 key = key.strip()
+                 if " #" in rest:
+                     rest = rest[:rest.index(" #")]
+-                result[key] = rest.strip()
++                rest = rest.strip()
++                # values may be quoted so shells can source the file
++                if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
++                    rest = rest[1:-1]
++                result[key] = rest
+     except FileNotFoundError:
+         pass
+     return result
+@@ -280,6 +284,7 @@ class USRPChannel:
+ 
+         fs = _get_sample_rate()
+         fc = _get("CARRIER_FREQUENCY_HZ", 2_400_000_000, float)
++        bw = _get("BANDWIDTH_HZ", None, float)
+         default_tx_power = _get("TX_POWER_DBM", None, float)
+         default_tx_ant   = _get("ANTENNA_TX", "TX/RX")
+         default_rx_ant   = _get("ANTENNA_RX", "RX2")
+@@ -356,6 +361,8 @@ class USRPChannel:
+                 "G_TX": g_tx_field,
+                 "antenna": antenna_tx_field,
+             }
++            if bw:
++                tx_cmd["bw"] = bw
+             if p_tx_field:
+                 tx_cmd["P_TX_DBM"] = p_tx_field
+             tx_sock.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
+@@ -388,17 +395,22 @@ class USRPChannel:
+                             for ch, p in zip(rx_chans, picked)}
+         if len(rx_chans) == 1:
+             antenna_rx_field = antenna_rx_field[str(rx_chans[0])]
+-        # RX daemon takes one scalar gain; broadcast the first channel's
+-        # value (this is what UHD applies globally on B210).
+-        rx_gain_scalar = float(picked[0]["rx_gain"])
++        # Per-channel RX gains from the inventory; collapse SISO to a plain
++        # float to stay compatible with the scalar wire format.
++        rx_gain_field = {str(ch): float(p["rx_gain"])
++                         for ch, p in zip(rx_chans, picked)}
++        if len(rx_chans) == 1:
++            rx_gain_field = rx_gain_field[str(rx_chans[0])]
+ 
+         rx_cmd = {
+             "op": "CONFIGURE_USRP",
+             "fs": fs, "fc": fc,
+             "channels": rx_chans,
+-            "G_RX": rx_gain_scalar,
++            "G_RX": rx_gain_field,
+             "antenna": antenna_rx_field,
+         }
++        if bw:
++            rx_cmd["bw"] = bw
+         rx_sock.setsockopt(zmq.RCVTIMEO, CONFIGURE_TIMEOUT_MS)
+         rx_sock.send_json(rx_cmd)
+         resp = rx_sock.recv_json()

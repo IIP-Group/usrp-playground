@@ -58,6 +58,18 @@ def _radio_info(db: Session) -> dict:
     def g(key, default):
         return settings_store.get(db, key, default)
 
+    def effective_sample_rate():
+        """Mirror the worker's per-device-type sample-rate resolution
+        (worker/channel.py:_get_sample_rate) so /info reports the rate the
+        hardware actually runs at, not just the global SAMPLE_RATE_HZ."""
+        dtype = str(g("USRP_DEVICE_TYPE", "x4xx")).lower()
+        dtype_key = dtype.upper().replace("-", "_")
+        specific = g(f"SAMPLE_RATE_HZ_{dtype_key}", None)
+        if specific:
+            return int(float(specific))
+        default = 16_000_000 if dtype.startswith("b2") else 25_000_000
+        return int(float(g("SAMPLE_RATE_HZ", default)))
+
     # Default carrier = centre of the SRD band, so that
     # carrier ± bandwidth/2 always sits inside the legal range.
     band = settings_store.srd_band_info()
@@ -72,7 +84,7 @@ def _radio_info(db: Session) -> dict:
 
     return {
         "carrier_frequency_hz": int(g("CARRIER_FREQUENCY_HZ", default_carrier)),
-        "sample_rate_hz":       int(g("SAMPLE_RATE_HZ", 25_000_000)),
+        "sample_rate_hz":       effective_sample_rate(),
         "bandwidth_hz":         int(g("BANDWIDTH_HZ", 25_000_000)),
         "tx_gain_db":           (ch0.get("tx") or {}).get("gain_db"),
         "tx_power_dbm":         (ch0.get("tx") or {}).get("power_dbm",

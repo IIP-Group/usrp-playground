@@ -21,7 +21,7 @@ link_uhd_into_venv() {
         echo ""
         echo "ERROR: the system python3 cannot import uhd."
         echo "       Install UHD with Python bindings first (apt or from source),"
-        echo "       verify with:  python3 -c 'import uhd; print(uhd.__version__)'"
+        echo "       verify with:  python3 -c 'import uhd; print(uhd.__file__)'"
         echo "       then re-run this script."
         return 1
     fi
@@ -33,7 +33,8 @@ link_uhd_into_venv() {
 verify_venv() {
     if "${VENV_DIR}/bin/python" - <<'PYEOF'
 import uhd, zmq, numpy, h5py
-print(f"  uhd {uhd.__version__} | zmq | numpy | h5py: all importable")
+ver = getattr(uhd, "__version__", None) or "unknown-version"
+print(f"  uhd {ver} | zmq | numpy | h5py: all importable")
 PYEOF
     then
         echo "Venv check: OK"
